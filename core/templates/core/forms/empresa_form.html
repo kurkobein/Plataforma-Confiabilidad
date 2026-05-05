@@ -1,0 +1,81 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar empresa{% else %}Nueva empresa{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar empresa{% else %}Nueva empresa{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'empresa' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            <a class="btn" href="{% url 'model_detail' 'empresa' object.pk %}">Ver detalle</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.logo }}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nombre.label }}</strong></div>
+            <div>
+                {{ form.nombre }}
+                {% if form.nombre.help_text %}<small>{{ form.nombre.help_text }}</small>{% endif %}
+                {{ form.nombre.errors }}
+            </div>
+            <div><strong>{{ form.sigla.label }}</strong></div>
+            <div>
+                {{ form.sigla }}
+                {% if form.sigla.help_text %}<small>{{ form.sigla.help_text }}</small>{% endif %}
+                {{ form.sigla.errors }}
+            </div>
+            <div><strong>{{ form.estado.label }}</strong></div>
+            <div>
+                {{ form.estado }}
+                {% if form.estado.help_text %}<small>{{ form.estado.help_text }}</small>{% endif %}
+                {{ form.estado.errors }}
+            </div>
+            <div><strong>{{ form.logo_file.label }}</strong></div>
+            <div>
+                {{ form.logo_file }}
+                {% if form.logo_file.help_text %}<small>{{ form.logo_file.help_text }}</small>{% endif %}
+                {{ form.logo_file.errors }}
+            </div>
+        </div>
+        <div style="margin-top:16px;">
+            <strong>Vista previa</strong><br>
+            <img id="logo-preview" src="{% if object and object.logo %}{% url 'empresa_logo' object.pk %}{% endif %}" style="max-width:100px;height:auto;{% if not object or not object.logo %}display:none;{% endif %}">
+        </div>
+        {% if object and object.logo %}
+        <div style="margin-top:16px;">
+            <strong>Logo actual</strong><br>
+            <img src="{% url 'empresa_logo' object.pk %}" style="max-width:100px;height:auto;">
+        </div>
+        {% endif %}
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const input = document.querySelector('input[name="logo_file"]');
+    const preview = document.getElementById('logo-preview');
+    if (!input || !preview) return;
+    input.addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { alert('Selecciona una imagen válida'); input.value = ''; return; }
+        const reader = new FileReader();
+        reader.onload = function (event) { preview.src = event.target.result; preview.style.display = 'block'; };
+        reader.readAsDataURL(file);
+    });
+});
+</script>
+{% endblock %}

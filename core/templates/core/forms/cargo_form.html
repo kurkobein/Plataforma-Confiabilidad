@@ -1,0 +1,50 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar cargo{% else %}Nuevo cargo{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar cargo{% else %}Nuevo cargo{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'cargo' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            <a class="btn" href="{% url 'model_detail' 'cargo' object.pk %}">Ver detalle</a>
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nombre_cargo.label }}</strong></div>
+            <div>
+                {{ form.nombre_cargo }}
+                {% if form.nombre_cargo.help_text %}<small>{{ form.nombre_cargo.help_text }}</small>{% endif %}
+                {{ form.nombre_cargo.errors }}
+            </div>
+            <div><strong>{{ form.area.label }}</strong></div>
+            <div>
+                {{ form.area }}
+                {% if form.area.help_text %}<small>{{ form.area.help_text }}</small>{% endif %}
+                {{ form.area.errors }}
+            </div>
+            <div><strong>{{ form.jefatura.label }}</strong></div>
+            <div>
+                {{ form.jefatura }}
+                {% if form.jefatura.help_text %}<small>{{ form.jefatura.help_text }}</small>{% endif %}
+                {{ form.jefatura.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

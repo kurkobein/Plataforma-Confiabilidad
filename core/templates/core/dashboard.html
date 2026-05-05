@@ -1,0 +1,47 @@
+{% extends 'core/base.html' %}
+{% block title %}Inicio | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Inicio</h2>
+        <p>Flujo principal: entrar a un servicio, revisar su metodología y sus tablas de evaluación.</p>
+    </div>
+    <div class="actions">
+        {% if request.user.is_superuser %}
+            <a class="btn btn-primary" href="{% url 'model_create' 'servicio' %}">
+                Nuevo servicio
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="grid-3">
+    {% for item in quick_stats %}
+        <div class="stat">
+            <small>{{ item.label }}</small>
+            <strong>{{ item.count }}</strong>
+        </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">Servicios recientes</h3>
+    {% if service_cards %}
+        <div class="grid-2">
+            {% for service in service_cards %}
+                <div class="stat">
+                    <small>{{ service.empresa.sigla }}</small>
+                    <strong style="font-size:20px;">{{ service.codigo_servicio }}</strong>
+                    <div class="muted" style="margin-top:6px;">{{ service.descripcion|default:'Sin descripción' }}</div>
+                    <div class="actions" style="margin-top:12px;">
+                        <a class="btn" href="{% url 'service_detail' service.pk %}">Abrir servicio</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="muted">No tienes servicios accesibles.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

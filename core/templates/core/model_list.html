@@ -1,0 +1,90 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+{% block title %}{{ config.label }} | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{{ config.label }}</h2>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'dashboard' %}">Inicio</a>
+        {% if model_key == 'matrizriesgo' %}
+            <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}">Nueva matriz visual</a>
+        {% elif model_key == 'criticidad' %}
+            <a class="btn btn-primary" href="{% url 'aca_registro_new' %}">Nuevo registro ACA</a>
+        {% else %}
+            <a class="btn btn-primary" href="{% url 'model_create' model_key %}">Nuevo registro</a>
+        {% endif %}
+    </div>
+</div>
+
+<form method="get" class="search-bar">
+    <input class="input-control" type="text" name="q" value="{{ search }}" placeholder="Buscar">
+    <button class="btn" type="submit">Buscar</button>
+    {% if search %}
+        <a class="btn" href="{% url 'model_list' model_key %}">Limpiar</a>
+    {% endif %}
+</form>
+
+<div class="card muted">
+    Total registros: {{ total_count }}
+</div>
+
+<div class="table-wrap">
+    <table id="modelTable" class="datatable display">
+        <thead>
+            <tr>
+                {% for field in list_fields %}
+                    <th>{{ field|field_label }}</th>
+                {% endfor %}
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    {% for field in list_fields %}
+                        <td>{{ row|attr:field.name }}</td>
+                    {% endfor %}
+                    <td>
+                        <div class="actions">
+                            {% if model_key == 'servicio' %}
+                                <a class="btn" href="{% url 'service_detail' row.pk %}">Ver</a>
+
+                                {% if request.user.is_superuser or row.pk in editable_service_ids %}
+                                    <a class="btn" href="{% url 'model_update' model_key row.pk %}">Editar</a>
+                                {% endif %}
+
+                                {% if request.user.is_superuser %}
+                                    <a class="btn btn-danger" href="{% url 'model_delete' model_key row.pk %}">Eliminar</a>
+                                {% endif %}
+
+                            {% else %}
+                                <a class="btn" href="{% url 'model_detail' model_key row.pk %}">Ver</a>
+
+                                {% if model_key == 'estrategia' %}
+                                    <a class="btn" href="{% url 'dimension_tables_editor' row.pk %}">Tablas</a>
+                                {% endif %}
+
+                                {% if model_key == 'matrizriesgo' %}
+                                    <a class="btn" href="{% url 'matriz_builder_edit' row.pk %}">Editor visual</a>
+                                {% elif model_key == 'criticidad' %}
+                                    <a class="btn" href="{% url 'model_update' model_key row.pk %}">Editar base</a>
+                                {% else %}
+                                    <a class="btn" href="{% url 'model_update' model_key row.pk %}">Editar</a>
+                                {% endif %}
+
+                                <a class="btn btn-danger" href="{% url 'model_delete' model_key row.pk %}">Eliminar</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+
+
+{% endblock %}

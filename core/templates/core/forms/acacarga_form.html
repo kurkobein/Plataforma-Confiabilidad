@@ -1,0 +1,86 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar carga ACA{% else %}Nueva carga ACA{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar carga ACA{% else %}Nueva carga ACA{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'acacarga' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            <a class="btn" href="{% url 'model_detail' 'acacarga' object.pk %}">Ver detalle</a>
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.fecha_analisis.label }}</strong></div>
+            <div>
+                {{ form.fecha_analisis }}
+                {% if form.fecha_analisis.help_text %}<small>{{ form.fecha_analisis.help_text }}</small>{% endif %}
+                {{ form.fecha_analisis.errors }}
+            </div>
+            <div><strong>{{ form.version_carga.label }}</strong></div>
+            <div>
+                {{ form.version_carga }}
+                {% if form.version_carga.help_text %}<small>{{ form.version_carga.help_text }}</small>{% endif %}
+                {{ form.version_carga.errors }}
+            </div>
+            <div><strong>{{ form.origen.label }}</strong></div>
+            <div>
+                {{ form.origen }}
+                {% if form.origen.help_text %}<small>{{ form.origen.help_text }}</small>{% endif %}
+                {{ form.origen.errors }}
+            </div>
+            <div><strong>{{ form.status.label }}</strong></div>
+            <div>
+                {{ form.status }}
+                {% if form.status.help_text %}<small>{{ form.status.help_text }}</small>{% endif %}
+                {{ form.status.errors }}
+            </div>
+            <div><strong>{{ form.creado_en.label }}</strong></div>
+            <div>
+                {{ form.creado_en }}
+                {% if form.creado_en.help_text %}<small>{{ form.creado_en.help_text }}</small>{% endif %}
+                {{ form.creado_en.errors }}
+            </div>
+            <div><strong>{{ form.actualizado.label }}</strong></div>
+            <div>
+                {{ form.actualizado }}
+                {% if form.actualizado.help_text %}<small>{{ form.actualizado.help_text }}</small>{% endif %}
+                {{ form.actualizado.errors }}
+            </div>
+            <div><strong>{{ form.estrategia.label }}</strong></div>
+            <div>
+                {{ form.estrategia }}
+                {% if form.estrategia.help_text %}<small>{{ form.estrategia.help_text }}</small>{% endif %}
+                {{ form.estrategia.errors }}
+            </div>
+            <div><strong>{{ form.servicio.label }}</strong></div>
+            <div>
+                {{ form.servicio }}
+                {% if form.servicio.help_text %}<small>{{ form.servicio.help_text }}</small>{% endif %}
+                {{ form.servicio.errors }}
+            </div>
+            <div><strong>{{ form.usuario.label }}</strong></div>
+            <div>
+                {{ form.usuario }}
+                {% if form.usuario.help_text %}<small>{{ form.usuario.help_text }}</small>{% endif %}
+                {{ form.usuario.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
