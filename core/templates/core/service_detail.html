@@ -1,0 +1,197 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ service.codigo_servicio }} | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{{ service.codigo_servicio }}</h2>
+        <p>{{ service.descripcion|default:'Sin descripción' }}</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'servicio' %}">Volver</a>
+        {% if permission.can_edit %}
+            <a class="btn btn-primary" href="{% url 'model_update' 'servicio' service.pk %}">Editar servicio</a>
+        {% endif %}
+        {% if service.estrategia_id %}
+            {% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>{% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<div>
+    <strong>Metodologías</strong>
+    <p>
+        {% for metodologia in service.metodologias.all %}
+            {{ metodologia.abreviatura }}{% if not forloop.last %}, {% endif %}
+        {% empty %}
+            Sin metodologías asociadas
+        {% endfor %}
+    </p>
+</div>
+
+<div class="grid-3">
+    <div class="stat">
+        <small>Empresa</small>
+        <strong style="font-size:20px;">{{ service.empresa.sigla }}</strong>
+        <div class="muted">{{ service.empresa.nombre }}</div>
+    </div>
+    <div class="stat">
+        <small>Registros</small>
+        <strong>{{ aca_count }}</strong>
+        <div class="muted">Dimensiones activas: {{ dimension_count }}</div>
+    </div>
+</div>
+
+<div class="grid-22">
+    <div class="card">
+        <h3 class="card-title">Información del servicio</h3>
+        <div class="detail-grid">
+            <div class="muted">Estrategia</div><div>{{ service.estrategia|default:'—' }}</div>
+            <div class="muted">Responsable</div><div>{{ service.responsable_usuario|default:'—' }}</div>
+            <div class="muted">Creado por</div><div>{{ service.creado_por_usuario|default:'—' }}</div>
+            <div class="muted">Fecha inicio</div><div>{{ service.fecha_inicio|default:'—' }}</div>
+            <div class="muted">Fecha fin</div><div>{{ service.fecha_fin|default:'—' }}</div>
+            <div class="muted">Estado</div><div>{{ service.status }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <h3 class="card-title">Módulos del servicio</h3>
+        <div style="display:grid; gap:10px;">
+            <div class="stat"><small>ACA</small><strong style="font-size:18px;">Activo</strong><div class="actions" style="margin-top:10px;"><a class="btn" href="{% url 'service_aca_list' service.pk %}">Ver registros</a>{% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Registrar</a>{% endif %}</div></div>
+            <div class="stat"><small>RCM</small><strong style="font-size:18px;">Próximamente</strong></div>
+            <div class="stat"><small>FMECA</small><strong style="font-size:18px;">Próximamente</strong></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Tablas y dimensiones de evaluación</h3>
+    {% if dimension_rows %}
+        <p class="muted">Estas son las dimensiones activas que se usarán para este servicio.</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Orden</th>
+                        <th>Dimensión</th>
+                        <th>Tipo funcional</th>
+                        <th>Tipo dato</th>
+                        <th>Origen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in dimension_rows %}
+                        <tr>
+                            <td>{{ item.orden }}</td>
+                            <td>{{ item.dimension.nombre }}</td>
+                            <td>{{ item.dimension.tipo_funcional }}</td>
+                            <td>{{ item.dimension.tipo_dato }}</td>
+                            <td>
+                                {% if item.has_catalog %}Tabla{% elif item.has_scale %}Escala{% else %}Directo{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+            <a class="btn" href="{% url 'service_dimensions' service.pk %}">Ver tablas completas</a>
+            {% if request.user.is_superuser and service.estrategia_id %}<a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}">Editar tablas</a>{% endif %}
+        </div>
+    {% else %}
+        <p class="muted">La estrategia del servicio todavía no tiene dimensiones configuradas.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">Matrices de riesgo asociadas</h3>
+    {% if matrices %}
+        <p class="muted">
+            {% if mindco_viewer %}
+                Como usuario Mindco puedes revisar la matriz original del cliente y su proyección homologada 5x5.
+            {% else %}
+                Como usuario cliente verás siempre la matriz original configurada para tu servicio.
+            {% endif %}
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Acciones</th></tr></thead>
+                <tbody>
+                    {% for matriz in matrices %}
+                        <tr>
+                            <td>{{ matriz.nombre }}</td>
+                            <td>{{ matriz.niveles_probabilidad.count }}x{{ matriz.niveles_impacto.count }}</td>
+                            <td>{{ matriz.fecha_creado }}</td>
+                            <td>
+                                <div class="actions">
+                                    <a class="btn" href="{% url 'service_matrix_view' service.pk matriz.pk %}">
+                                        {% if mindco_viewer %}Ver original + homologada{% else %}Ver matriz original{% endif %}
+                                    </a>
+                                    {% if request.user.is_superuser %}<a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Abrir editor</a>{% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
+    {% endif %}
+</div>
+
+{% if permission.can_manage_access %}
+<div class="card">
+    <h3 class="card-title">Accesos del servicio</h3>
+    <p class="muted" style="margin-top:-4px;">Solo los usuarios agregados en esta sección podrán ver este servicio. Los que tengan permiso "Editar" también podrán registrar y modificar información del servicio.</p>
+    <div class="grid-2">
+        <div>
+            <form method="post" action="{% url 'service_access_manage' service.pk %}">
+                {% csrf_token %}
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="{{ access_form.usuario.id_for_label }}">{{ access_form.usuario.label }}</label>
+                        {{ access_form.usuario }}
+                        {% if access_form.usuario.help_text %}<small class="muted">{{ access_form.usuario.help_text }}</small>{% endif %}
+                    </div>
+                    <div class="form-field">
+                        <label for="{{ access_form.nivel.id_for_label }}">{{ access_form.nivel.label }}</label>
+                        {{ access_form.nivel }}
+                        {% if access_form.nivel.help_text %}<small class="muted">{{ access_form.nivel.help_text }}</small>{% endif %}
+                    </div>
+                </div>
+                <div class="actions" style="margin-top:12px;">
+                    <button class="btn btn-primary" type="submit">Agregar o actualizar acceso</button>
+                </div>
+            </form>
+        </div>
+        <div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Usuario</th><th>Empresa</th><th>Cargo</th><th>Permiso</th><th></th></tr></thead>
+                    <tbody>
+                        {% for row in access_rows %}
+                            <tr>
+                                <td>{{ row.usuario.nombre_completo }}</td>
+                                <td>{{ row.usuario.empresa.sigla|default:'—' }}</td>
+                                <td>{{ row.usuario.cargo|default:'—' }}</td>
+                                <td>{% if row.puede_editar %}<span class="pill">Editar</span>{% else %}<span class="pill-soft">Ver</span>{% endif %}</td>
+                                <td>
+                                    <form method="post" action="{% url 'service_access_manage' service.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="remove">
+                                        <input type="hidden" name="access_id" value="{{ row.pk }}">
+                                        <button class="btn" type="submit">Quitar</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="5" class="muted">Todavía no hay usuarios asignados a este servicio.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

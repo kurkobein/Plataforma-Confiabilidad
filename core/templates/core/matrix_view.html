@@ -1,0 +1,159 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+{% block title %}Matriz | {{ matriz.nombre }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{{ matriz.nombre }}</h2>
+        <p>{{ service.codigo_servicio }} · estrategia {{ service.estrategia|default:'—' }}</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'service_detail' service.pk %}">Volver al servicio</a>
+        {% if request.user.is_superuser %}
+            <a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Editor visual</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="grid-3">
+    <div class="stat">
+        <small>Matriz original</small>
+        <strong style="font-size:20px;">{{ original_stats.rows }}x{{ original_stats.cols }}</strong>
+        <div class="muted">Cliente ve este formato</div>
+    </div>
+    <div class="stat">
+        <small>Servicio</small>
+        <strong style="font-size:20px;">{{ service.codigo_servicio }}</strong>
+        <div class="muted">{{ service.empresa.sigla }} · {{ service.empresa.nombre }}</div>
+    </div>
+    <div class="stat">
+        <small>Vista activa</small>
+        <strong style="font-size:20px;">{% if mindco_viewer %}Mindco{% else %}Cliente{% endif %}</strong>
+        <div class="muted">{% if mindco_viewer %}Original + homologada 5x5{% else %}Solo original{% endif %}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Matriz original del cliente</h3>
+    <p class="muted">Esta es la matriz base configurada para el servicio. Siempre se conserva y los usuarios cliente la visualizan sin transformación.</p>
+    <div class="matriz-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>{% if original_preview.x_axis == 'impacto' %}Probabilidad{% else %}Impacto{% endif %}</th>
+                    {% for col in original_preview.x_defs %}
+                        <th>
+                            <div><strong>{{ col.nombre }}</strong></div>
+                            <div class="muted">{{ col.valor }}</div>
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in original_preview.rows %}
+                    <tr>
+                        <th>
+                            <div><strong>{{ row.header.nombre }}</strong></div>
+                            <div class="muted">{{ row.header.valor }}</div>
+                        </th>
+                        {% for cell in row.cells %}
+                            <td style="background: {{ cell.color|default:'#ffffff' }}; min-width:90px;">
+                                <div><strong>{{ cell.resultado_num }}</strong></div>
+                                <div>{{ cell.clasificacion|default:'—' }}</div>
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if mindco_viewer and homologation %}
+<div class="card">
+    <h3 class="card-title">Vista homologada Mindco 5x5</h3>
+    <p class="muted">Mindco puede revisar la misma matriz proyectada a una base canónica 5x5 para comparar servicios con tamaños distintos. La matriz original del cliente se mantiene intacta y sigue disponible arriba.</p>
+    <div class="grid-3" style="margin-bottom:12px;">
+        <div class="stat"><small>Origen</small><strong>{{ homologation.source_shape }}</strong></div>
+        <div class="stat"><small>Destino canónico</small><strong>{{ homologation.target_shape }}</strong></div>
+        <div class="stat"><small>Tipo de homologación</small><strong>{% if homologation.is_exact %}Exacta{% else %}Proyectada{% endif %}</strong></div>
+    </div>
+    <div class="matriz-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Probabilidad homologada</th>
+                    {% for col in homologation.preview.x_defs %}
+                        <th>
+                            <div><strong>{{ col.nombre }}</strong></div>
+                            <div class="muted">{{ col.descripcion }}</div>
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in homologation.preview.rows %}
+                    <tr>
+                        <th>
+                            <div><strong>{{ row.header.nombre }}</strong></div>
+                            <div class="muted">{{ row.header.descripcion }}</div>
+                        </th>
+                        {% for cell in row.cells %}
+                            <td style="background: {{ cell.color|default:'#ffffff' }}; min-width:90px;">
+                                <div><strong>{{ cell.resultado_num }}</strong></div>
+                                <div>{{ cell.clasificacion|default:'—' }}</div>
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <h3 class="card-title">Homologación de probabilidad</h3>
+        <p class="muted">{{ homologation.prob_method }}</p>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Original</th><th>Valor</th><th>5x5</th><th>Base</th></tr></thead>
+                <tbody>
+                    {% for row in homologation.prob_mapping %}
+                    <tr>
+                        <td>{{ row.nombre }}</td>
+                        <td>{{ row.valor|default:'—' }}</td>
+                        <td>P{{ row.canonical_slot }}</td>
+                        <td>{{ row.source }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <h3 class="card-title">Homologación de impacto</h3>
+        <p class="muted">{{ homologation.impact_method }}</p>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Original</th><th>Valor</th><th>5x5</th><th>Base</th></tr></thead>
+                <tbody>
+                    {% for row in homologation.impact_mapping %}
+                    <tr>
+                        <td>{{ row.nombre }}</td>
+                        <td>{{ row.valor|default:'—' }}</td>
+                        <td>I{{ row.canonical_slot }}</td>
+                        <td>{{ row.source }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card muted">
+    Esta cuenta visualiza la matriz original del cliente. La vista homologada 5x5 está habilitada solo para usuarios Mindco o administradores.
+</div>
+{% endif %}
+{% endblock %}

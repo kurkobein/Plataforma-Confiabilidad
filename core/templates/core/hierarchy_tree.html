@@ -1,0 +1,43 @@
+{% extends 'core/base.html' %}
+{% block title %}Jerarquía {{ empresa }} | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Jerarquía de {{ empresa }}</h2>
+        <p>Listado de nodos creados desde el constructor de ubicación técnica.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'empresa' %}">Empresas</a>
+        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Constructor UT</a>
+    </div>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>UT</th>
+                <th>Nivel</th>
+                <th>Nombre</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td style="padding-left: {{ row.depth|add:1 }}.5rem;"><strong>{{ row.nodo.ut }}</strong></td>
+                    <td>{{ row.nodo.nivel.nombre }}</td>
+                    <td>{{ row.nodo.nombre }}</td>
+                    <td class="actions">
+                        <a class="btn" href="{% url 'model_update' 'nodojerarquia' row.nodo.pk %}">Editar</a>
+                        <a class="btn" href="{% url 'hierarchy_move_node' row.nodo.pk %}">Mover</a>
+                        <a class="btn" href="{% url 'hierarchy_insert_between' row.nodo.pk %}">Insertar nivel arriba</a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4">No hay nodos creados para esta empresa.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar matriz de riesgo{% else %}Nueva matriz de riesgo{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar matriz de riesgo{% else %}Nueva matriz de riesgo{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            <a class="btn" href="{% url 'model_detail' 'matrizriesgo' object.pk %}">Ver detalle</a>
+            <a class="btn" href="{% url 'matriz_builder_edit' object.pk %}">Editor visual</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nombre.label }}</strong></div>
+            <div>
+                {{ form.nombre }}
+                {% if form.nombre.help_text %}<small>{{ form.nombre.help_text }}</small>{% endif %}
+                {{ form.nombre.errors }}
+            </div>
+            <div><strong>{{ form.fecha_creado.label }}</strong></div>
+            <div>
+                {{ form.fecha_creado }}
+                {% if form.fecha_creado.help_text %}<small>{{ form.fecha_creado.help_text }}</small>{% endif %}
+                {{ form.fecha_creado.errors }}
+            </div>
+            <div><strong>{{ form.eje_horizontal.label }}</strong></div>
+            <div>
+                {{ form.eje_horizontal }}
+                {% if form.eje_horizontal.help_text %}<small>{{ form.eje_horizontal.help_text }}</small>{% endif %}
+                {{ form.eje_horizontal.errors }}
+            </div>
+            <div><strong>{{ form.leyenda_json.label }}</strong></div>
+            <div>
+                {{ form.leyenda_json }}
+                {% if form.leyenda_json.help_text %}<small>{{ form.leyenda_json.help_text }}</small>{% endif %}
+                {{ form.leyenda_json.errors }}
+            </div>
+            <div><strong>{{ form.dimension_impacto.label }}</strong></div>
+            <div>
+                {{ form.dimension_impacto }}
+                {% if form.dimension_impacto.help_text %}<small>{{ form.dimension_impacto.help_text }}</small>{% endif %}
+                {{ form.dimension_impacto.errors }}
+            </div>
+            <div><strong>{{ form.dimension_probabilidad.label }}</strong></div>
+            <div>
+                {{ form.dimension_probabilidad }}
+                {% if form.dimension_probabilidad.help_text %}<small>{{ form.dimension_probabilidad.help_text }}</small>{% endif %}
+                {{ form.dimension_probabilidad.errors }}
+            </div>
+            <div><strong>{{ form.estrategia.label }}</strong></div>
+            <div>
+                {{ form.estrategia }}
+                {% if form.estrategia.help_text %}<small>{{ form.estrategia.help_text }}</small>{% endif %}
+                {{ form.estrategia.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

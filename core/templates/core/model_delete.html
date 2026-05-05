@@ -1,0 +1,29 @@
+{% extends 'core/base.html' %}
+{% block title %}{% if model_key == 'usuario' %}Archivar{% else %}Eliminar{% endif %} {{ object }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if model_key == 'usuario' %}Archivar {{ config.label }}{% else %}Eliminar {{ config.label }}{% endif %}</h2>
+        <p>Registro: {{ object }}</p>
+    </div>
+</div>
+
+<form method="post" class="card">
+    {% csrf_token %}
+    {% if model_key == 'usuario' %}
+    <p>El usuario <strong>{{ object }}</strong> se archivará en la tabla de usuarios eliminados.</p>
+    <p class="muted">No aparecerá más en listados ni opciones, pero sus referencias históricas seguirán funcionando.</p>
+    <div class="actions">
+        <button class="btn btn-danger" type="submit">Confirmar archivado</button>
+        <a class="btn" href="{% url 'model_detail' model_key object.pk %}">Cancelar</a>
+    </div>
+    {% else %}
+    <p>Se eliminará el registro <strong>{{ object }}</strong>.</p>
+    <p class="muted">Si existen restricciones FK en la base, MySQL impedirá la eliminación.</p>
+    <div class="actions">
+        <button class="btn btn-danger" type="submit">Confirmar eliminación</button>
+        <a class="btn" href="{% url 'model_detail' model_key object.pk %}">Cancelar</a>
+    </div>
+    {% endif %}
+</form>
+{% endblock %}

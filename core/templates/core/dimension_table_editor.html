@@ -1,0 +1,488 @@
+{% extends 'core/base.html' %} {% block title %}Dimensiones y catálogos | {{
+estrategia.nombre }}{% endblock %} {% block extra_head %}
+<style>
+  .editor-shell {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+  }
+
+  .panel-soft {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    max-height: 87vh;
+    overflow-y: scroll;
+  }
+
+  .side-head,
+  .main-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .side-body {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 70vh;
+    overflow: auto;
+  }
+
+  .item-card {
+    border: 1px solid var(--line);
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+  }
+
+  .item-card.active {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  .item-card .meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  .main-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .field-grid .full {
+    grid-column: 1/-1;
+  }
+
+  .builder {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 14px;
+  }
+
+  .subpanel {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fbfdff;
+  }
+
+  .subhead {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .subbody {
+    padding: 12px;
+  }
+
+  .table-mini {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .table-mini th,
+  .table-mini td {
+    border: 1px solid var(--line);
+    padding: 0;
+  }
+
+  .table-mini th {
+    padding: 8px;
+    background: #f8fafc;
+    font-size: 12px;
+  }
+
+  .table-mini td input,
+  .table-mini td select {
+    border: none;
+    width: 100%;
+    padding: 10px;
+    background: white;
+  }
+
+  .empty-state {
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: #fafafa;
+  }
+
+  @media (max-width: 1100px) {
+
+    .editor-shell,
+    .builder,
+    .field-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="page-header">
+  <div>
+    <h2>Dimensiones y catálogos</h2>
+    <p>{{ estrategia.empresa }} | {{ estrategia.nombre }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{% url 'model_detail' 'estrategia' estrategia.pk %}">Volver a estrategia</a>
+    <button class="btn" type="button" onclick="newItem()">
+      Nueva dimensión
+    </button>
+    <button class="btn btn-primary" type="button" onclick="saveAll()">
+      Guardar cambios
+    </button>
+  </div>
+</div>
+
+<form id="saveForm" method="post">
+  {% csrf_token %}
+  <input type="hidden" name="payload_json" id="payloadJson" />
+</form>
+
+<div class="editor-shell">
+  <aside class="panel-soft">
+    <div class="side-head">
+      <div>
+        <strong>Estrategia activa</strong>
+        <div class="muted">Dimensiones con catálogo</div>
+      </div>
+      <span class="pill" id="itemsCount">0</span>
+    </div>
+    <div class="side-body" id="itemsList"></div>
+  </aside>
+
+  <section class="panel-soft">
+    <div class="main-head">
+      <div>
+        <strong id="titleMain">Selecciona una dimensión</strong>
+        <div class="muted">Editor práctico de tabla y columnas</div>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" onclick="duplicateItem()">
+          Duplicar
+        </button>
+        {% if request.user.is_superuser %}
+        <button class="btn btn-danger" type="button" onclick="removeCurrentItem()">
+          Eliminar
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    <div class="main-body">
+      <div id="emptyState" class="empty-state">
+        No hay dimensiones todavía. Usa "Nueva dimensión".
+      </div>
+      <div id="editorState" style="display: none">
+        <div class="field-grid">
+          <div>
+            <label>Nombre</label><input class="input-control" id="fNombre"
+              oninput="updateField('nombre', this.value)" />
+          </div>
+          <div>
+            <label>Campo interno</label><input class="input-control" id="fCampo"
+              oninput="updateField('campo', this.value)" />
+          </div>
+          <div class="full">
+            <label>Descripción</label><textarea class="input-textarea" id="fDescripcion" rows="2"
+              oninput="updateField('descripcion', this.value)"></textarea>
+          </div>
+          <div>
+            <label>Tipo funcional</label><select class="input-control" id="fTipoFuncional"
+              onchange="updateField('tipo_funcional', this.value)">
+              {% for value,label in tipos_funcionales %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Tipo dato</label><select class="input-control" id="fTipoDato"
+              onchange="updateField('tipo_dato', this.value)">
+              {% for value,label in tipos_dato %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Tipo cálculo</label><select class="input-control" id="fTipoCalculo"
+              onchange="updateCalculationType(this.value)">
+              {% for value,label in tipos_calculo %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div id="calcSourcesBlock">
+            <label>Operandos del cálculo</label>
+            <div id="calcSourcesWrap" class="input-control" style="
+                height: auto;
+                max-height: 140px;
+                overflow: auto;
+                padding: 8px;
+              "></div>
+            <small class="muted">Selecciona las dimensiones superiores que alimentan el
+              cálculo.</small>
+          </div>
+          <div id="catalogTypeBlock">
+            <label>Tipo de catálogo</label><select class="input-control" id="fTipo"
+              onchange="changeCatalogType(this.value)">
+              <option value="opciones">Opciones</option>
+              <option value="rangos">Rangos</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: end">
+            <label><input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
+              Obligatorio</label>
+          </div>
+        </div>
+
+        <div class="builder" id="catalogBuilder">
+          <div class="subpanel">
+            <div class="subhead">
+              <strong>Columnas</strong><button class="btn" type="button" onclick="addColumn()">
+                + Columna
+              </button>
+            </div>
+            <div class="subbody" id="columnsWrap"></div>
+          </div>
+          <div class="subpanel">
+            <div class="subhead">
+              <strong>Filas / valores</strong><button class="btn" type="button" onclick="addRow()">
+                + Fila
+              </button>
+            </div>
+            <div class="subbody" id="rowsWrap"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %} {% block extra_js %}
+<script>
+  const store = { items: {{ editor_payload_json| safe }}, active: null};
+  const columnTypeOptions = [{% for value, label in tipos_columna %}{ value: '{{ value }}', label: '{{ label }}' }, {% endfor %}];
+  function current() { return store.items.find(x => String(x.id) === String(store.active)) || null; }
+  function slugifyLite(v) { return (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 100); }
+  function isCalculated(item) { return !!(item && item.tipo_calculo); }
+  function ensureColumns(item) { if (isCalculated(item)) { item.columnas = []; return; } if (Array.isArray(item.columnas) && item.columnas.length) return; item.columnas = defaultColumns(item.tipo); }
+  function defaultColumns(type) {
+    return type === 'rangos' ? [
+      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
+      { id: 'c2', nombre_columna: 'Desde', clave_interna: 'limite_inferior', tipo_dato: 'numero' },
+      { id: 'c3', nombre_columna: 'Hasta', clave_interna: 'limite_superior', tipo_dato: 'numero' },
+      { id: 'c4', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' },
+      { id: 'c5', nombre_columna: 'Valor secundario', clave_interna: 'valor_secundario', tipo_dato: 'numero' }
+    ] : [
+      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
+      { id: 'c2', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' },
+      { id: 'c3', nombre_columna: 'Valor secundario', clave_interna: 'valor_secundario', tipo_dato: 'numero' },
+      { id: 'c4', nombre_columna: 'Booleano', clave_interna: 'valor_booleano', tipo_dato: 'booleano' }
+    ];
+  }
+  function ensureRows(item) { item.filas = Array.isArray(item.filas) ? item.filas : []; item.filas.forEach(r => r.valores = r.valores || {}); }
+  function renderList() {
+    const list = document.getElementById('itemsList');
+    document.getElementById('itemsCount').textContent = store.items.length;
+    if (!store.items.length) { list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin dimensiones todavía.</div>'; return; }
+    list.innerHTML = store.items.map(it => `<div class="item-card ${String(it.id) === String(store.active) ? 'active' : ''}" onclick="selectItem('${it.id}')"><strong>${it.nombre || 'Sin nombre'}</strong><div class="meta">${it.tipo_funcional || '-'} | ${it.tipo_dato || '-'} | ${it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')}</div></div>`).join('');
+  }
+  function renderEditor() {
+    const item = current();
+    document.getElementById('emptyState').style.display = item ? 'none' : 'block';
+    document.getElementById('editorState').style.display = item ? 'block' : 'none';
+    if (!item) return;
+    ensureColumns(item); ensureRows(item);
+    document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
+    fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false;
+    const calculated = isCalculated(item);
+    catalogTypeBlock.style.display = calculated ? 'none' : '';
+    catalogBuilder.style.display = calculated ? 'none' : '';
+    calcSourcesBlock.style.display = calculated ? '' : 'none';
+    renderCalculationSources();
+    if (!calculated) { renderColumns(); renderRows(); } else { columnsWrap.innerHTML = ''; rowsWrap.innerHTML = ''; }
+  }
+  function renderCalculationSources() {
+    const item = current(); if (!item) return;
+    item.config_calculo = item.config_calculo || {};
+    item.config_calculo.operandos = Array.isArray(item.config_calculo.operandos) ? item.config_calculo.operandos : [];
+    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin cálculo.</span>'; return; }
+    if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span>'; return; }
+    calcSourcesWrap.innerHTML = sources.map(src => {
+      const campo = src.campo || slugifyLite(src.nombre || '');
+      const checked = item.config_calculo.operandos.includes(campo) ? 'checked' : '';
+      return '<label style="display:block;margin-bottom:6px;"><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(\'' + campo + '\', this.checked)"> ' + (src.nombre || campo) + '</label>';
+    }).join('');
+  }
+  function updateCalculationType(value) { const item = current(); if (!item) return; item.tipo_calculo = value; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (value) { item.tipo_funcional = 'resultado'; item.tipo_dato = 'numerico'; item.columnas = []; item.filas = []; } renderList(); renderEditor(); }
+  function toggleCalcSource(campo, checked) { const item = current(); if (!item) return; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (checked && !item.config_calculo.operandos.includes(campo)) item.config_calculo.operandos.push(campo); if (!checked) item.config_calculo.operandos = item.config_calculo.operandos.filter(x => x !== campo); }
+
+  function renderColumns() {
+    const item = current(); if (!item) return;
+    columnsWrap.innerHTML = `
+    <table class="table-mini">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Clave</th>
+          <th>Tipo</th>
+          <th></th>
+        </tr>
+       </thead>
+      <tbody>${item.columnas.map((col, idx) => `<tr>
+      <td>
+        <input value="${col.nombre_columna || ''}" oninput="updateColumn(${idx},'nombre_columna',this.value)">
+        </td>
+      <td>
+        <input value="${col.clave_interna || ''}" oninput="updateColumn(${idx},'clave_interna',this.value)">
+        </td>
+      <td>
+        <select onchange="updateColumn(${idx},'tipo_dato',this.value)">${columnTypeOptions.map(opt => `<option value="${opt.value}" ${opt.value === col.tipo_dato ? 'selected' : ''}>${opt.label}</option>`).join('')}</select>
+        </td>
+      <td>
+        <button class="btn btn-danger" type="button" onclick="removeColumn(${idx})">X</button>
+        </td>
+    </tr>`).join('')}</tbody>
+    </table>`;
+  }
+  function renderRows() {
+    const item = current(); if (!item) return;
+    if (!item.columnas.length) { rowsWrap.innerHTML = '<div class="empty-state">Agrega al menos una columna.</div>'; return; }
+    let html = `<table class="table-mini"><thead><tr>${item.columnas.map(col => `<th>${col.nombre_columna || col.clave_interna}</th>`).join('')}<th></th></tr></thead><tbody>`;
+    html += item.filas.map((row, rowIdx) => `<tr>${item.columnas.map(col => `<td>${cellEditor(row, col, rowIdx)}</td>`).join('')}<td><button class="btn btn-danger" type="button" onclick="removeRow(${rowIdx})">X</button></td></tr>`).join('');
+    html += '</tbody></table>';
+    rowsWrap.innerHTML = html;
+  }
+  function cellEditor(row, col, rowIdx) {
+    const value = (row.valores || {})[col.clave_interna] ?? (col.clave_interna === 'etiqueta' ? (row.etiqueta || '') : '');
+    if (col.tipo_dato === 'booleano') {
+      return `<select onchange="updateCell(${rowIdx},'${col.clave_interna}',this.value)"><option value="" ${value === '' ? 'selected' : ''}>-</option><option value="true" ${value === true || value === 'true' ? 'selected' : ''}>Sí</option><option value="false" ${value === false || value === 'false' ? 'selected' : ''}>No</option></select>`;
+    }
+    const type = col.tipo_dato === 'numero' ? 'number' : 'text';
+    const step = col.tipo_dato === 'numero' ? 'step="0.01"' : '';
+    return `<input type="${type}" ${step} value="${value}" oninput="updateCell(${rowIdx},'${col.clave_interna}',this.value)">`;
+  }
+  function selectItem(id) { store.active = id; renderList(); renderEditor(); }
+  function newItem() {
+    const id = 'new_' + Date.now();
+    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', obligatorio: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.active = id; renderList(); renderEditor();
+  }
+  function duplicateItem() {
+    const item = current(); if (!item) return;
+    const copy = JSON.parse(JSON.stringify(item)); copy.id = 'new_' + Date.now(); copy.nombre = (copy.nombre || 'Dimensión') + ' copia';
+    store.items.push(copy); store.active = copy.id; renderList(); renderEditor();
+  }
+  function deleteItem() {
+     if (!current()) return; store.items = store.items.filter(x => String(x.id) !== String(store.active)); store.active = store.items[0]?.id || null; renderList(); renderEditor(); }
+  function updateField(field, value) { const item = current(); if (!item) return; item[field] = value; if (field === 'nombre' && !item.campo) { item.campo = slugifyLite(value); fCampo.value = item.campo; } renderList(); }
+  function changeCatalogType(value) { const item = current(); if (!item) return; item.tipo = value; item.columnas = defaultColumns(value); item.filas = []; renderEditor(); }
+  function addColumn() { const item = current(); if (!item) return; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: 'Nueva columna', clave_interna: 'col_' + (item.columnas.length + 1), tipo_dato: 'texto' }); renderColumns(); renderRows(); }
+  function updateColumn(idx, field, value){
+    const item = current();
+    if(!item) return;
+
+    const col = item.columnas[idx];
+    if(!col) return;
+
+    if(field === 'clave_interna'){
+      const oldKey = col.clave_interna;
+      const newKey = slugifyLite(value) || value;
+
+      if(oldKey && newKey && oldKey !== newKey){
+        item.filas.forEach(row => {
+          row.valores = row.valores || {};
+          if(Object.prototype.hasOwnProperty.call(row.valores, oldKey)){
+            row.valores[newKey] = row.valores[oldKey];
+            delete row.valores[oldKey];
+          }
+        });
+      }
+
+      col.clave_interna = newKey;
+      renderRows();
+      return;
+    }
+
+    col[field] = value;
+
+    if(field === 'nombre_columna'){
+      const th = rowsWrap.querySelectorAll('thead th')[idx];
+      if(th){
+        th.textContent = value || col.clave_interna || `Columna ${idx + 1}`;
+      }
+      return;
+    }
+
+    renderRows();
+  }
+  function removeColumn(idx) { const item = current(); if (!item) return; const removed = item.columnas[idx]?.clave_interna; item.columnas.splice(idx, 1); item.filas.forEach(row => { if (row.valores && removed in row.valores) delete row.valores[removed]; }); renderColumns(); renderRows(); }
+  function addRow() { const item = current(); if (!item) return; const valores = {}; item.columnas.forEach(col => valores[col.clave_interna] = ''); item.filas.push({ id: 'r' + Date.now(), etiqueta: '', valores }); renderRows(); }
+  function updateCell(rowIdx, key, value) { const item = current(); if (!item) return; const row = item.filas[rowIdx]; row.valores = row.valores || {}; row.valores[key] = value; if (key === 'etiqueta') row.etiqueta = value; }
+  function removeRow(idx) { const item = current(); if (!item) return; item.filas.splice(idx, 1); renderRows(); }
+  function normalize() {
+    return store.items.map((item, idx) => ({
+      id: String(item.id).startsWith('new_') ? null : item.id,
+      nombre: item.nombre || `Dimensión ${idx + 1}`,
+      campo: item.campo || slugifyLite(item.nombre || `dimension_${idx + 1}`),
+      tipo: item.tipo || 'opciones',
+      descripcion: item.descripcion || '',
+      tipo_funcional: item.tipo_funcional || 'atributo',
+      tipo_dato: item.tipo_dato || 'tabla',
+      tipo_calculo: item.tipo_calculo || '',
+      config_calculo: item.tipo_calculo ? (item.config_calculo || { operandos: [] }) : null,
+      obligatorio: item.obligatorio !== false,
+      columnas: item.tipo_calculo ? [] : (item.columnas || []).map((col, colIdx) => ({
+        nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,
+        clave_interna: col.clave_interna || slugifyLite(col.nombre_columna || `col_${colIdx + 1}`),
+        tipo_dato: col.tipo_dato || 'texto'
+      })),
+      filas: item.tipo_calculo ? [] : (item.filas || []).map((row, rowIdx) => ({ etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores: row.valores || {} }))
+    }));
+  }
+  function saveAll() { payloadJson.value = JSON.stringify(normalize()); saveForm.submit(); }
+  (function init() { if (store.items.length) { store.active = store.items[0].id; } renderList(); renderEditor(); })();
+</script>
+<script>
+  function removeCurrentItem() {
+    const item = current();
+    if (!item) return;
+
+    const label = item.nombre || "esta dimensión";
+
+    if (!confirm(`¿Seguro que deseas eliminar ${label}?`)) {
+      return;
+    }
+
+    store.items = store.items.filter(
+      (x) => String(x.id) !== String(store.active),
+    );
+
+    store.active = store.items.length ? store.items[0].id : null;
+
+    renderList();
+    renderEditor();
+  }
+</script>
+{% endblock %}
