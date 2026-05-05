@@ -49,15 +49,8 @@
     <div class="card">
         <h3 class="card-title">Indicadores y tablas de evaluación</h3>
 
-        <div class="form-grid" style="margin-bottom:12px;">
-            <div class="form-field">
-                <label for="{{ base_form.frecuencia_original.id_for_label }}">{{ base_form.frecuencia_original.label }}</label>
-                {{ base_form.frecuencia_original }}
-                {% if base_form.frecuencia_original.errors %}<div class="form-error">{{ base_form.frecuencia_original.errors }}</div>{% endif %}
-            </div>
-        </div>
-
         {{ dimension_formset.management_form }}
+        <div class="dimension-grid">
         {% for form in dimension_formset %}
             <div class="dimension-card" data-dimension-id="{{ form.dimension_obj.id }}" data-dimension-name="{{ form.dimension_obj.nombre }}" data-dimension-campo="{{ form.dimension_campo }}">
                 {{ form.dimension }}
@@ -109,9 +102,10 @@
 
                 {% elif form.input_mode == 'catalogo' %}
                     <div class="option-compact-row">
-                        <div class="form-field">
+                        <div class="form-field catalog-picker-field">
                             <label>{{ form.catalogo_fila.label }}</label>
-                            {{ form.catalogo_fila }}
+                            <div class="hidden-picker-select">{{ form.catalogo_fila }}</div>
+                            <input class="input-control picker-display" type="text" value="" readonly data-picker-display-for="{{ form.catalogo_fila.id_for_label }}" placeholder="Selecciona desde la tabla">
                         </div>
                         <button type="button"
                                 class="btn btn-toggle-option"
@@ -168,8 +162,9 @@
                 {% endif %}
             </div>
         {% empty %}
-            <p class="muted">La estrategia del servicio no tiene dimensiones configuradas.</p>
+            <p class="muted dimension-empty">La estrategia del servicio no tiene dimensiones configuradas.</p>
         {% endfor %}
+        </div>
     </div>
     <div class="card">
         <h3 class="card-title">Matriz de criticidad</h3>
@@ -296,6 +291,14 @@
             if (selected) numericValue = row.dataset.valueNumeric || '';
         });
         select.dataset.numericValue = numericValue;
+        syncPickerDisplay(select);
+    }
+
+    function syncPickerDisplay(select) {
+        const display = document.querySelector('[data-picker-display-for="' + select.id + '"]');
+        if (!display) return;
+        const selected = select.options[select.selectedIndex];
+        display.value = selected && select.value ? selected.textContent.trim() : '';
     }
 
     function pickValue(targetId, value, numericValue) {

@@ -326,8 +326,9 @@ select {
 }
 
 .input-textarea {
-    min-height: 120px;
+    height: 44px;
     resize: vertical;
+    overflow: hidden;
 }
 
 .input-checkbox {
@@ -340,7 +341,7 @@ select {
 
 .form-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 16px;
 }
 
@@ -532,8 +533,20 @@ select {
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 14px;
-    margin-bottom: 12px;
+    margin-bottom: 0;
     background: #ffffff;
+    align-self: start;
+}
+
+.dimension-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(700px, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.dimension-empty {
+    grid-column: 1 / -1;
 }
 
 .dimension-card-header {
@@ -557,6 +570,15 @@ select {
 
 .option-table-panel {
     margin-top: 10px;
+}
+
+.hidden-picker-select {
+    display: none;
+}
+
+.picker-display[readonly] {
+    cursor: default;
+    background: #f8fafc;
 }
 
 @media (max-width: 900px) {
