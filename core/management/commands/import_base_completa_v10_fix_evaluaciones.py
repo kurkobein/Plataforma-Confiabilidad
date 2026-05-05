@@ -44,7 +44,6 @@ HEADER_MAP = {
     "Producción Fuera de Norma": "produccion_fuera_norma",
     "Impacta Calidad": "impacto_calidad_flag",
     "Escenario de Falla": "escenario_falla",
-    "Frecuencia Falla": "frecuencia_falla",
     "Frecuencia Normalizada": "frecuencia_normalizada",
     "Impacto Seguridad": "impacto_seguridad",
     "Impacto Ambiental": "impacto_ambiental",
@@ -350,7 +349,6 @@ class Command(BaseCommand):
                 "nombre_equipo": nombre[:200],
                 "ut": qtext(row.get("ubicacion_tecnica"))[:200],
                 "descripcion_ut": qtext(row.get("descripcion_ut"))[:255],
-                "otros_posibles": f"División: {qtext(row.get('division'))}" if qtext(row.get("division")) else "",
             },
         )
         componente = self.get_or_create_component(row.get("equipo_tipo"))

@@ -208,6 +208,8 @@ def model_detail(request, model_key, pk):
 @login_required
 def model_create(request, model_key):
     _ensure_admin_access(request)
+    if model_key == 'matrizriesgo':
+        return redirect('matriz_builder_new')
     config = _get_config(model_key)
     _ensure_direct_crud_allowed(config)
     FormClass = get_form_for_key(model_key)
@@ -442,11 +444,6 @@ def _dimension_display_value(item):
         if item.valor_numerico == int(item.valor_numerico):
             return str(int(item.valor_numerico))
         return str(item.valor_numerico)
-
-    if item.valor_secundario is not None:
-        if item.valor_secundario == int(item.valor_secundario):
-            return str(int(item.valor_secundario))
-        return str(item.valor_secundario)
 
     if item.escala_valor_id:
         if item.escala_valor.valor_numerico is not None:
@@ -937,55 +934,117 @@ def service_aca_new(request, pk):
 
     strategy = servicio.estrategia
     profile = get_profile_for_user(request.user)
+    edit_crit_id = request.POST.get('crit_id') if request.method == 'POST' else request.GET.get('edit')
+    edit_crit = None
+    if edit_crit_id:
+        edit_crit = get_object_or_404(
+            models.Criticidad.objects.select_related('aca_carga', 'equipo'),
+            pk=edit_crit_id,
+            aca_carga__servicio=servicio,
+        )
+
     is_draft = request.method == 'POST' and request.POST.get('save_as') == 'draft'
+    existing_is_draft = bool(
+        edit_crit
+        and getattr(edit_crit.aca_carga, 'status', '') == models.AcaCarga.STATUS_INCOMPLETO
+    )
+    allow_incomplete = is_draft or existing_is_draft
+    matrix_selector = _service_matrix_selector(servicio)
+    initial_base = {}
+    if edit_crit:
+        initial_base = {
+            'fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit.aca_carga else timezone.localdate(),
+            'version_carga': edit_crit.aca_carga.version_carga if edit_crit.aca_carga else Decimal('1.0'),
+            'origen': edit_crit.aca_carga.origen if edit_crit.aca_carga else 'Manual',
+            'equipo': edit_crit.equipo,
+            'escenario_falla': edit_crit.escenario_falla,
+            'frecuencia_normalizada': edit_crit.frecuencia_normalizada,
+        }
+        matriz = matrix_selector.get('matriz') if matrix_selector else None
+        if matriz:
+            selected_cell = _resolve_matrix_cell_from_dimension_records(
+                matriz,
+                edit_crit.dimensiones.select_related('dimension', 'estrategia_dimension').all(),
+            )
+            if not selected_cell:
+                selected_cell = _matrix_cell_for_axis_values(
+                    matriz,
+                    edit_crit.frecuencia_normalizada,
+                    edit_crit.valor_cons_total,
+                )
+            if selected_cell:
+                initial_base['matrix_celda'] = selected_cell.pk
+
     base_form = ServicioACARegistroForm(
         request.POST or None,
+        initial=initial_base,
         service=servicio,
-        allow_incomplete=is_draft,
+        allow_incomplete=allow_incomplete,
     )
-    matrix_selector = _service_matrix_selector(servicio)
     excluded_dimension_ids = _aca_excluded_dimension_ids(
         strategy,
         matrix_selector.get('matriz') if matrix_selector else None,
     )
+    dimension_initial = _dimension_formset_initial_from_criticidad(
+        edit_crit,
+        strategy,
+        exclude_dimension_ids=excluded_dimension_ids,
+    ) if edit_crit else None
     dimension_formset = _dimension_formset(
         request,
         strategy,
+        initial=dimension_initial,
         exclude_dimension_ids=excluded_dimension_ids,
     )
 
     if request.method == 'POST' and base_form.is_valid() and dimension_formset.is_valid():
-        version_carga = _next_service_aca_version(servicio)
         status = models.AcaCarga.STATUS_INCOMPLETO if is_draft else models.AcaCarga.STATUS_COMPLETO
+        now = timezone.now()
 
-        carga = models.AcaCarga.objects.create(
-            fecha_analisis=timezone.localdate(),
-            version_carga=version_carga,
-            origen='Manual',
-            status=status,
-            creado_en=timezone.now(),
-            actualizado=timezone.now(),
-            estrategia=strategy,
-            servicio=servicio,
-            usuario=profile,
-        )
+        if edit_crit:
+            carga = edit_crit.aca_carga
+            carga.status = status
+            carga.actualizado = now
+            carga.estrategia = strategy
+            carga.servicio = servicio
+            carga.usuario = profile
+            carga.save(update_fields=['status', 'actualizado', 'estrategia', 'servicio', 'usuario'])
+        else:
+            version_carga = _next_service_aca_version(servicio)
+            carga = models.AcaCarga.objects.create(
+                fecha_analisis=timezone.localdate(),
+                version_carga=version_carga,
+                origen='Manual',
+                status=status,
+                creado_en=now,
+                actualizado=now,
+                estrategia=strategy,
+                servicio=servicio,
+                usuario=profile,
+            )
 
         selected_cell = base_form.cleaned_data.get('matrix_celda')
+        matriz = matrix_selector.get('matriz') if matrix_selector else None
+        if not selected_cell and matriz:
+            prepared_items, _source_values = _prepare_dimension_items(strategy, dimension_formset)
+            selected_cell = _resolve_matrix_cell_from_dimension_records(matriz, prepared_items)
         frecuencia_normalizada = selected_cell.probabilidad.valor if selected_cell else None
-        valor_cons_total = selected_cell.impacto_nivel.valor if selected_cell else Decimal('0')
+        valor_cons_total = selected_cell.impacto_nivel.valor if selected_cell else None
 
-        evaluacion = models.Criticidad.objects.create(
-            escenario_falla=base_form.cleaned_data.get('escenario_falla') or '',
-            frecuencia_original=None,
-            frecuencia_normalizada=frecuencia_normalizada,
-            valor_cons_total=valor_cons_total,
-            indicador_criticidad='',
-            valor_criticidad_equipo=Decimal('0'),
-            criticidad_final=selected_cell.clasificacion if selected_cell else '',
-            creado_en=timezone.now(),
+        evaluacion = edit_crit or models.Criticidad(
+            creado_en=now,
             aca_carga=carga,
-            equipo=base_form.cleaned_data['equipo'],
         )
+        evaluacion.escenario_falla = base_form.cleaned_data.get('escenario_falla') or ''
+        evaluacion.frecuencia_original = None
+        evaluacion.frecuencia_normalizada = frecuencia_normalizada
+        evaluacion.valor_cons_total = valor_cons_total
+        evaluacion.indicador_criticidad = ''
+        evaluacion.valor_criticidad_equipo = selected_cell.resultado_num if selected_cell else None
+        evaluacion.criticidad_final = selected_cell.clasificacion if selected_cell else ''
+        evaluacion.aca_carga = carga
+        evaluacion.equipo = base_form.cleaned_data.get('equipo')
+        evaluacion.save()
 
         _save_dimension_formset(evaluacion, strategy, dimension_formset)
 
@@ -996,6 +1055,8 @@ def service_aca_new(request, pk):
 
         if is_draft:
             messages.success(request, 'Borrador ACA guardado correctamente.')
+        elif edit_crit:
+            messages.success(request, 'Registro ACA actualizado correctamente.')
         else:
             messages.success(request, 'Registro ACA creado correctamente.')
         return redirect('service_aca_list', pk=servicio.pk)
@@ -1007,8 +1068,9 @@ def service_aca_new(request, pk):
         'dimension_formset': dimension_formset,
         'selected_strategy': strategy,
         'matrix_selector': matrix_selector,
-        'auto_version': _next_service_aca_version(servicio),
-        'auto_fecha_analisis': timezone.localdate(),
+        'auto_version': edit_crit.aca_carga.version_carga if edit_crit and edit_crit.aca_carga else _next_service_aca_version(servicio),
+        'auto_fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit and edit_crit.aca_carga else timezone.localdate(),
+        'editing_crit': edit_crit,
     })
 
 
@@ -1021,8 +1083,8 @@ def service_aca_edit(request, service_pk, crit_pk):
         aca_carga__servicio=servicio,
     )
 
-    # por ahora redirige al editor base
-    return redirect('model_update', model_key='criticidad', pk=crit.pk)
+    url = f"{reverse('service_aca_new', kwargs={'pk': servicio.pk})}?edit={crit.pk}"
+    return redirect(url)
 
 
 @login_required
@@ -1080,6 +1142,11 @@ def _service_matrix_selector(servicio):
     if getattr(servicio, 'estrategia_id', None):
         matriz = models.MatrizRiesgo.objects.filter(
             estrategia=servicio.estrategia
+        ).select_related(
+            'dimension_probabilidad',
+            'dimension_probabilidad__dimension',
+            'dimension_impacto',
+            'dimension_impacto__dimension',
         ).order_by('-fecha_creado', '-id').first()
 
     if not matriz:
@@ -1088,6 +1155,12 @@ def _service_matrix_selector(servicio):
             'rows': [],
             'columns': [],
             'axis': 'impacto',
+            'prob_dimension_id': '',
+            'impact_dimension_id': '',
+            'prob_estrategia_dimension_id': '',
+            'impact_estrategia_dimension_id': '',
+            'prob_axis_label': 'Probabilidad',
+            'impact_axis_label': 'Impacto',
         }
 
     prob_levels = list(
@@ -1138,23 +1211,34 @@ def _service_matrix_selector(servicio):
         'rows': rows,
         'columns': columns,
         'axis': matriz.eje_horizontal,
+        'prob_dimension_id': matriz.dimension_probabilidad.dimension_id if matriz.dimension_probabilidad_id else '',
+        'impact_dimension_id': matriz.dimension_impacto.dimension_id if matriz.dimension_impacto_id else '',
+        'prob_estrategia_dimension_id': matriz.dimension_probabilidad_id or '',
+        'impact_estrategia_dimension_id': matriz.dimension_impacto_id or '',
+        'prob_axis_label': matriz.dimension_probabilidad.dimension.nombre if matriz.dimension_probabilidad_id else 'Probabilidad',
+        'impact_axis_label': matriz.dimension_impacto.dimension.nombre if matriz.dimension_impacto_id else 'Impacto',
     }
 
 
 def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
-    prob_dim = models.EstrategiaDimension.objects.filter(
-        estrategia=estrategia,
-        activo=True,
-        dimension__tipo_funcional='probabilidad',
-    ).select_related('dimension').order_by('orden', 'id').first()
+    matriz = models.MatrizRiesgo.objects.filter(
+        estrategia=estrategia
+    ).select_related(
+        'dimension_probabilidad',
+        'dimension_probabilidad__dimension',
+        'dimension_impacto',
+        'dimension_impacto__dimension',
+    ).order_by('-fecha_creado', '-id').first()
+    if not matriz:
+        return
 
-    impact_dim = models.EstrategiaDimension.objects.filter(
-        estrategia=estrategia,
-        activo=True,
-        dimension__tipo_funcional='impacto',
-    ).select_related('dimension').order_by('orden', 'id').first()
+    prob_dim = matriz.dimension_probabilidad
+    impact_dim = matriz.dimension_impacto
+    existing_dimension_ids = set(
+        evaluacion.dimensiones.values_list('dimension_id', flat=True)
+    )
 
-    if prob_dim:
+    if prob_dim and prob_dim.dimension_id not in existing_dimension_ids:
         models.CriticidadDimension.objects.create(
             criticidad=evaluacion,
             dimension=prob_dim.dimension,
@@ -1163,7 +1247,7 @@ def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
             valor_texto=selected_cell.probabilidad.nombre or selected_cell.probabilidad.descripcion or '',
         )
 
-    if impact_dim:
+    if impact_dim and impact_dim.dimension_id not in existing_dimension_ids:
         models.CriticidadDimension.objects.create(
             criticidad=evaluacion,
             dimension=impact_dim.dimension,
@@ -1175,12 +1259,23 @@ def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
 
 def _aca_excluded_dimension_ids(estrategia, matriz=None):
     excluded_ids = set()
+    matrix_input_dimension_ids = set()
 
     if matriz:
-        if getattr(matriz, 'dimension_probabilidad_id', None):
-            excluded_ids.add(matriz.dimension_probabilidad_id)
-        if getattr(matriz, 'dimension_impacto_id', None):
-            excluded_ids.add(matriz.dimension_impacto_id)
+        if (
+            getattr(matriz, 'dimension_probabilidad_id', None)
+            and _is_generated_matrix_axis_dimension(matriz.dimension_probabilidad, 'probabilidad')
+        ):
+            excluded_ids.add(matriz.dimension_probabilidad.dimension_id)
+        elif getattr(matriz, 'dimension_probabilidad_id', None):
+            matrix_input_dimension_ids.add(matriz.dimension_probabilidad.dimension_id)
+        if (
+            getattr(matriz, 'dimension_impacto_id', None)
+            and _is_generated_matrix_axis_dimension(matriz.dimension_impacto, 'impacto')
+        ):
+            excluded_ids.add(matriz.dimension_impacto.dimension_id)
+        elif getattr(matriz, 'dimension_impacto_id', None):
+            matrix_input_dimension_ids.add(matriz.dimension_impacto.dimension_id)
 
     derived_keywords = [
         'frecuencia normalizada',
@@ -1192,14 +1287,149 @@ def _aca_excluded_dimension_ids(estrategia, matriz=None):
     dims = models.EstrategiaDimension.objects.filter(
         estrategia=estrategia,
         activo=True
-    ).select_related('dimension')
+    ).select_related('dimension').prefetch_related('catalogo')
 
     for item in dims:
+        if item.dimension_id in matrix_input_dimension_ids:
+            continue
         nombre = (item.dimension.nombre or '').strip().lower()
+        try:
+            catalogo = item.catalogo
+        except models.DimensionCatalogo.DoesNotExist:
+            catalogo = None
+        is_user_configured = bool(
+            (getattr(item.dimension, 'tipo_calculo', '') or '').strip()
+            or (catalogo and catalogo.activa)
+        )
+        if is_user_configured:
+            continue
         if any(keyword in nombre for keyword in derived_keywords):
             excluded_ids.add(item.dimension_id)
 
     return excluded_ids
+
+
+def _dimension_dependency_key(dimension):
+    config = _json_loads_safe(getattr(dimension, 'config_calculo', None), {})
+    if not isinstance(config, dict):
+        return ''
+    for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
+        value = config.get(key)
+        if value not in (None, ''):
+            return str(value).strip()
+    return ''
+
+
+def _remember_source_value(source_values, estrategia_dimension, value):
+    decimal_value = _decimal_or_none(value)
+    if decimal_value is None:
+        return
+    dimension = estrategia_dimension.dimension
+    campo = _dimension_source_key(estrategia_dimension)
+    source_values[str(dimension.id)] = decimal_value
+    source_values[dimension.nombre] = decimal_value
+    source_values[_calc_slug(dimension.nombre)] = decimal_value
+    if campo:
+        source_values[campo] = decimal_value
+        source_values[_calc_slug(campo)] = decimal_value
+
+
+def _source_value(source_values, source_key):
+    if not source_key:
+        return None
+    value = source_values.get(str(source_key))
+    if value is None:
+        value = source_values.get(_calc_slug(str(source_key)))
+    return _decimal_or_none(value)
+
+
+def _catalog_bound(values, keys):
+    for key in keys:
+        value = values.get(key) if isinstance(values, dict) else None
+        if value not in (None, ''):
+            return _decimal_or_none(value)
+    return None
+
+
+def _match_catalog_range_row(catalogo, source_value):
+    source_value = _decimal_or_none(source_value)
+    if not catalogo or source_value is None:
+        return None
+
+    rows = catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id')
+    for row in rows:
+        values = row.values_map()
+        lower = _catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'])
+        upper = _catalog_bound(values, ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'])
+
+        if lower is not None and source_value < lower:
+            continue
+        if upper is not None and source_value >= upper:
+            continue
+        return row
+    return None
+
+
+def _catalog_primary_numeric_from_values(values):
+    for key in ['valor_numerico', 'valor_principal', 'valor', 'nivel', 'puntaje']:
+        value = values.get(key) if isinstance(values, dict) else None
+        if value not in (None, ''):
+            return _decimal_or_none(value)
+    if isinstance(values, dict):
+        for key, value in values.items():
+            if key in {
+                'limite_inferior', 'limite_superior', 'desde', 'hasta',
+                'min', 'max', 'minimo', 'mínimo', 'maximo', 'máximo',
+                'valor_secundario',
+            }:
+                continue
+            decimal_value = _decimal_or_none(value)
+            if decimal_value is not None:
+                return decimal_value
+    return None
+
+
+def _catalog_match_value(values):
+    for key in [
+        'valor_dependencia',
+        'dependencia',
+        'depende_de',
+        'valor_origen',
+        'valor_fuente',
+        'source_value',
+        'valor_de_entrada',
+        'valor_entrada',
+        'entrada',
+    ]:
+        value = values.get(key) if isinstance(values, dict) else None
+        if value not in (None, ''):
+            decimal_value = _decimal_or_none(value)
+            if decimal_value is not None:
+                return decimal_value
+    return _catalog_primary_numeric_from_values(values)
+
+
+def _match_catalog_option_row(catalogo, source_value):
+    source_value = _decimal_or_none(source_value)
+    if not catalogo or source_value is None:
+        return None
+
+    rows = catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id')
+    for row in rows:
+        match_value = _catalog_match_value(row.values_map())
+        if match_value is not None and match_value == source_value:
+            return row
+    return None
+
+
+def _match_catalog_dependency_row(catalogo, source_value):
+    if not catalogo:
+        return None
+    if catalogo.tipo == 'rangos':
+        return _match_catalog_range_row(catalogo, source_value)
+    if catalogo.tipo == 'opciones':
+        return _match_catalog_option_row(catalogo, source_value)
+    return None
 
 
 def _dimension_formset(request, estrategia, initial=None, bind_post=True, exclude_dimension_ids=None):
@@ -1217,7 +1447,13 @@ def _dimension_formset(request, estrategia, initial=None, bind_post=True, exclud
             dims_qs = dims_qs.exclude(dimension_id__in=exclude_dimension_ids)
 
         dims = list(dims_qs)
-        dims.sort(key=lambda dim: (1 if (getattr(dim.dimension, 'tipo_calculo', '') or '').strip() else 0, dim.orden, dim.id))
+        dims.sort(key=lambda dim: (
+            2 if _dimension_dependency_key(dim.dimension)
+            else 1 if (getattr(dim.dimension, 'tipo_calculo', '') or '').strip()
+            else 0,
+            dim.orden,
+            dim.id,
+        ))
         initial = [{'dimension': dim.dimension} for dim in dims]
 
     if request.method == 'POST' and bind_post:
@@ -1233,6 +1469,51 @@ def _dimension_formset(request, estrategia, initial=None, bind_post=True, exclud
     )
 
 
+def _dimension_formset_initial_from_criticidad(criticidad, estrategia, exclude_dimension_ids=None):
+    if not criticidad or not estrategia:
+        return []
+
+    existing = {
+        item.dimension_id: item
+        for item in criticidad.dimensiones.select_related(
+            'dimension',
+            'catalogo_fila',
+            'escala_valor',
+        ).all()
+    }
+    dims_qs = (
+        models.EstrategiaDimension.objects.filter(estrategia=estrategia, activo=True)
+        .select_related('dimension')
+        .order_by('orden', 'id')
+    )
+    if exclude_dimension_ids:
+        dims_qs = dims_qs.exclude(dimension_id__in=exclude_dimension_ids)
+
+    dims = list(dims_qs)
+    dims.sort(key=lambda dim: (
+        2 if _dimension_dependency_key(dim.dimension)
+        else 1 if (getattr(dim.dimension, 'tipo_calculo', '') or '').strip()
+        else 0,
+        dim.orden,
+        dim.id,
+    ))
+
+    initial = []
+    for estrategia_dimension in dims:
+        item = existing.get(estrategia_dimension.dimension_id)
+        payload = {'dimension': estrategia_dimension.dimension}
+        if item:
+            payload.update({
+                'escala_valor': item.escala_valor,
+                'catalogo_fila': item.catalogo_fila,
+                'valor_numerico': item.valor_numerico,
+                'valor_booleano': item.valor_booleano,
+                'valor_texto': item.valor_texto,
+            })
+        initial.append(payload)
+    return initial
+
+
 def _catalog_row_primary_numeric(row):
     if row is None:
         return None
@@ -1241,21 +1522,11 @@ def _catalog_row_primary_numeric(row):
         if key in values and values.get(key) not in (None, ''):
             return _decimal_or_none(values.get(key))
     for key, value in values.items():
-        if key in {'limite_inferior', 'limite_superior', 'min', 'max'}:
+        if key in {'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max', 'minimo', 'mínimo', 'maximo', 'máximo'}:
             continue
         decimal_value = _decimal_or_none(value)
         if decimal_value is not None:
             return decimal_value
-    return None
-
-
-def _catalog_row_secondary_numeric(row):
-    if row is None:
-        return None
-    values = row.values_map()
-    for key in ['valor_secundario', 'secundario']:
-        if key in values and values.get(key) not in (None, ''):
-            return _decimal_or_none(values.get(key))
     return None
 
 
@@ -1299,44 +1570,7 @@ def _dimension_source_key(estrategia_dimension):
     return _calc_slug(estrategia_dimension.dimension.nombre)
 
 
-def _evaluate_dimension_calculation(tipo_calculo, config_calculo, source_values):
-    tipo = (tipo_calculo or '').strip().lower()
-    if not tipo:
-        return None
-
-    if isinstance(config_calculo, str):
-        try:
-            config_calculo = json.loads(config_calculo or '{}')
-        except Exception:
-            config_calculo = {}
-    if not isinstance(config_calculo, dict):
-        config_calculo = {}
-
-    operandos = config_calculo.get('operandos') or config_calculo.get('campos') or config_calculo.get('sources') or []
-    values = []
-
-    for operand in operandos:
-        candidates = []
-        if isinstance(operand, dict):
-            for key in ['campo', 'dimension_id', 'nombre']:
-                value = operand.get(key)
-                if value not in (None, ''):
-                    candidates.append(str(value))
-        else:
-            candidates.append(str(operand))
-
-        value = None
-        for candidate in candidates:
-            value = source_values.get(candidate)
-            if value is None:
-                value = source_values.get(_calc_slug(candidate))
-            if value is not None:
-                break
-
-        decimal_value = _decimal_or_none(value)
-        if decimal_value is not None:
-            values.append(decimal_value)
-
+def _calculation_operation_result(tipo, values):
     if not values:
         return None
 
@@ -1359,12 +1593,93 @@ def _evaluate_dimension_calculation(tipo_calculo, config_calculo, source_values)
                 return None
             result /= value
         return result
+    if tipo == 'maximo':
+        return max(values)
+    if tipo == 'minimo':
+        return min(values)
     return None
+
+
+def _calculation_operand_value(operand, source_values, previous_result=None):
+    candidates = []
+    if isinstance(operand, dict):
+        if operand.get('resultado') is True or operand.get('tipo') == 'resultado':
+            return previous_result
+        for key in ['campo', 'dimension_id', 'nombre', 'source']:
+            value = operand.get(key)
+            if value not in (None, ''):
+                candidates.append(str(value))
+    else:
+        raw = str(operand)
+        if raw in {'$resultado', '__resultado__', 'resultado_anterior'}:
+            return previous_result
+        candidates.append(raw)
+
+    for candidate in candidates:
+        value = source_values.get(candidate)
+        if value is None:
+            value = source_values.get(_calc_slug(candidate))
+        decimal_value = _decimal_or_none(value)
+        if decimal_value is not None:
+            return decimal_value
+
+    return None
+
+
+def _calculation_steps(tipo_calculo, config_calculo):
+    tipo = (tipo_calculo or '').strip().lower()
+    if not tipo:
+        return []
+
+    if isinstance(config_calculo, str):
+        try:
+            config_calculo = json.loads(config_calculo or '{}')
+        except Exception:
+            config_calculo = {}
+    if not isinstance(config_calculo, dict):
+        config_calculo = {}
+
+    raw_steps = config_calculo.get('pasos') or config_calculo.get('steps') or []
+    if isinstance(raw_steps, list) and raw_steps:
+        steps = []
+        for raw_step in raw_steps:
+            if not isinstance(raw_step, dict):
+                continue
+            operacion = str(raw_step.get('operacion') or raw_step.get('tipo_calculo') or raw_step.get('operation') or '').strip().lower()
+            operandos = raw_step.get('operandos') or raw_step.get('campos') or raw_step.get('sources') or []
+            if operacion and isinstance(operandos, list):
+                steps.append({'operacion': operacion, 'operandos': operandos})
+        return steps
+
+    operandos = config_calculo.get('operandos') or config_calculo.get('campos') or config_calculo.get('sources') or []
+    if not isinstance(operandos, list):
+        operandos = []
+    return [{'operacion': tipo, 'operandos': operandos}]
+
+
+def _evaluate_dimension_calculation(tipo_calculo, config_calculo, source_values):
+    steps = _calculation_steps(tipo_calculo, config_calculo)
+    if not steps:
+        return None
+
+    result = None
+    for step in steps:
+        values = []
+        for operand in step['operandos']:
+            value = _calculation_operand_value(operand, source_values, result)
+            if value is not None:
+                values.append(value)
+
+        result = _calculation_operation_result(step['operacion'], values)
+        if result is None:
+            return None
+
+    return result
 
 
 def _extract_dimension_form_value(data, catalogo_fila=None, escala_valor=None):
     valor_numerico = data.get('valor_numerico')
-    valor_secundario = data.get('valor_secundario')
+    valor_secundario = None
     valor_booleano = data.get('valor_booleano')
     valor_texto = data.get('valor_texto', '')
     escala_unificada = None
@@ -1379,8 +1694,6 @@ def _extract_dimension_form_value(data, catalogo_fila=None, escala_valor=None):
     if catalogo_fila:
         if valor_numerico in (None, ''):
             valor_numerico = _catalog_row_primary_numeric(catalogo_fila)
-        if valor_secundario in (None, ''):
-            valor_secundario = _catalog_row_secondary_numeric(catalogo_fila)
         if valor_booleano is None:
             valor_booleano = _catalog_row_boolean(catalogo_fila)
         if not valor_texto:
@@ -1389,8 +1702,7 @@ def _extract_dimension_form_value(data, catalogo_fila=None, escala_valor=None):
     return valor_numerico, valor_secundario, valor_booleano, valor_texto, escala_unificada
 
 
-def _save_dimension_formset(evaluacion, estrategia, formset):
-    evaluacion.dimensiones.all().delete()
+def _prepare_dimension_items(estrategia, formset):
     prepared = []
     source_values = {}
 
@@ -1429,19 +1741,14 @@ def _save_dimension_formset(evaluacion, estrategia, formset):
             'valor_booleano': valor_booleano,
             'valor_texto': valor_texto or '',
             'is_calculated': bool((getattr(dimension, 'tipo_calculo', '') or '').strip()),
+            'dependency_key': _dimension_dependency_key(dimension),
         }
         prepared.append(item)
 
-        if not item['is_calculated']:
-            numeric_value = valor_numerico if valor_numerico is not None else valor_secundario
+        if not item['is_calculated'] and not item['dependency_key']:
+            numeric_value = valor_numerico
             if numeric_value is not None:
-                campo = _dimension_source_key(estrategia_dimension)
-                source_values[str(dimension.id)] = numeric_value
-                source_values[dimension.nombre] = numeric_value
-                source_values[_calc_slug(dimension.nombre)] = numeric_value
-                if campo:
-                    source_values[campo] = numeric_value
-                    source_values[_calc_slug(campo)] = numeric_value
+                _remember_source_value(source_values, estrategia_dimension, numeric_value)
 
     for item in prepared:
         if item['is_calculated']:
@@ -1453,14 +1760,42 @@ def _save_dimension_formset(evaluacion, estrategia, formset):
             item['valor_numerico'] = value
             item['valor_texto'] = '' if value is None else str(value)
             if value is not None:
-                campo = _dimension_source_key(item['estrategia_dimension'])
-                source_values[str(item['dimension'].id)] = value
-                source_values[item['dimension'].nombre] = value
-                source_values[_calc_slug(item['dimension'].nombre)] = value
-                if campo:
-                    source_values[campo] = value
-                    source_values[_calc_slug(campo)] = value
+                _remember_source_value(source_values, item['estrategia_dimension'], value)
 
+    for item in prepared:
+        if not item['dependency_key']:
+            continue
+
+        source_value = _source_value(source_values, item['dependency_key'])
+        try:
+            catalogo = item['estrategia_dimension'].catalogo
+        except models.DimensionCatalogo.DoesNotExist:
+            catalogo = None
+
+        matched_row = _match_catalog_dependency_row(catalogo, source_value)
+        if not matched_row:
+            continue
+
+        item['catalogo_fila'] = matched_row
+        valor_numerico, valor_secundario, valor_booleano, valor_texto, escala_unificada = _extract_dimension_form_value(
+            {},
+            catalogo_fila=matched_row,
+            escala_valor=None,
+        )
+        item['valor_numerico'] = valor_numerico
+        item['valor_secundario'] = valor_secundario
+        item['valor_booleano'] = valor_booleano
+        item['valor_texto'] = valor_texto or ''
+        item['escala_unificada'] = escala_unificada
+
+        numeric_value = valor_numerico
+        if numeric_value is not None:
+            _remember_source_value(source_values, item['estrategia_dimension'], numeric_value)
+
+    return prepared, source_values
+
+
+def _create_dimension_items(evaluacion, prepared):
     created = []
     for item in prepared:
         if not any([
@@ -1488,13 +1823,107 @@ def _save_dimension_formset(evaluacion, estrategia, formset):
     return created
 
 
+def _save_dimension_formset(evaluacion, estrategia, formset):
+    evaluacion.dimensiones.all().delete()
+    prepared, _source_values = _prepare_dimension_items(estrategia, formset)
+    return _create_dimension_items(evaluacion, prepared)
+
+
+def _dimension_record_numeric_value(record):
+    if isinstance(record, dict):
+        value = record.get('valor_numerico')
+    else:
+        value = record.valor_numerico
+    return _decimal_or_none(value)
+
+
+def _dimension_record_ids(record):
+    if isinstance(record, dict):
+        estrategia_dimension = record.get('estrategia_dimension')
+        dimension = record.get('dimension')
+        return (
+            getattr(estrategia_dimension, 'id', None),
+            getattr(dimension, 'id', None),
+        )
+    return (
+        getattr(record, 'estrategia_dimension_id', None),
+        getattr(record, 'dimension_id', None),
+    )
+
+
+def _matrix_axis_dimension_refs(matriz):
+    prob_dim_id = None
+    impact_dim_id = None
+    if getattr(matriz, 'dimension_probabilidad_id', None):
+        prob_dim_id = matriz.dimension_probabilidad.dimension_id
+    if getattr(matriz, 'dimension_impacto_id', None):
+        impact_dim_id = matriz.dimension_impacto.dimension_id
+    return {
+        'prob_ed_id': getattr(matriz, 'dimension_probabilidad_id', None),
+        'prob_dim_id': prob_dim_id,
+        'impact_ed_id': getattr(matriz, 'dimension_impacto_id', None),
+        'impact_dim_id': impact_dim_id,
+    }
+
+
+def _matrix_axis_values_from_records(matriz, records):
+    refs = _matrix_axis_dimension_refs(matriz)
+    prob_val = None
+    impact_val = None
+
+    for record in records:
+        value = _dimension_record_numeric_value(record)
+        if value is None:
+            continue
+        estrategia_dimension_id, dimension_id = _dimension_record_ids(record)
+
+        if (
+            refs['prob_ed_id'] and estrategia_dimension_id == refs['prob_ed_id']
+        ) or (
+            refs['prob_dim_id'] and dimension_id == refs['prob_dim_id']
+        ):
+            prob_val = value
+
+        if (
+            refs['impact_ed_id'] and estrategia_dimension_id == refs['impact_ed_id']
+        ) or (
+            refs['impact_dim_id'] and dimension_id == refs['impact_dim_id']
+        ):
+            impact_val = value
+
+    return prob_val, impact_val
+
+
+def _matrix_cell_for_axis_values(matriz, prob_val, impact_val):
+    if not matriz or prob_val is None or impact_val is None:
+        return None
+    return models.MatrizRiesgoCelda.objects.filter(
+        matriz=matriz,
+        probabilidad__valor=prob_val,
+        impacto_nivel__valor=impact_val,
+    ).select_related(
+        'probabilidad',
+        'impacto_nivel',
+    ).order_by('id').first()
+
+
+def _resolve_matrix_cell_from_dimension_records(matriz, records):
+    prob_val, impact_val = _matrix_axis_values_from_records(matriz, records)
+    return _matrix_cell_for_axis_values(matriz, prob_val, impact_val)
+
+
 def _sync_criticidad_resumen(evaluacion, estrategia):
     dims = list(
-        evaluacion.dimensiones.select_related('dimension').all()
+        evaluacion.dimensiones.select_related('dimension', 'estrategia_dimension').all()
     )
 
     matriz = models.MatrizRiesgo.objects.filter(
         estrategia=estrategia
+    ).select_related(
+        'dimension_probabilidad',
+        'dimension_probabilidad__dimension',
+        'dimension_impacto',
+        'dimension_impacto__dimension',
     ).order_by('-fecha_creado', '-id').first()
 
     prob_val = None
@@ -1506,19 +1935,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
 
     # 1) Priorizar las dimensiones específicas que usa la matriz
     if matriz:
-        prob_dim_id = matriz.dimension_probabilidad_id
-        impact_dim_id = matriz.dimension_impacto_id
-
-        for item in dims:
-            val = item.valor_numerico if item.valor_numerico is not None else item.valor_secundario
-            if val is None:
-                continue
-
-            if prob_dim_id and item.dimension_id == prob_dim_id:
-                prob_val = Decimal(val)
-
-            if impact_dim_id and item.dimension_id == impact_dim_id:
-                impact_val = Decimal(val)
+        prob_val, impact_val = _matrix_axis_values_from_records(matriz, dims)
 
     # 2) Fallback: usar la frecuencia normalizada y/o el valor de consecuencia ya guardado
     if prob_val is None and evaluacion.frecuencia_normalizada is not None:
@@ -1529,14 +1946,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
 
     # 3) Si existe matriz, intentar resolver la celda exacta por probabilidad + impacto
     if matriz and prob_val is not None and impact_val is not None:
-        celda = models.MatrizRiesgoCelda.objects.filter(
-            matriz=matriz,
-            probabilidad__valor=prob_val,
-            impacto_nivel__valor=impact_val,
-        ).select_related(
-            'probabilidad',
-            'impacto_nivel',
-        ).order_by('id').first()
+        celda = _matrix_cell_for_axis_values(matriz, prob_val, impact_val)
 
         if celda:
             valor_cons_total = celda.impacto_nivel.valor
@@ -1711,6 +2121,7 @@ def _safe_slug(value):
 
 def _serialize_strategy_dimension_without_catalog(ed):
     dimension = ed.dimension
+    tipo = 'numerico_libre' if dimension.tipo_dato == 'numerico' and not dimension.tipo_calculo else 'opciones'
     return {
         # Si el catálogo fue eliminado por soft-delete anterior y luego reactivas
         # EstrategiaDimension.activo=1, esta entrada permite que vuelva a aparecer
@@ -1720,7 +2131,7 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'dimension_id': dimension.pk,
         'nombre': dimension.nombre,
         'campo': _safe_slug(dimension.nombre or f'dimension_{dimension.pk}'),
-        'tipo': 'opciones',
+        'tipo': tipo,
         'descripcion': dimension.descripcion or '',
         'tipo_funcional': dimension.tipo_funcional,
         'tipo_dato': dimension.tipo_dato,
@@ -1728,7 +2139,7 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
         'activo': ed.activo,
-        'columnas': [] if dimension.tipo_calculo else _default_columns_for_type('opciones'),
+        'columnas': [] if dimension.tipo_calculo else _default_columns_for_type(tipo),
         'filas': [],
     }
 
@@ -1768,18 +2179,18 @@ def _normalize_catalog_cell_value(col_type, raw):
 
 
 def _default_columns_for_type(tipo):
+    if tipo == 'numerico_libre':
+        return []
     if tipo == 'rangos':
         return [
             {'nombre_columna': 'Etiqueta', 'clave_interna': 'etiqueta', 'tipo_dato': 'texto'},
             {'nombre_columna': 'Desde', 'clave_interna': 'limite_inferior', 'tipo_dato': 'numero'},
             {'nombre_columna': 'Hasta', 'clave_interna': 'limite_superior', 'tipo_dato': 'numero'},
             {'nombre_columna': 'Valor principal', 'clave_interna': 'valor_numerico', 'tipo_dato': 'numero'},
-            {'nombre_columna': 'Valor secundario', 'clave_interna': 'valor_secundario', 'tipo_dato': 'numero'},
         ]
     return [
         {'nombre_columna': 'Etiqueta', 'clave_interna': 'etiqueta', 'tipo_dato': 'texto'},
         {'nombre_columna': 'Valor principal', 'clave_interna': 'valor_numerico', 'tipo_dato': 'numero'},
-        {'nombre_columna': 'Valor secundario', 'clave_interna': 'valor_secundario', 'tipo_dato': 'numero'},
         {'nombre_columna': 'Booleano', 'clave_interna': 'valor_booleano', 'tipo_dato': 'booleano'},
     ]
 
@@ -1800,6 +2211,48 @@ def _save_strategy_catalogs(estrategia, payload):
     existing_eds = {str(obj.pk): obj for obj in models.EstrategiaDimension.objects.filter(estrategia=estrategia).select_related('dimension')}
     keep_ids = set()
     tipos_calculo_validos = dict(models.Dimension.TIPO_CALCULO_CHOICES)
+    tipos_catalogo_validos = {'opciones', 'rangos', 'numerico_libre'}
+
+    def _normalize_calculation_config(config_raw, tipo_calculo):
+        config_raw = config_raw if isinstance(config_raw, dict) else {}
+        valid_ops = set(tipos_calculo_validos.keys()) - {''}
+
+        def _clean_operandos(value):
+            if not isinstance(value, list):
+                return []
+            cleaned = []
+            for operand in value:
+                if isinstance(operand, dict):
+                    cleaned.append(operand)
+                elif operand not in (None, ''):
+                    cleaned.append(str(operand))
+            return cleaned
+
+        raw_steps = config_raw.get('pasos') or config_raw.get('steps') or []
+        steps = []
+        if isinstance(raw_steps, list):
+            for raw_step in raw_steps:
+                if not isinstance(raw_step, dict):
+                    continue
+                operacion = str(raw_step.get('operacion') or raw_step.get('tipo_calculo') or raw_step.get('operation') or '').strip()
+                if operacion not in valid_ops:
+                    operacion = tipo_calculo
+                operandos = _clean_operandos(
+                    raw_step.get('operandos') or raw_step.get('campos') or raw_step.get('sources') or []
+                )
+                if operacion and operandos:
+                    steps.append({'operacion': operacion, 'operandos': operandos})
+
+        if steps:
+            return {
+                'pasos': steps,
+                'operandos': steps[0]['operandos'],
+            }
+
+        operandos = _clean_operandos(
+            config_raw.get('operandos') or config_raw.get('campos') or config_raw.get('sources') or []
+        )
+        return {'operandos': operandos}
 
     def _clean_catalogo(catalogo):
         models.CriticidadDimension.objects.filter(
@@ -1823,6 +2276,8 @@ def _save_strategy_catalogs(estrategia, payload):
         nombre = str(item.get('nombre') or '').strip() or f'Dimensión {idx}'
         campo = str(item.get('campo') or '').strip()
         tipo = str(item.get('tipo') or 'opciones').strip()
+        if tipo not in tipos_catalogo_validos:
+            tipo = 'opciones'
         descripcion = str(item.get('descripcion') or '').strip()
         tipo_funcional = str(item.get('tipo_funcional') or 'atributo').strip()
         tipo_dato = str(item.get('tipo_dato') or 'tabla').strip()
@@ -1833,11 +2288,7 @@ def _save_strategy_catalogs(estrategia, payload):
 
         config_calculo_raw = item.get('config_calculo') if isinstance(item.get('config_calculo'), dict) else None
         if es_calculada:
-            config_calculo_raw = config_calculo_raw or {}
-            operandos = config_calculo_raw.get('operandos') or config_calculo_raw.get('campos') or config_calculo_raw.get('sources') or []
-            if not isinstance(operandos, list):
-                operandos = []
-            config_calculo_raw = {'operandos': operandos}
+            config_calculo_raw = _normalize_calculation_config(config_calculo_raw, tipo_calculo)
             config_calculo = json.dumps(config_calculo_raw, ensure_ascii=False)
             columnas = []
             filas = []
@@ -1845,10 +2296,30 @@ def _save_strategy_catalogs(estrategia, payload):
                 tipo_funcional = 'resultado'
             if tipo_dato not in dict(models.Dimension.TIPO_DATO_CHOICES):
                 tipo_dato = 'numerico'
-        else:
+        elif tipo == 'numerico_libre':
             config_calculo = None
+            columnas = []
+            filas = []
+            tipo_dato = 'numerico'
+        else:
+            dependencia = ''
+            if tipo in {'rangos', 'opciones'} and isinstance(config_calculo_raw, dict):
+                for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
+                    value = config_calculo_raw.get(key)
+                    if value not in (None, ''):
+                        dependencia = str(value).strip()
+                        break
+            config_calculo = json.dumps({'dependencia': dependencia}, ensure_ascii=False) if dependencia else None
             columnas = item.get('columnas') if isinstance(item.get('columnas'), list) else []
+            columnas = [
+                col for col in columnas
+                if isinstance(col, dict) and str(col.get('clave_interna') or '').strip() != 'valor_secundario'
+            ]
             filas = item.get('filas') if isinstance(item.get('filas'), list) else []
+            for row in filas:
+                values = row.get('valores') if isinstance(row, dict) and isinstance(row.get('valores'), dict) else None
+                if values is not None:
+                    values.pop('valor_secundario', None)
             if not columnas:
                 columnas = _default_columns_for_type(tipo)
 
@@ -1866,7 +2337,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 defaults={
                     'nombre': nombre,
                     'campo': campo or _safe_slug(nombre),
-                    'tipo': tipo if tipo in {'rangos', 'opciones'} else 'opciones',
+                    'tipo': tipo,
                     'descripcion': descripcion,
                     'activa': True,
                 },
@@ -1900,7 +2371,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 estrategia_dimension=estrategia_dimension,
                 nombre=nombre,
                 campo=campo or '',
-                tipo=tipo if tipo in {'rangos', 'opciones'} else 'opciones',
+                tipo=tipo,
                 descripcion=descripcion,
                 activa=True,
             )
@@ -1930,7 +2401,7 @@ def _save_strategy_catalogs(estrategia, payload):
 
         catalogo.nombre = nombre
         catalogo.campo = campo
-        catalogo.tipo = tipo if tipo in {'rangos', 'opciones'} else 'opciones'
+        catalogo.tipo = tipo
         catalogo.descripcion = descripcion
         catalogo.activa = True
         catalogo.save()
@@ -2051,6 +2522,27 @@ def _level_defs_from_strategy_dimension(estrategia_dimension, count, prefix):
         return _matrix_level_dicts([], count, prefix)
 
     escalas = list(estrategia_dimension.escalas_valor.order_by('nivel_ordinal', 'id'))
+    if not escalas:
+        try:
+            catalogo = estrategia_dimension.catalogo
+            filas_catalogo = list(
+                catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id')
+            )
+        except models.DimensionCatalogo.DoesNotExist:
+            filas_catalogo = []
+        if filas_catalogo:
+            data = []
+            for idx in range(1, count + 1):
+                fila = filas_catalogo[idx - 1] if idx <= len(filas_catalogo) else None
+                numeric_value = _catalog_row_primary_numeric(fila) if fila else None
+                data.append({
+                    'idx': idx,
+                    'nombre': _catalog_row_text(fila) if fila else f'{prefix.upper()}{idx}',
+                    'valor': _json_safe(numeric_value) if numeric_value is not None else idx,
+                    'descripcion': fila.etiqueta if fila else '',
+                })
+            return data
+
     data = []
     for idx in range(1, count + 1):
         escala = escalas[idx - 1] if idx <= len(escalas) else None
@@ -2288,19 +2780,17 @@ def _next_strategy_order(estrategia):
     return (current.orden if current else 0) + 1
 
 
-def _ensure_matrix_strategy_dimensions(estrategia, matrix_name, prob_defs, impact_defs, existing_prob=None, existing_impact=None):
+def _ensure_matrix_strategy_dimensions_legacy(estrategia, matrix_name, prob_defs, impact_defs, existing_prob=None, existing_impact=None):
     prob_dim = existing_prob if existing_prob and existing_prob.estrategia_id == estrategia.pk else None
     impact_dim = existing_impact if existing_impact and existing_impact.estrategia_id == estrategia.pk else None
     next_order = _next_strategy_order(estrategia)
     if not prob_dim:
-        print("bandera 1")
         prob_dimension = models.Dimension.objects.create(
             nombre=f'Probabilidad - {matrix_name}',
             descripcion=f'Dimensión creada automáticamente para la matriz {matrix_name}',
             tipo_funcional='probabilidad',
             tipo_dato='numerico',
         )
-        print("bandera 2")
         prob_dim = models.EstrategiaDimension.objects.create(
             estrategia=estrategia,
             dimension=prob_dimension,
@@ -2310,7 +2800,6 @@ def _ensure_matrix_strategy_dimensions(estrategia, matrix_name, prob_defs, impac
         )
         next_order += 1
     else:
-        print("bandera 3")
         prob_dimension = prob_dim.dimension
         prob_dimension.nombre = f'Probabilidad - {matrix_name}'
         prob_dimension.descripcion = f'Dimensión creada automáticamente para la matriz {matrix_name}'
@@ -2322,7 +2811,6 @@ def _ensure_matrix_strategy_dimensions(estrategia, matrix_name, prob_defs, impac
         prob_dim.save(update_fields=['obligatorio', 'activo'])
 
     if not impact_dim:
-        print("bandera 4")
         impact_dimension = models.Dimension.objects.create(
             nombre=f'Impacto - {matrix_name}',
             descripcion=f'Dimensión creada automáticamente para la matriz {matrix_name}',
@@ -2337,7 +2825,6 @@ def _ensure_matrix_strategy_dimensions(estrategia, matrix_name, prob_defs, impac
             activo=True,
         )
     else:
-        print("bandera 1")
         impact_dimension = impact_dim.dimension
         impact_dimension.nombre = f'Impacto - {matrix_name}'
         impact_dimension.descripcion = f'Dimensión creada automáticamente para la matriz {matrix_name}'
@@ -2348,6 +2835,94 @@ def _ensure_matrix_strategy_dimensions(estrategia, matrix_name, prob_defs, impac
         impact_dim.activo = True
         impact_dim.save(update_fields=['obligatorio', 'activo'])
 
+    return prob_dim, impact_dim
+
+
+def _matrix_axis_prefix(axis):
+    return 'Probabilidad' if axis == 'probabilidad' else 'Impacto'
+
+
+def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
+    if not estrategia_dimension:
+        return False
+    name = (estrategia_dimension.dimension.nombre or '').strip().lower()
+    prefixes = []
+    if axis in (None, 'probabilidad'):
+        prefixes.append('probabilidad - ')
+    if axis in (None, 'impacto'):
+        prefixes.append('impacto - ')
+    return any(name.startswith(prefix) for prefix in prefixes)
+
+
+def _update_generated_matrix_axis_dimension(estrategia_dimension, axis, matrix_name):
+    prefix = _matrix_axis_prefix(axis)
+    dimension = estrategia_dimension.dimension
+    dimension.nombre = f'{prefix} - {matrix_name}'
+    dimension.descripcion = f'Dimension creada automaticamente para la matriz {matrix_name}'
+    dimension.tipo_funcional = axis
+    dimension.tipo_dato = 'numerico'
+    dimension.save()
+    estrategia_dimension.obligatorio = True
+    estrategia_dimension.activo = True
+    estrategia_dimension.save(update_fields=['obligatorio', 'activo'])
+    return estrategia_dimension
+
+
+def _create_generated_matrix_axis_dimension(estrategia, axis, matrix_name, order):
+    prefix = _matrix_axis_prefix(axis)
+    dimension = models.Dimension.objects.create(
+        nombre=f'{prefix} - {matrix_name}',
+        descripcion=f'Dimension creada automaticamente para la matriz {matrix_name}',
+        tipo_funcional=axis,
+        tipo_dato='numerico',
+    )
+    return models.EstrategiaDimension.objects.create(
+        estrategia=estrategia,
+        dimension=dimension,
+        orden=order,
+        obligatorio=True,
+        activo=True,
+    )
+
+
+def _resolve_matrix_axis_dimension(estrategia, axis, matrix_name, next_order, selected=None, existing=None):
+    if selected and selected.estrategia_id == estrategia.pk:
+        return selected, next_order
+
+    if existing and existing.estrategia_id == estrategia.pk and _is_generated_matrix_axis_dimension(existing, axis):
+        return _update_generated_matrix_axis_dimension(existing, axis, matrix_name), next_order
+
+    created = _create_generated_matrix_axis_dimension(estrategia, axis, matrix_name, next_order)
+    return created, next_order + 1
+
+
+def _ensure_matrix_strategy_dimensions(
+    estrategia,
+    matrix_name,
+    prob_defs,
+    impact_defs,
+    existing_prob=None,
+    existing_impact=None,
+    selected_prob=None,
+    selected_impact=None,
+):
+    next_order = _next_strategy_order(estrategia)
+    prob_dim, next_order = _resolve_matrix_axis_dimension(
+        estrategia,
+        'probabilidad',
+        matrix_name,
+        next_order,
+        selected=selected_prob,
+        existing=existing_prob,
+    )
+    impact_dim, next_order = _resolve_matrix_axis_dimension(
+        estrategia,
+        'impacto',
+        matrix_name,
+        next_order,
+        selected=selected_impact,
+        existing=existing_impact,
+    )
     return prob_dim, impact_dim
 
 
@@ -2417,6 +2992,8 @@ def matriz_builder_new(request):
                     cd['nombre'],
                     prob_defs,
                     impact_defs,
+                    selected_prob=cd.get('dimension_probabilidad'),
+                    selected_impact=cd.get('dimension_impacto'),
                 )
                 matriz = models.MatrizRiesgo.objects.create(
                     nombre=cd['nombre'],
@@ -2491,6 +3068,8 @@ def matriz_builder_edit(request, pk):
                     impact_defs,
                     existing_prob=matriz.dimension_probabilidad,
                     existing_impact=matriz.dimension_impacto,
+                    selected_prob=cd.get('dimension_probabilidad'),
+                    selected_impact=cd.get('dimension_impacto'),
                 )
                 matriz.nombre = cd['nombre']
                 matriz.fecha_creado = cd['fecha_creado']
@@ -2529,6 +3108,8 @@ def matriz_builder_edit(request, pk):
             'nombre': matriz.nombre,
             'fecha_creado': matriz.fecha_creado,
             'estrategia': matriz.estrategia,
+            'dimension_probabilidad': matriz.dimension_probabilidad,
+            'dimension_impacto': matriz.dimension_impacto,
             'eje_horizontal': matriz.eje_horizontal,
             'x_count': len(matrix_preview['x_defs']),
             'y_count': len(matrix_preview['rows']),

@@ -189,6 +189,20 @@ class MatrizBuilderForm(forms.Form):
     estrategia = forms.ModelChoiceField(
         queryset=app_models.Estrategia.objects.select_related('empresa').all()
     )
+    dimension_probabilidad = forms.ModelChoiceField(
+        queryset=app_models.EstrategiaDimension.objects.none(),
+        required=False,
+        label='Dimension eje probabilidad',
+        empty_label='Crear dimension automatica',
+        help_text='Dimension existente que entrega el valor para el eje de probabilidad.',
+    )
+    dimension_impacto = forms.ModelChoiceField(
+        queryset=app_models.EstrategiaDimension.objects.none(),
+        required=False,
+        label='Dimension eje impacto',
+        empty_label='Crear dimension automatica',
+        help_text='Dimension existente que entrega el valor para el eje de impacto.',
+    )
     eje_horizontal = forms.ChoiceField(
         choices=app_models.MatrizRiesgo.EJE_HORIZONTAL_CHOICES,
         initial='impacto',
@@ -198,9 +212,48 @@ class MatrizBuilderForm(forms.Form):
 
     def __init__(self, *args, strategy=None, **kwargs):
         super().__init__(*args, **kwargs)
+        strategy_id = getattr(strategy, 'pk', strategy) if strategy is not None else None
+        if self.is_bound:
+            strategy_id = self.data.get(self.add_prefix('estrategia')) or strategy_id
+        elif self.initial.get('estrategia'):
+            strategy_id = getattr(self.initial.get('estrategia'), 'pk', self.initial.get('estrategia'))
+
+        axis_qs = app_models.EstrategiaDimension.objects.filter(
+            activo=True,
+        ).select_related(
+            'estrategia',
+            'dimension',
+        ).order_by(
+            'estrategia__nombre',
+            'orden',
+            'dimension__nombre',
+        )
+        if strategy_id:
+            axis_qs = axis_qs.filter(estrategia_id=strategy_id)
+
+        for field_name in ('dimension_probabilidad', 'dimension_impacto'):
+            self.fields[field_name].queryset = axis_qs
+            self.fields[field_name].label_from_instance = (
+                lambda obj: f'{obj.estrategia} / {obj.dimension.nombre}'
+            )
+
         for _, field in self.fields.items():
             existing = field.widget.attrs.get('class', '')
             field.widget.attrs['class'] = f'{existing} input-control'.strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        estrategia = cleaned.get('estrategia')
+        for field_name in ('dimension_probabilidad', 'dimension_impacto'):
+            estrategia_dimension = cleaned.get(field_name)
+            if not estrategia or not estrategia_dimension:
+                continue
+            if estrategia_dimension.estrategia_id != estrategia.pk:
+                self.add_error(
+                    field_name,
+                    'La dimension elegida debe pertenecer a la estrategia seleccionada.',
+                )
+        return cleaned
 
 
 class ACARegistroForm(forms.Form):
@@ -309,7 +362,7 @@ def _catalog_primary_numeric_from_values(values):
             return _decimal_or_none(value)
     if isinstance(values, dict):
         for key, value in values.items():
-            if key in {'limite_inferior', 'limite_superior', 'min', 'max'}:
+            if key in {'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max', 'minimo', 'mínimo', 'maximo', 'máximo'}:
                 continue
             decimal_value = _decimal_or_none(value)
             if decimal_value is not None:
@@ -317,13 +370,56 @@ def _catalog_primary_numeric_from_values(values):
     return None
 
 
+def _catalog_dependency_match_from_values(values):
+    for key in [
+        'valor_dependencia',
+        'dependencia',
+        'depende_de',
+        'valor_origen',
+        'valor_fuente',
+        'source_value',
+        'valor_de_entrada',
+        'valor_entrada',
+        'entrada',
+    ]:
+        value = values.get(key) if isinstance(values, dict) else None
+        if value not in (None, ''):
+            return str(value)
+    primary = _catalog_primary_numeric_from_values(values)
+    return str(primary) if primary is not None else ''
+
+
+def _catalog_dependency_from_config(config):
+    if isinstance(config, str):
+        try:
+            config = json.loads(config or '{}')
+        except Exception:
+            config = {}
+    if not isinstance(config, dict):
+        return ''
+    for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
+        value = config.get(key)
+        if value not in (None, ''):
+            return str(value).strip()
+    return ''
+
+
+def _catalog_bound_from_values(values, keys):
+    if not isinstance(values, dict):
+        return ''
+    for key in keys:
+        value = values.get(key)
+        if value not in (None, ''):
+            return str(value)
+    return ''
+
 
 class CriticidadDimensionInputForm(forms.Form):
     dimension = forms.ModelChoiceField(queryset=app_models.Dimension.objects.none(), widget=forms.HiddenInput())
     escala_valor = forms.ModelChoiceField(queryset=app_models.EscalaValor.objects.none(), required=False)
     catalogo_fila = forms.ModelChoiceField(queryset=app_models.DimensionCatalogoFila.objects.none(), required=False)
     valor_numerico = forms.DecimalField(required=False, max_digits=12, decimal_places=2)
-    valor_secundario = forms.DecimalField(required=False, max_digits=12, decimal_places=2)
+    valor_secundario = forms.DecimalField(required=False, max_digits=12, decimal_places=2, widget=forms.HiddenInput())
     valor_booleano = forms.TypedChoiceField(
         required=False,
         choices=(('', '—'), ('true', 'Sí'), ('false', 'No')),
@@ -383,10 +479,17 @@ class CriticidadDimensionInputForm(forms.Form):
         self.tipo_calculo = (getattr(dimension_obj, 'tipo_calculo', '') or '').strip() if dimension_obj else ''
         self.config_calculo = {}
         self.config_calculo_json = '{}'
+        self.catalog_dependency = ''
+        self.catalog_type = ''
+        self.is_dependent_catalog = False
+        catalogo_obj = None
+        self.estrategia_dimension_obj = None
         if dimension_obj:
             try:
                 estrategia_dimension_obj = app_models.EstrategiaDimension.objects.select_related('dimension').filter(estrategia=estrategia, dimension=dimension_obj, activo=True).first()
+                self.estrategia_dimension_obj = estrategia_dimension_obj
                 catalogo_obj = getattr(estrategia_dimension_obj, 'catalogo', None) if estrategia_dimension_obj else None
+                self.catalog_type = getattr(catalogo_obj, 'tipo', '') if catalogo_obj else ''
                 self.dimension_campo = getattr(catalogo_obj, 'campo', '') or ''
             except Exception:
                 self.dimension_campo = ''
@@ -397,6 +500,7 @@ class CriticidadDimensionInputForm(forms.Form):
                 except Exception:
                     self.config_calculo = {}
             self.config_calculo_json = json.dumps(self.config_calculo, ensure_ascii=False)
+            self.catalog_dependency = _catalog_dependency_from_config(self.config_calculo)
 
         if current_dimension_id:
             qs_scale = qs_scale.filter(estrategia_dimension__dimension_id=current_dimension_id)
@@ -408,11 +512,26 @@ class CriticidadDimensionInputForm(forms.Form):
 
         def _catalog_label(obj):
             values = obj.values_map()
+            columns = list(obj.catalogo.columnas.all().order_by('orden'))
+            is_dependent = bool(_catalog_dependency_from_config(obj.catalogo.estrategia_dimension.dimension.config_calculo))
             extras = []
-            for col in obj.catalogo.columnas.all().order_by('orden')[:3]:
+            for col in columns[:3]:
                 val = values.get(col.clave_interna)
                 if val not in (None, '') and col.clave_interna not in {'etiqueta', 'nombre', 'descripcion'}:
                     extras.append(f"{col.nombre_columna}: {val}")
+
+            if is_dependent:
+                for value_key in ['valor_numerico', 'valor_principal', 'valor', 'nivel', 'puntaje']:
+                    val = values.get(value_key)
+                    if val in (None, ''):
+                        continue
+                    column = next((col for col in columns if col.clave_interna == value_key), None)
+                    label = column.nombre_columna if column else 'Valor'
+                    display = f"{label}: {val}"
+                    if display not in extras:
+                        extras.append(display)
+                    break
+
             return f"{' || '.join(extras)}" if extras else ''
 
         self.fields['catalogo_fila'].label_from_instance = _catalog_label
@@ -433,6 +552,12 @@ class CriticidadDimensionInputForm(forms.Form):
         self.input_mode = mode
         if mode == 'calculado':
             self.fields['valor_numerico'].widget = forms.HiddenInput()
+        self.is_dependent_catalog = bool(
+            mode == 'catalogo'
+            and self.catalog_dependency
+            and catalogo_obj
+            and catalogo_obj.tipo in {'rangos', 'opciones'}
+        )
 
         self.option_headers = []
         self.option_rows = []
@@ -468,6 +593,9 @@ class CriticidadDimensionInputForm(forms.Form):
                     'pk': fila.pk,
                     'cells': cells,
                     'value_numeric': str(_catalog_primary_numeric_from_values(values) or ''),
+                    'match_value': _catalog_dependency_match_from_values(values),
+                    'range_min': _catalog_bound_from_values(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo']),
+                    'range_max': _catalog_bound_from_values(values, ['limite_superior', 'hasta', 'max', 'maximo', 'máximo']),
                 })
 
 
@@ -586,6 +714,8 @@ class ServicioACARegistroForm(forms.Form):
         equipos_qs = get_service_equipment(service) if service else app_models.Equipo.objects.none()
         self.fields['equipo'].queryset = equipos_qs
         self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_equipo} - {obj.nombre_equipo}"
+        self.fields['equipo'].empty_label = 'Selecciona un equipo'
+        self.fields['equipo'].required = not allow_incomplete
 
         if service and getattr(service, 'estrategia_id', None):
             self.matriz = app_models.MatrizRiesgo.objects.filter(
@@ -619,11 +749,6 @@ class ServicioACARegistroForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        if self.matriz and not self.allow_incomplete and not cleaned.get('matrix_celda'):
-            self.add_error(
-                None,
-                'Debes seleccionar una celda de la matriz para definir probabilidad, impacto y criticidad.',
-            )
         return cleaned
 
 class ServicioForm(BaseModelForm):

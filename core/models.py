@@ -213,7 +213,6 @@ class Equipo(BaseUnmanagedModel):
     nombre_equipo = models.CharField(max_length=200)
     ut = models.CharField(max_length=200)
     descripcion_ut = models.CharField(max_length=255)
-    otros_posibles = models.TextField(blank=True)
     sistema = models.ForeignKey(Sistema, on_delete=models.DO_NOTHING, db_column='sistema_id', related_name='equipos')
 
     class Meta(BaseUnmanagedModel.Meta):
@@ -284,7 +283,7 @@ class Criticidad(BaseUnmanagedModel):
     criticidad_final = models.CharField(max_length=30)
     creado_en = models.DateTimeField()
     aca_carga = models.ForeignKey(AcaCarga, on_delete=models.DO_NOTHING, db_column='aca_carga_id', related_name='criticidades')
-    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='criticidades')
+    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', blank=True, null=True, related_name='criticidades')
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_criticidad'
@@ -315,6 +314,8 @@ class Dimension(BaseUnmanagedModel):
         ('resta', 'Resta'),
         ('multiplicacion', 'Multiplicación'),
         ('division', 'División'),
+        ('maximo', 'Máximo'),
+        ('minimo', 'Mínimo'),
     ]
 
     nombre = models.CharField(max_length=200)
@@ -351,6 +352,7 @@ class DimensionCatalogo(BaseUnmanagedModel):
     TIPO_CHOICES = [
         ('opciones', 'Opciones'),
         ('rangos', 'Rangos'),
+        ('numerico_libre', 'Numérico libre'),
     ]
 
     nombre = models.CharField(max_length=200)

@@ -70,6 +70,21 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
   .kpi-inline .pill {
     background: #eef2ff;
   }
+  .axis-dimension-box {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 12px 0 16px;
+    background: #f8fafc;
+  }
+  .axis-dimension-box h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+  }
+  .axis-dimension-box small {
+    display: block;
+    margin-top: 4px;
+  }
   @media (max-width: 1100px) {
     .matrix-shell {
       grid-template-columns: 1fr;
@@ -113,6 +128,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     <div class="panel">
       <div class="form-grid">
         {% for field in builder_form %}
+        {% if field.name != 'dimension_probabilidad' and field.name != 'dimension_impacto' %}
         <div
           class="form-field {% if field.name == 'estrategia' or field.name == 'nombre' %}full{% endif %}"
         >
@@ -121,7 +137,29 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
           <div style="color: #b91c1c; font-size: 13px">{{ field.errors }}</div>
           {% endif %}
         </div>
+        {% endif %}
         {% endfor %}
+      </div>
+      <div class="axis-dimension-box">
+        <h3>Dimensiones que alimentan la matriz</h3>
+        <div class="form-grid">
+          <div class="form-field full">
+            <label for="{{ builder_form.dimension_probabilidad.id_for_label }}">{{ builder_form.dimension_probabilidad.label }}</label>
+            {{ builder_form.dimension_probabilidad }}
+            <small class="muted">Valor que se usara para buscar el nivel de probabilidad.</small>
+            {% if builder_form.dimension_probabilidad.errors %}
+              <div style="color: #b91c1c; font-size: 13px">{{ builder_form.dimension_probabilidad.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="form-field full">
+            <label for="{{ builder_form.dimension_impacto.id_for_label }}">{{ builder_form.dimension_impacto.label }}</label>
+            {{ builder_form.dimension_impacto }}
+            <small class="muted">Valor que se usara para buscar el nivel de impacto.</small>
+            {% if builder_form.dimension_impacto.errors %}
+              <div style="color: #b91c1c; font-size: 13px">{{ builder_form.dimension_impacto.errors }}</div>
+            {% endif %}
+          </div>
+        </div>
       </div>
       <div class="kpi-inline">
         <span class="pill" id="axisXLabel">Eje X</span>

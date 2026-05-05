@@ -129,6 +129,40 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     background: #fafafa;
   }
 
+  .calc-step {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+
+  .calc-step-head {
+    display: grid;
+    grid-template-columns: auto minmax(160px, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .calc-step-head select {
+    width: 100%;
+  }
+
+  .calc-source-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 12px;
+  }
+
+  .calc-source-list label,
+  .calc-result-option {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+  }
+
   @media (max-width: 1100px) {
 
     .editor-shell,
@@ -235,7 +269,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
             <label>Operandos del cálculo</label>
             <div id="calcSourcesWrap" class="input-control" style="
                 height: auto;
-                max-height: 140px;
+                max-height: 320px;
                 overflow: auto;
                 padding: 8px;
               "></div>
@@ -247,7 +281,13 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
               onchange="changeCatalogType(this.value)">
               <option value="opciones">Opciones</option>
               <option value="rangos">Rangos</option>
+              <option value="numerico_libre">Numérico libre</option>
             </select>
+          </div>
+          <div id="dependencyBlock">
+            <label>Depende de resultado</label>
+            <select class="input-control" id="fDependencia" onchange="updateDependency(this.value)"></select>
+            <small class="muted">Selecciona la dimensiÃ³n calculada o tabla que resolverÃ¡ automÃ¡ticamente la fila.</small>
           </div>
           <div style="display: flex; align-items: end">
             <label><input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
@@ -284,27 +324,33 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function current() { return store.items.find(x => String(x.id) === String(store.active)) || null; }
   function slugifyLite(v) { return (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 100); }
   function isCalculated(item) { return !!(item && item.tipo_calculo); }
-  function ensureColumns(item) { if (isCalculated(item)) { item.columnas = []; return; } if (Array.isArray(item.columnas) && item.columnas.length) return; item.columnas = defaultColumns(item.tipo); }
+  function dependencyValue(item) { return (item && item.config_calculo && (item.config_calculo.dependencia || item.config_calculo.depende_de || item.config_calculo.source || item.config_calculo.fuente)) || ''; }
+  function ensureColumns(item) { if (isCalculated(item) || item.tipo === 'numerico_libre') { item.columnas = []; return; } if (Array.isArray(item.columnas) && item.columnas.length) return; item.columnas = defaultColumns(item.tipo); }
   function defaultColumns(type) {
+    if (type === 'numerico_libre') return [];
     return type === 'rangos' ? [
       { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
       { id: 'c2', nombre_columna: 'Desde', clave_interna: 'limite_inferior', tipo_dato: 'numero' },
       { id: 'c3', nombre_columna: 'Hasta', clave_interna: 'limite_superior', tipo_dato: 'numero' },
-      { id: 'c4', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' },
-      { id: 'c5', nombre_columna: 'Valor secundario', clave_interna: 'valor_secundario', tipo_dato: 'numero' }
+      { id: 'c4', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' }
     ] : [
       { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
       { id: 'c2', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' },
-      { id: 'c3', nombre_columna: 'Valor secundario', clave_interna: 'valor_secundario', tipo_dato: 'numero' },
-      { id: 'c4', nombre_columna: 'Booleano', clave_interna: 'valor_booleano', tipo_dato: 'booleano' }
+      { id: 'c3', nombre_columna: 'Booleano', clave_interna: 'valor_booleano', tipo_dato: 'booleano' }
     ];
   }
   function ensureRows(item) { item.filas = Array.isArray(item.filas) ? item.filas : []; item.filas.forEach(r => r.valores = r.valores || {}); }
+  function withoutSecondaryColumns(columns) {
+    return (Array.isArray(columns) ? columns : []).filter(col => col && col.clave_interna !== 'valor_secundario');
+  }
   function renderList() {
     const list = document.getElementById('itemsList');
     document.getElementById('itemsCount').textContent = store.items.length;
     if (!store.items.length) { list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin dimensiones todavía.</div>'; return; }
-    list.innerHTML = store.items.map(it => `<div class="item-card ${String(it.id) === String(store.active) ? 'active' : ''}" onclick="selectItem('${it.id}')"><strong>${it.nombre || 'Sin nombre'}</strong><div class="meta">${it.tipo_funcional || '-'} | ${it.tipo_dato || '-'} | ${it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')}</div></div>`).join('');
+    list.innerHTML = store.items.map(it => {
+      const dep = dependencyValue(it);
+      return `<div class="item-card ${String(it.id) === String(store.active) ? 'active' : ''}" onclick="selectItem('${it.id}')"><strong>${it.nombre || 'Sin nombre'}</strong><div class="meta">${it.tipo_funcional || '-'} | ${it.tipo_dato || '-'} | ${it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')}${dep ? ' | depende: ' + dep : ''}</div></div>`;
+    }).join('');
   }
   function renderEditor() {
     const item = current();
@@ -317,10 +363,16 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false;
     const calculated = isCalculated(item);
     catalogTypeBlock.style.display = calculated ? 'none' : '';
-    catalogBuilder.style.display = calculated ? 'none' : '';
+    catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
     calcSourcesBlock.style.display = calculated ? '' : 'none';
+    dependencyBlock.style.display = (!calculated && ['rangos', 'opciones'].includes(item.tipo)) ? '' : 'none';
     renderCalculationSources();
-    if (!calculated) { renderColumns(); renderRows(); } else { columnsWrap.innerHTML = ''; rowsWrap.innerHTML = ''; }
+    renderDependencySources();
+    if (!calculated && item.tipo !== 'numerico_libre') {
+      item.columnas = withoutSecondaryColumns(item.columnas);
+      item.filas.forEach(row => { if (row.valores) delete row.valores.valor_secundario; });
+      renderColumns(); renderRows();
+    } else { columnsWrap.innerHTML = ''; rowsWrap.innerHTML = ''; }
   }
   function renderCalculationSources() {
     const item = current(); if (!item) return;
@@ -337,6 +389,131 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
   function updateCalculationType(value) { const item = current(); if (!item) return; item.tipo_calculo = value; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (value) { item.tipo_funcional = 'resultado'; item.tipo_dato = 'numerico'; item.columnas = []; item.filas = []; } renderList(); renderEditor(); }
   function toggleCalcSource(campo, checked) { const item = current(); if (!item) return; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (checked && !item.config_calculo.operandos.includes(campo)) item.config_calculo.operandos.push(campo); if (!checked) item.config_calculo.operandos = item.config_calculo.operandos.filter(x => x !== campo); }
+  function calculationSteps(item) {
+    item.config_calculo = item.config_calculo || {};
+    let steps = Array.isArray(item.config_calculo.pasos) ? item.config_calculo.pasos : [];
+    if (!steps.length) {
+      const operandos = Array.isArray(item.config_calculo.operandos) ? item.config_calculo.operandos : [];
+      steps = [{ operacion: item.tipo_calculo || 'suma', operandos }];
+    }
+    steps = steps.map(step => ({
+      operacion: step.operacion || step.tipo_calculo || item.tipo_calculo || 'suma',
+      operandos: Array.isArray(step.operandos) ? step.operandos : []
+    }));
+    item.config_calculo.pasos = steps;
+    item.config_calculo.operandos = steps[0]?.operandos || [];
+    if (steps[0]?.operacion) item.tipo_calculo = steps[0].operacion;
+    return steps;
+  }
+  function operationOptions(selected) {
+    return Array.from(fTipoCalculo.options)
+      .filter(opt => opt.value)
+      .map(opt => '<option value="' + opt.value + '" ' + (opt.value === selected ? 'selected' : '') + '>' + opt.textContent + '</option>')
+      .join('');
+  }
+  function syncCalculationConfig(item) {
+    const steps = calculationSteps(item).filter(step => step.operacion && step.operandos.length);
+    item.config_calculo.pasos = steps;
+    item.config_calculo.operandos = steps[0]?.operandos || [];
+    item.tipo_calculo = steps[0]?.operacion || item.tipo_calculo || '';
+  }
+  function renderCalculationSources() {
+    const item = current(); if (!item) return;
+    item.config_calculo = item.config_calculo || {};
+    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin calculo.</span>'; return; }
+    const steps = calculationSteps(item);
+    fTipoCalculo.value = item.tipo_calculo || '';
+    const addStep = '<button class="btn" type="button" onclick="addCalculationStep()">+ Agregar paso</button>';
+    if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span><div style="margin-top:8px;">' + addStep + '</div>'; return; }
+    calcSourcesWrap.innerHTML = steps.map((step, stepIdx) => {
+      const sourceList = sources.map(src => {
+        const campo = src.campo || slugifyLite(src.nombre || '');
+        const checked = step.operandos.includes(campo) ? 'checked' : '';
+        return '<label><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(' + stepIdx + ',\'' + campo + '\', this.checked)"> ' + (src.nombre || campo) + '</label>';
+      }).join('');
+      const resultChecked = step.operandos.includes('$resultado') ? 'checked' : '';
+      const resultOption = stepIdx > 0
+        ? '<label class="calc-result-option"><input type="checkbox" ' + resultChecked + ' onchange="toggleCalcSource(' + stepIdx + ',\'$resultado\', this.checked)"> Resultado anterior</label>'
+        : '';
+      const removeButton = stepIdx > 0
+        ? '<button class="btn btn-danger" type="button" onclick="removeCalculationStep(' + stepIdx + ')">X</button>'
+        : '<span></span>';
+      return '<div class="calc-step"><div class="calc-step-head"><strong>Paso ' + (stepIdx + 1) + '</strong><select onchange="updateCalcStepOperation(' + stepIdx + ', this.value)">' + operationOptions(step.operacion) + '</select>' + removeButton + '</div>' + resultOption + '<div class="calc-source-list">' + sourceList + '</div></div>';
+    }).join('') + '<div>' + addStep + '</div>';
+  }
+  function updateCalculationType(value) {
+    const item = current(); if (!item) return;
+    item.tipo_calculo = value;
+    if (!value) {
+      item.config_calculo = { operandos: [] };
+    } else {
+      item.config_calculo = item.config_calculo || {};
+      const steps = calculationSteps(item);
+      steps[0].operacion = value;
+      item.tipo_funcional = 'resultado';
+      item.tipo_dato = 'numerico';
+      item.columnas = [];
+      item.filas = [];
+      syncCalculationConfig(item);
+    }
+    renderList(); renderEditor();
+  }
+  function updateCalcStepOperation(stepIdx, value) {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    if (!steps[stepIdx]) return;
+    steps[stepIdx].operacion = value;
+    syncCalculationConfig(item);
+    fTipoCalculo.value = item.tipo_calculo || '';
+    renderList();
+  }
+  function toggleCalcSource(stepIdx, campo, checked) {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    const step = steps[stepIdx];
+    if (!step) return;
+    if (checked && !step.operandos.includes(campo)) step.operandos.push(campo);
+    if (!checked) step.operandos = step.operandos.filter(x => x !== campo);
+    syncCalculationConfig(item);
+  }
+  function addCalculationStep() {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    steps.push({ operacion: 'division', operandos: ['$resultado'] });
+    syncCalculationConfig(item);
+    renderCalculationSources();
+  }
+  function removeCalculationStep(stepIdx) {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    steps.splice(stepIdx, 1);
+    syncCalculationConfig(item);
+    renderCalculationSources();
+    renderList();
+  }
+  function renderDependencySources() {
+    const item = current(); if (!item || !dependencyBlock) return;
+    const selected = dependencyValue(item);
+    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    fDependencia.innerHTML = '<option value="">Sin dependencia</option>' + sources.map(src => {
+      const campo = src.campo || slugifyLite(src.nombre || '');
+      return `<option value="${campo}" ${campo === selected ? 'selected' : ''}>${src.nombre || campo}</option>`;
+    }).join('');
+  }
+  function updateDependency(value) {
+    const item = current(); if (!item) return;
+    item.config_calculo = item.config_calculo || {};
+    if (value) {
+      item.config_calculo.dependencia = value;
+    } else {
+      delete item.config_calculo.dependencia;
+      delete item.config_calculo.depende_de;
+      delete item.config_calculo.source;
+      delete item.config_calculo.fuente;
+    }
+    renderList();
+  }
 
   function renderColumns() {
     const item = current(); if (!item) return;
@@ -396,8 +573,37 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
   function deleteItem() {
      if (!current()) return; store.items = store.items.filter(x => String(x.id) !== String(store.active)); store.active = store.items[0]?.id || null; renderList(); renderEditor(); }
-  function updateField(field, value) { const item = current(); if (!item) return; item[field] = value; if (field === 'nombre' && !item.campo) { item.campo = slugifyLite(value); fCampo.value = item.campo; } renderList(); }
-  function changeCatalogType(value) { const item = current(); if (!item) return; item.tipo = value; item.columnas = defaultColumns(value); item.filas = []; renderEditor(); }
+  function updateField(field, value) {
+    const item = current(); if (!item) return;
+
+    if (field === 'nombre') {
+      item.nombre = value;
+      item.campo = slugifyLite(value);
+      fCampo.value = item.campo;
+    } else if (field === 'campo') {
+      item.campo = slugifyLite(value);
+      fCampo.value = item.campo;
+    } else {
+      item[field] = value;
+    }
+
+    renderList();
+  }
+  function changeCatalogType(value) {
+    const item = current(); if (!item) return;
+    item.tipo = value;
+    if (!['rangos', 'opciones'].includes(value) && item.config_calculo) { delete item.config_calculo.dependencia; }
+    if (value === 'numerico_libre') {
+      item.tipo_dato = 'numerico';
+      item.columnas = [];
+      item.filas = [];
+    } else {
+      if (item.tipo_dato === 'numerico') item.tipo_dato = 'tabla';
+      item.columnas = defaultColumns(value);
+      item.filas = [];
+    }
+    renderEditor();
+  }
   function addColumn() { const item = current(); if (!item) return; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: 'Nueva columna', clave_interna: 'col_' + (item.columnas.length + 1), tipo_dato: 'texto' }); renderColumns(); renderRows(); }
   function updateColumn(idx, field, value){
     const item = current();
@@ -442,6 +648,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function updateCell(rowIdx, key, value) { const item = current(); if (!item) return; const row = item.filas[rowIdx]; row.valores = row.valores || {}; row.valores[key] = value; if (key === 'etiqueta') row.etiqueta = value; }
   function removeRow(idx) { const item = current(); if (!item) return; item.filas.splice(idx, 1); renderRows(); }
   function normalize() {
+    store.items.forEach(item => { if (item.tipo_calculo) syncCalculationConfig(item); });
     return store.items.map((item, idx) => ({
       id: String(item.id).startsWith('new_') ? null : item.id,
       nombre: item.nombre || `Dimensión ${idx + 1}`,
@@ -449,20 +656,31 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       tipo: item.tipo || 'opciones',
       descripcion: item.descripcion || '',
       tipo_funcional: item.tipo_funcional || 'atributo',
-      tipo_dato: item.tipo_dato || 'tabla',
+      tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
       tipo_calculo: item.tipo_calculo || '',
-      config_calculo: item.tipo_calculo ? (item.config_calculo || { operandos: [] }) : null,
+      config_calculo: item.tipo_calculo
+        ? (item.config_calculo || { operandos: [] })
+        : ((['rangos', 'opciones'].includes(item.tipo) && dependencyValue(item)) ? { dependencia: dependencyValue(item) } : null),
       obligatorio: item.obligatorio !== false,
-      columnas: item.tipo_calculo ? [] : (item.columnas || []).map((col, colIdx) => ({
+      columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : withoutSecondaryColumns(item.columnas).map((col, colIdx) => ({
         nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,
         clave_interna: col.clave_interna || slugifyLite(col.nombre_columna || `col_${colIdx + 1}`),
         tipo_dato: col.tipo_dato || 'texto'
       })),
-      filas: item.tipo_calculo ? [] : (item.filas || []).map((row, rowIdx) => ({ etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores: row.valores || {} }))
+      filas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : (item.filas || []).map((row, rowIdx) => {
+        const valores = Object.assign({}, row.valores || {});
+        delete valores.valor_secundario;
+        return { etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores };
+      })
     }));
   }
   function saveAll() { payloadJson.value = JSON.stringify(normalize()); saveForm.submit(); }
-  (function init() { if (store.items.length) { store.active = store.items[0].id; } renderList(); renderEditor(); })();
+  (function init() {
+    const calcLabel = document.querySelector('#calcSourcesBlock label');
+    if (calcLabel) calcLabel.textContent = 'Pasos del calculo';
+    if (store.items.length) { store.active = store.items[0].id; }
+    renderList(); renderEditor();
+  })();
 </script>
 <script>
   function removeCurrentItem() {

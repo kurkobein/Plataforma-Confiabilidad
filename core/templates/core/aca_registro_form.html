@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Nuevo registro ACA</h2>
+        <h2>{% if editing_crit %}Editar registro ACA{% else %}Nuevo registro ACA{% endif %}</h2>
         <p>{{ service.codigo_servicio }} · {% if selected_strategy %}{{ selected_strategy.metodologias_display|default:"Sin metodología" }}{% endif %}</p>
     </div>
     <div class="page-header-actions" style="display: flex;">
@@ -23,6 +23,7 @@
     {{ base_form.origen }}
     {{ base_form.frecuencia_normalizada }}
     {{ base_form.matrix_celda }}
+    {% if editing_crit %}<input type="hidden" name="crit_id" value="{{ editing_crit.pk }}">{% endif %}
 
     <div class="card">
         <h3 class="card-title">Cabecera del análisis</h3>
@@ -52,7 +53,7 @@
         {{ dimension_formset.management_form }}
         <div class="dimension-grid">
         {% for form in dimension_formset %}
-            <div class="dimension-card" data-dimension-id="{{ form.dimension_obj.id }}" data-dimension-name="{{ form.dimension_obj.nombre }}" data-dimension-campo="{{ form.dimension_campo }}">
+            <div class="dimension-card" data-dimension-id="{{ form.dimension_obj.id }}" data-estrategia-dimension-id="{{ form.estrategia_dimension_obj.id }}" data-dimension-name="{{ form.dimension_obj.nombre }}" data-dimension-campo="{{ form.dimension_campo }}">
                 {{ form.dimension }}
                 <div class="dimension-card-header">
                     <div>
@@ -101,11 +102,14 @@
                     </div>
 
                 {% elif form.input_mode == 'catalogo' %}
-                    <div class="option-compact-row">
+                    <div class="option-compact-row" {% if form.is_dependent_catalog %}data-dependent-catalog data-dependent-source="{{ form.catalog_dependency }}" data-dependent-catalog-type="{{ form.catalog_type }}" data-option-target="{{ form.catalogo_fila.id_for_label }}"{% endif %}>
                         <div class="form-field catalog-picker-field">
                             <label>{{ form.catalogo_fila.label }}</label>
                             <div class="hidden-picker-select">{{ form.catalogo_fila }}</div>
-                            <input class="input-control picker-display" type="text" value="" readonly data-picker-display-for="{{ form.catalogo_fila.id_for_label }}" placeholder="Selecciona desde la tabla">
+                            <input class="input-control picker-display" type="text" value="" readonly data-picker-display-for="{{ form.catalogo_fila.id_for_label }}" placeholder="{% if form.is_dependent_catalog %}Se calculará automáticamente{% else %}Selecciona desde la tabla{% endif %}">
+                            {% if form.is_dependent_catalog %}
+                                <small class="muted">Depende de {{ form.catalog_dependency }}.</small>
+                            {% endif %}
                         </div>
                         <button type="button"
                                 class="btn btn-toggle-option"
@@ -113,18 +117,20 @@
                                 data-panel-id="option-panel-{{ forloop.counter0 }}"
                                 data-option-target="{{ form.catalogo_fila.id_for_label }}"
                                 aria-expanded="false">
-                            Ver tabla
+                            {% if form.is_dependent_catalog and form.catalog_type == 'rangos' %}Ver rangos{% else %}Ver tabla{% endif %}
                         </button>
                     </div>
                     <div id="option-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
                         <div class="table-wrap">
                             <table>
-                                <thead><tr>{% for header in form.option_headers %}<th>{{ header }}</th>{% endfor %}<th>Seleccionar</th></tr></thead>
+                                <thead><tr>{% for header in form.option_headers %}<th>{{ header }}</th>{% endfor %}{% if not form.is_dependent_catalog %}<th>Seleccionar</th>{% endif %}</tr></thead>
                                 <tbody>
                                     {% for row in form.option_rows %}
-                                        <tr data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}" class="picker-row">
+                                        <tr data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}" data-match-value="{{ row.match_value|default:'' }}" data-range-min="{{ row.range_min }}" data-range-max="{{ row.range_max }}" class="{% if form.is_dependent_catalog %}dependent-catalog-row{% else %}picker-row{% endif %}">
                                             {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
-                                            <td><button type="button" class="btn btn-pick-option" data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}">Usar</button></td>
+                                            {% if not form.is_dependent_catalog %}
+                                                <td><button type="button" class="btn btn-pick-option" data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}">Usar</button></td>
+                                            {% endif %}
                                         </tr>
                                     {% endfor %}
                                 </tbody>
@@ -139,15 +145,9 @@
                     </div>
 
                 {% elif form.input_mode == 'numerico' %}
-                    <div class="form-grid">
-                        <div class="form-field">
-                            <label>{{ form.valor_numerico.label }}</label>
-                            {{ form.valor_numerico }}
-                        </div>
-                        <div class="form-field">
-                            <label>{{ form.valor_secundario.label }}</label>
-                            {{ form.valor_secundario }}
-                        </div>
+                    <div class="form-field">
+                        <label>{{ form.valor_numerico.label }}</label>
+                        {{ form.valor_numerico }}
                     </div>
 
                 {% else %}
@@ -174,20 +174,20 @@
                 <div class="matrix-inputs">
                     <div class="form-grid">
                         <div class="form-field">
-                            <label for="matrix-prob-select">Probabilidad</label>
+                            <label for="matrix-prob-select">{{ matrix_selector.prob_axis_label|default:"Probabilidad" }}</label>
                             <select id="matrix-prob-select" class="input-control">
                                 <option value="">Selecciona probabilidad</option>
                                 {% for row in matrix_selector.rows %}
-                                    <option value="{{ row.id }}">{{ row.label }} ({{ row.value }})</option>
+                                    <option value="{{ row.id }}" data-level-value="{{ row.value }}">{{ row.label }} ({{ row.value }})</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="form-field">
-                            <label for="matrix-impact-select">Impacto</label>
+                            <label for="matrix-impact-select">{{ matrix_selector.impact_axis_label|default:"Impacto" }}</label>
                             <select id="matrix-impact-select" class="input-control">
                                 <option value="">Selecciona impacto</option>
                                 {% for col in matrix_selector.columns %}
-                                    <option value="{{ col.id }}">{{ col.label }} ({{ col.value }})</option>
+                                    <option value="{{ col.id }}" data-level-value="{{ col.value }}">{{ col.label }} ({{ col.value }})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -247,8 +247,8 @@
         {% endif %}
     </div>
     <div class="actions">
-        <button class="btn btn-primary" type="submit" name="save_as" value="complete">Guardar registro ACA</button>
-        <button class="btn" type="submit" name="save_as" value="draft" formnovalidate>Guardar borrador</button>
+        <button class="btn btn-primary" type="submit" name="save_as" value="complete">{% if editing_crit %}Actualizar registro ACA{% else %}Guardar registro ACA{% endif %}</button>
+        <button class="btn" type="submit" name="save_as" value="draft" formnovalidate>{% if editing_crit %}Guardar como borrador{% else %}Guardar borrador{% endif %}</button>
     </div>
 
 </form>
@@ -263,6 +263,10 @@
     const probDisplay = document.getElementById('matrix-prob-display');
     const impactDisplay = document.getElementById('matrix-impact-display');
     const critDisplay = document.getElementById('matrix-crit-display');
+    const matrixProbDimensionId = '{{ matrix_selector.prob_dimension_id|default:"" }}';
+    const matrixImpactDimensionId = '{{ matrix_selector.impact_dimension_id|default:"" }}';
+    const matrixProbEstrategiaDimensionId = '{{ matrix_selector.prob_estrategia_dimension_id|default:"" }}';
+    const matrixImpactEstrategiaDimensionId = '{{ matrix_selector.impact_estrategia_dimension_id|default:"" }}';
 
     function setPanelOpen(button, open) {
         const panel = document.getElementById(button.dataset.panelId);
@@ -363,6 +367,55 @@
         selectMatrixCell(button);
     }
 
+    function numericEquals(a, b) {
+        const left = toNumber(a);
+        const right = toNumber(b);
+        return left !== null && right !== null && Math.abs(left - right) < 0.000001;
+    }
+
+    function selectLevelByNumericValue(select, numericValue) {
+        if (!select || numericValue === null) return false;
+        const option = Array.from(select.options).find(function (item) {
+            return item.value && numericEquals(item.dataset.levelValue, numericValue);
+        });
+        if (!option) return false;
+        select.value = option.value;
+        return true;
+    }
+
+    function sourceNumericValue(sourceValues, keys) {
+        for (const key of keys) {
+            if (!key) continue;
+            const value = toNumber(sourceValues[key] ?? sourceValues[calcSlug(key)]);
+            if (value !== null) return value;
+        }
+        return null;
+    }
+
+    function updateMatrixFromDimensionValues(sourceValues) {
+        if (!probSelect || !impactSelect) return;
+        const probValue = sourceNumericValue(sourceValues, [
+            matrixProbDimensionId,
+            matrixProbEstrategiaDimensionId ? 'ed:' + matrixProbEstrategiaDimensionId : '',
+            matrixProbEstrategiaDimensionId,
+        ]);
+        const impactValue = sourceNumericValue(sourceValues, [
+            matrixImpactDimensionId,
+            matrixImpactEstrategiaDimensionId ? 'ed:' + matrixImpactEstrategiaDimensionId : '',
+            matrixImpactEstrategiaDimensionId,
+        ]);
+
+        if (probValue === null || impactValue === null) return;
+
+        const matchedProb = selectLevelByNumericValue(probSelect, probValue);
+        const matchedImpact = selectLevelByNumericValue(impactSelect, impactValue);
+        if (!matchedProb || !matchedImpact) {
+            clearMatrixSelection();
+            return;
+        }
+        updateMatrixFromInputs();
+    }
+
     function toNumber(value) {
         if (value === null || value === undefined || value === '') return null;
         const n = Number(String(value).replace(',', '.'));
@@ -378,7 +431,69 @@
             .replace(/^_|_$/g, '');
     }
 
+    function rememberDimensionValue(sourceValues, card, value) {
+        if (!card || value === null || value === undefined) return;
+        if (card.dataset.dimensionId) sourceValues[card.dataset.dimensionId] = value;
+        if (card.dataset.estrategiaDimensionId) {
+            sourceValues['ed:' + card.dataset.estrategiaDimensionId] = value;
+            sourceValues[card.dataset.estrategiaDimensionId] = value;
+        }
+        if (card.dataset.dimensionName) {
+            sourceValues[card.dataset.dimensionName] = value;
+            sourceValues[calcSlug(card.dataset.dimensionName)] = value;
+        }
+        if (card.dataset.dimensionCampo) {
+            sourceValues[card.dataset.dimensionCampo] = value;
+            sourceValues[calcSlug(card.dataset.dimensionCampo)] = value;
+        }
+    }
+
+    function matchesRange(value, row) {
+        const min = toNumber(row.dataset.rangeMin);
+        const max = toNumber(row.dataset.rangeMax);
+        if (min !== null && value < min) return false;
+        if (max !== null && value >= max) return false;
+        return true;
+    }
+
+    function matchesOption(value, row) {
+        let matchValue = toNumber(row.dataset.matchValue);
+        if (matchValue === null) matchValue = toNumber(row.dataset.valueNumeric);
+        return matchValue !== null && Math.abs(matchValue - value) < 0.000001;
+    }
+
+    function updateDependentCatalogs(sourceValues) {
+        document.querySelectorAll('[data-dependent-catalog]').forEach(function (box) {
+            const source = box.dataset.dependentSource || '';
+            const catalogType = box.dataset.dependentCatalogType || '';
+            const value = toNumber(sourceValues[source] ?? sourceValues[calcSlug(source)]);
+            const select = document.getElementById(box.dataset.optionTarget);
+            if (!select) return;
+
+            let matchedRow = null;
+            if (value !== null) {
+                document.querySelectorAll('tr[data-target="' + select.id + '"]').forEach(function (row) {
+                    const matches = catalogType === 'rangos'
+                        ? matchesRange(value, row)
+                        : matchesOption(value, row);
+                    if (!matchedRow && matches) matchedRow = row;
+                });
+            }
+
+            select.value = matchedRow ? matchedRow.dataset.value : '';
+            select.dataset.numericValue = matchedRow ? (matchedRow.dataset.valueNumeric || '') : '';
+            syncOptionSelection(select);
+
+            const numericValue = toNumber(select.dataset.numericValue);
+            if (numericValue !== null) {
+                rememberDimensionValue(sourceValues, box.closest('.dimension-card'), numericValue);
+            }
+        });
+    }
+
     function readDimensionValue(card) {
+        if (card.querySelector('[data-dependent-catalog]')) return null;
+
         const select = card.querySelector('select[id$="escala_valor"], select[id$="catalogo_fila"]');
         if (select) {
             syncOptionSelection(select);
@@ -388,9 +503,6 @@
         const numeric = card.querySelector('input[name$="valor_numerico"]');
         if (numeric && numeric.value !== '') return toNumber(numeric.value);
 
-        const secondary = card.querySelector('input[name$="valor_secundario"]');
-        if (secondary && secondary.value !== '') return toNumber(secondary.value);
-
         return null;
     }
 
@@ -399,10 +511,74 @@
         if (type === 'suma') return values.reduce((a, b) => a + b, 0);
         if (type === 'resta') return values.slice(1).reduce((a, b) => a - b, values[0]);
         if (type === 'multiplicacion') return values.reduce((a, b) => a * b, 1);
+        if (type === 'maximo') return Math.max(...values);
+        if (type === 'minimo') return Math.min(...values);
         if (type === 'division') {
-            return values.slice(1).reduce((a, b) => b === 0 ? null : a / b, values[0]);
+            let result = values[0];
+            for (const value of values.slice(1)) {
+                if (value === 0 || result === null) return null;
+                result = result / value;
+            }
+            return result;
         }
         return null;
+    }
+
+    function operandValue(op, sourceValues, previousResult) {
+        if (typeof op === 'object' && op !== null && (op.resultado === true || op.tipo === 'resultado')) {
+            return previousResult;
+        }
+
+        if (typeof op !== 'object' && ['$resultado', '__resultado__', 'resultado_anterior'].includes(String(op))) {
+            return previousResult;
+        }
+
+        const candidates = typeof op === 'object' && op !== null
+            ? [op.campo, op.dimension_id, op.nombre, op.source]
+            : [op];
+
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            const key = String(candidate);
+            const value = sourceValues[key] ?? sourceValues[calcSlug(key)];
+            if (value !== undefined && value !== null) {
+                return Number(value);
+            }
+        }
+
+        return null;
+    }
+
+    function calculationSteps(type, config) {
+        const configured = Array.isArray(config.pasos) ? config.pasos : (Array.isArray(config.steps) ? config.steps : []);
+        if (configured.length) {
+            return configured
+                .map(step => ({
+                    operation: step.operacion || step.tipo_calculo || step.operation || type,
+                    operands: step.operandos || step.campos || step.sources || []
+                }))
+                .filter(step => step.operation && Array.isArray(step.operands));
+        }
+        return [{
+            operation: type,
+            operands: config.operandos || config.campos || config.sources || []
+        }];
+    }
+
+    function evaluateCalculation(type, config, sourceValues) {
+        let result = null;
+        for (const step of calculationSteps(type, config)) {
+            const values = [];
+            step.operands.forEach(function (op) {
+                const value = operandValue(op, sourceValues, result);
+                if (value !== null && value !== undefined && !Number.isNaN(value)) {
+                    values.push(value);
+                }
+            });
+            result = applyOperation(step.operation || type, values);
+            if (result === null) return null;
+        }
+        return result;
     }
 
     function recalcCalculatedDimensions() {
@@ -411,16 +587,7 @@
         document.querySelectorAll('.dimension-card').forEach(function (card) {
             const value = readDimensionValue(card);
             if (value === null) return;
-
-            if (card.dataset.dimensionId) sourceValues[card.dataset.dimensionId] = value;
-            if (card.dataset.dimensionName) {
-                sourceValues[card.dataset.dimensionName] = value;
-                sourceValues[calcSlug(card.dataset.dimensionName)] = value;
-            }
-            if (card.dataset.dimensionCampo) {
-                sourceValues[card.dataset.dimensionCampo] = value;
-                sourceValues[calcSlug(card.dataset.dimensionCampo)] = value;
-            }
+            rememberDimensionValue(sourceValues, card, value);
         });
 
         document.querySelectorAll('[data-calc-config]').forEach(function (box) {
@@ -431,33 +598,18 @@
                 config = {};
             }
 
-            const operands = config.operandos || config.campos || config.sources || [];
-            const values = [];
-
-            operands.forEach(function (op) {
-                const candidates = typeof op === 'object'
-                    ? [op.campo, op.dimension_id, op.nombre]
-                    : [op];
-
-                for (const candidate of candidates) {
-                    if (!candidate) continue;
-                    const key = String(candidate);
-                    const value = sourceValues[key] ?? sourceValues[calcSlug(key)];
-                    if (value !== undefined && value !== null) {
-                        values.push(Number(value));
-                        break;
-                    }
-                }
-            });
-
-            const result = applyOperation(box.dataset.calcType || '', values);
+            const result = evaluateCalculation(box.dataset.calcType || '', config, sourceValues);
             const target = document.getElementById(box.dataset.target);
             const output = box.querySelector('.calc-output');
             const display = result === null ? '' : String(Number(result.toFixed(6))).replace('.', ',');
 
             if (target) target.value = result === null ? '' : Number(result.toFixed(6));
             if (output) output.value = display;
+            if (result !== null) rememberDimensionValue(sourceValues, box.closest('.dimension-card'), result);
         });
+
+        updateDependentCatalogs(sourceValues);
+        updateMatrixFromDimensionValues(sourceValues);
     }
 
     document.querySelectorAll('[data-option-toggle]').forEach(function (button) {
