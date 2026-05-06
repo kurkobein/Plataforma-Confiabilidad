@@ -8,7 +8,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField, Prefetch
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -22,6 +22,11 @@ from .forms import (
     ACARegistroForm,
     CriticidadDimensionFormSet,
     EmailLoginForm,
+    HierarchyInsertLevelForm,
+    HierarchyMoveNodeForm,
+    HierarchyRouteFormSet,
+    HierarchyStructureFormSet,
+    HierarchyValueForm,
     MatrizBuilderForm,
     ServiceAccessGrantForm,
     ServicioACARegistroForm,
@@ -82,7 +87,6 @@ FORM_TEMPLATE_BY_MODEL = {
     'metodologia': 'core/forms/metodologia_form.html',
     'cargo': 'core/forms/cargo_form.html',
     'usuario': 'core/forms/usuario_form.html',
-    'sistema': 'core/forms/sistema_form.html',
     'componente': 'core/forms/componente_form.html',
     'equipo': 'core/forms/equipo_form.html',
     'dimension': 'core/forms/dimension_form.html',
@@ -118,6 +122,556 @@ def _detail_fields(model_class):
     return _visible_fields(model_class)
 
 
+def _technical_location_rows(empresa):
+    nodes = list(
+        models.NodoJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).select_related(
+            'empresa',
+            'nivel',
+            'parent',
+        ).order_by(
+            'nivel__orden',
+            'orden',
+            'nombre',
+        )
+    )
+    by_parent = {}
+    for node in nodes:
+        by_parent.setdefault(node.parent_id, []).append(node)
+
+    rows = []
+
+    def walk(parent_id=None, depth=0):
+        for node in by_parent.get(parent_id, []):
+            rows.append({'nodo': node, 'depth': depth})
+            walk(node.pk, depth + 1)
+
+    walk()
+    return rows
+
+
+def _default_hierarchy_initial():
+    return [
+        {'nivel_nombre': 'Empresa'},
+        {'nivel_nombre': 'Area de negocio'},
+        {'nivel_nombre': 'Planta'},
+        {'nivel_nombre': 'Area'},
+        {'nivel_nombre': 'Sistema'},
+        {'nivel_nombre': 'Ubicacion tecnica'},
+        {'nivel_nombre': 'Equipo'},
+    ]
+
+
+def _hierarchy_structure_initial_rows(empresa):
+    levels = list(
+        models.NivelJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).order_by(
+            'orden',
+        )
+    )
+    if not levels:
+        return _default_hierarchy_initial()
+    return [
+        {
+            'nivel_id': level.pk,
+            'nivel_nombre': level.nombre,
+        }
+        for level in levels
+    ]
+
+
+def _hierarchy_route_initial_rows(empresa):
+    return [
+        {
+            'nodo_id': '',
+            'nivel_id': level.pk,
+            'nivel_nombre': level.nombre,
+            'codigo': '',
+            'nodo_nombre': '',
+        }
+        for level in models.NivelJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).order_by(
+            'orden',
+        )
+    ]
+
+
+def _hierarchy_options_by_order(empresa):
+    options = {}
+    for node in models.NodoJerarquia.objects.filter(
+        empresa=empresa,
+        activo=True,
+    ).select_related(
+        'nivel',
+        'parent',
+    ).order_by(
+        'nivel__orden',
+        'parent_id',
+        'nombre',
+    ):
+        options.setdefault(node.nivel.orden, []).append(node)
+    return options
+
+
+def _hierarchy_nodes_payload(empresa):
+    return [
+        {
+            'id': node.pk,
+            'empresa_id': node.empresa_id,
+            'parent_id': node.parent_id,
+            'nivel_id': node.nivel_id,
+            'level_order': node.nivel.orden,
+            'code': node.codigo,
+            'name': node.nombre,
+            'label': f'{node.codigo} - {node.nombre}',
+            'ut': node.ut,
+            'route': node.ruta_nombre,
+        }
+        for node in models.NodoJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).select_related(
+            'nivel',
+            'parent',
+        ).order_by(
+            'nivel__orden',
+            'orden',
+            'nombre',
+        )
+    ]
+
+
+def _equipment_location_context(form=None, obj=None):
+    selected_node_id = None
+    selected_empresa_id = None
+    if form is not None and getattr(form, 'is_bound', False):
+        selected_node_id = form.data.get(form.add_prefix('nodo'))
+        selected_empresa_id = form.data.get(form.add_prefix('empresa'))
+    if not selected_node_id and obj is not None:
+        selected_node_id = getattr(obj, 'nodo_id', None)
+    if not selected_empresa_id and obj is not None and getattr(obj, 'nodo_id', None):
+        selected_empresa_id = obj.nodo.empresa_id
+    if not selected_node_id and form is not None:
+        selected_node_id = form.initial.get('nodo')
+        selected_node_id = getattr(selected_node_id, 'pk', selected_node_id)
+    if not selected_empresa_id and form is not None:
+        selected_empresa_id = form.initial.get('empresa')
+        selected_empresa_id = getattr(selected_empresa_id, 'pk', selected_empresa_id)
+
+    levels = [
+        {
+            'id': level.pk,
+            'empresa_id': level.empresa_id,
+            'order': level.orden,
+            'name': level.nombre,
+        }
+        for level in models.NivelJerarquia.objects.filter(
+            activo=True,
+        ).select_related(
+            'empresa',
+        ).order_by(
+            'empresa__nombre',
+            'orden',
+        )
+    ]
+    nodes = [
+        {
+            'id': node.pk,
+            'empresa_id': node.empresa_id,
+            'parent_id': node.parent_id,
+            'level_id': node.nivel_id,
+            'level_order': node.nivel.orden,
+            'code': node.codigo,
+            'name': node.nombre,
+            'label': f'{node.codigo} - {node.nombre}',
+            'ut': node.ut,
+            'route': node.ruta_nombre,
+        }
+        for node in models.NodoJerarquia.objects.filter(
+            activo=True,
+        ).select_related(
+            'empresa',
+            'nivel',
+            'parent',
+        ).order_by(
+            'empresa__nombre',
+            'nivel__orden',
+            'orden',
+            'nombre',
+        )
+    ]
+    return {
+        'tech_location_levels_json': json.dumps(levels, ensure_ascii=False),
+        'tech_location_nodes_json': json.dumps(nodes, ensure_ascii=False),
+        'tech_location_selected_id': str(selected_node_id or ''),
+        'tech_location_empresa_id': str(selected_empresa_id or ''),
+    }
+
+
+def _path_ids_for_node(node_id, rows_by_id):
+    path = []
+    seen = set()
+    current_id = node_id
+    while current_id and current_id not in seen:
+        row = rows_by_id.get(current_id)
+        if not row:
+            break
+        seen.add(current_id)
+        path.append(current_id)
+        current_id = row.get('parent_id')
+    return list(reversed(path))
+
+
+def _node_ut_from_path(path_ids, rows_by_id):
+    return '-'.join(
+        models._technical_segment(rows_by_id[node_id]['codigo'])
+        for node_id in path_ids
+        if node_id in rows_by_id
+    )
+
+
+def _node_route_from_path(path_ids, rows_by_id):
+    parts = []
+    for node_id in path_ids:
+        row = rows_by_id.get(node_id)
+        if not row:
+            continue
+        parts.append(f"{row['nivel__nombre']}: {row['codigo']} - {row['nombre']}")
+    return ' > '.join(parts)
+
+
+def _service_equipment_browser_payload(service):
+    if not service:
+        return {'levels': [], 'nodes': [], 'equipment': []}
+
+    levels = [
+        {
+            'id': level.pk,
+            'order': level.orden,
+            'name': level.nombre,
+        }
+        for level in models.NivelJerarquia.objects.filter(
+            empresa=service.empresa,
+            activo=True,
+        ).order_by('orden')
+    ]
+
+    node_rows = list(
+        models.NodoJerarquia.objects.filter(
+            empresa=service.empresa,
+        ).values(
+            'id',
+            'parent_id',
+            'nivel_id',
+            'nivel__orden',
+            'nivel__nombre',
+            'codigo',
+            'nombre',
+            'activo',
+        ).order_by(
+            'nivel__orden',
+            'parent_id',
+            'orden',
+            'codigo',
+            'nombre',
+        )
+    )
+    rows_by_id = {row['id']: row for row in node_rows}
+
+    node_payload = []
+    for row in node_rows:
+        if not row['activo']:
+            continue
+        path_ids = _path_ids_for_node(row['id'], rows_by_id)
+        node_payload.append({
+            'id': row['id'],
+            'parent_id': row['parent_id'],
+            'level_id': row['nivel_id'],
+            'level_order': row['nivel__orden'],
+            'code': row['codigo'],
+            'name': row['nombre'],
+            'label': f"{_node_ut_from_path(path_ids, rows_by_id)} - {row['nombre']}",
+        })
+
+    equipment_payload = []
+    for equipo in get_service_equipment(service):
+        path_ids = _path_ids_for_node(equipo.nodo_id, rows_by_id) if equipo.nodo_id else []
+        equipment_payload.append({
+            'id': equipo.pk,
+            'ut': equipo.ut or '',
+            'descripcion_ut': equipo.descripcion_ut or '',
+            'equipo': equipo.nombre_equipo or '',
+            'tag': equipo.tag_equipo or '',
+            'node_id': equipo.nodo_id,
+            'path_node_ids': path_ids,
+            'path_text': _node_route_from_path(path_ids, rows_by_id),
+        })
+
+    return {
+        'levels': levels,
+        'nodes': node_payload,
+        'equipment': equipment_payload,
+    }
+
+
+def _level_for_order(empresa, order, nombre=None):
+    if not nombre:
+        level = models.NivelJerarquia.objects.filter(empresa=empresa, orden=order).first()
+        if level:
+            return level
+    defaults = {
+        'nombre': nombre or f'Nivel {order}',
+        'activo': True,
+    }
+    level, _ = models.NivelJerarquia.objects.update_or_create(
+        empresa=empresa,
+        orden=order,
+        defaults=defaults,
+    )
+    return level
+
+
+def _active_hierarchy_depth(empresa):
+    nodes = list(
+        models.NodoJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).values(
+            'id',
+            'parent_id',
+        )
+    )
+    parent_by_id = {row['id']: row['parent_id'] for row in nodes}
+    depth_cache = {}
+
+    def depth_for(node_id):
+        if node_id in depth_cache:
+            return depth_cache[node_id]
+        parent_id = parent_by_id.get(node_id)
+        depth = 1
+        if parent_id in parent_by_id:
+            depth = depth_for(parent_id) + 1
+        depth_cache[node_id] = depth
+        return depth
+
+    return max((depth_for(row['id']) for row in nodes), default=0)
+
+
+def _active_subtree_ids(node):
+    ids = []
+    frontier = [node.pk]
+    while frontier:
+        current_ids = list(
+            models.NodoJerarquia.objects.filter(
+                empresa=node.empresa,
+                pk__in=frontier,
+                activo=True,
+            ).values_list(
+                'pk',
+                flat=True,
+            )
+        )
+        if not current_ids:
+            break
+        ids.extend(current_ids)
+        frontier = list(
+            models.NodoJerarquia.objects.filter(
+                empresa=node.empresa,
+                parent_id__in=current_ids,
+                activo=True,
+            ).values_list(
+                'pk',
+                flat=True,
+            )
+        )
+    return ids
+
+
+def _move_levels_to_temporary_orders(empresa, levels):
+    max_order = max((level.orden for level in levels), default=0)
+    temp_base = max_order + len(levels) + 1000
+    for index, level in enumerate(levels, start=1):
+        level.orden = temp_base + index
+        level.nombre = f'__tmp_nivel_{empresa.pk}_{level.pk}'
+        level.save(update_fields=['orden', 'nombre'])
+
+
+def _save_hierarchy_structure(empresa, formset):
+    active_ids = []
+    forms_with_content = [
+        form for form in formset
+        if not form.cleaned_data.get('DELETE') and form.has_content
+    ]
+    if not forms_with_content:
+        raise ValueError('Completa al menos un nivel para guardar la estructura.')
+
+    submitted_names = [form.cleaned_data['nivel_nombre'].strip().lower() for form in forms_with_content]
+    if len(submitted_names) != len(set(submitted_names)):
+        raise ValueError('Los nombres de nivel no se pueden repetir dentro de la misma empresa.')
+
+    deepest_route = _active_hierarchy_depth(empresa)
+    if deepest_route and len(forms_with_content) < deepest_route:
+        raise ValueError(
+            'No se puede reducir la estructura a '
+            f'{len(forms_with_content)} niveles porque existen ubicaciones tecnicas activas '
+            f'de {deepest_route} niveles. Ajusta o desactiva esos valores antes de quitar niveles.'
+        )
+
+    existing_levels = list(models.NivelJerarquia.objects.filter(empresa=empresa).order_by('pk'))
+    existing = {level.pk: level for level in existing_levels}
+    original_names = {level.pk: level.nombre for level in existing_levels}
+    _move_levels_to_temporary_orders(empresa, existing_levels)
+    reusable_by_name = {
+        original_name.strip().lower(): existing[level_id]
+        for level_id, original_name in original_names.items()
+    }
+    used_ids = set()
+
+    for order, form in enumerate(forms_with_content, start=1):
+        level_id = form.cleaned_data.get('nivel_id')
+        level_name = form.cleaned_data['nivel_nombre']
+        level = existing.get(level_id) if level_id else None
+        if not level:
+            reusable = reusable_by_name.get(level_name.lower())
+            if reusable and reusable.pk not in used_ids:
+                level = reusable
+        if level:
+            level.nombre = level_name
+            level.orden = order
+            level.activo = True
+            level.save(update_fields=['nombre', 'orden', 'activo'])
+        else:
+            level = models.NivelJerarquia.objects.create(
+                empresa=empresa,
+                nombre=level_name,
+                orden=order,
+                activo=True,
+            )
+        active_ids.append(level.pk)
+        used_ids.add(level.pk)
+
+    models.NivelJerarquia.objects.filter(empresa=empresa).exclude(pk__in=active_ids).update(activo=False)
+
+    active_levels_by_order = {
+        level.orden: level
+        for level in models.NivelJerarquia.objects.filter(
+            empresa=empresa,
+            pk__in=active_ids,
+            activo=True,
+        )
+    }
+    roots = models.NodoJerarquia.objects.filter(
+        empresa=empresa,
+        parent__isnull=True,
+        activo=True,
+    ).order_by('orden', 'codigo', 'nombre')
+    for root in roots:
+        _sync_subtree_levels(root, 1, active_levels_by_order)
+
+
+def _sync_subtree_levels(node, start_order, levels_by_order=None):
+    level = None
+    if levels_by_order is not None:
+        level = levels_by_order.get(start_order)
+    if level is None:
+        level = _level_for_order(node.empresa, start_order)
+    node.nivel = level
+    node.save(update_fields=['nivel'])
+    for child in node.hijos.filter(activo=True).order_by('orden', 'codigo', 'nombre'):
+        _sync_subtree_levels(child, start_order + 1, levels_by_order)
+
+
+def _save_hierarchy_route(empresa, formset):
+    parent = None
+    last_node = None
+    previous_blank = False
+    for order, form in enumerate(formset, start=1):
+        if form.cleaned_data.get('DELETE') or not form.has_content:
+            previous_blank = True
+            continue
+        if previous_blank:
+            raise ValueError('Completa la ruta en orden, sin saltar niveles intermedios.')
+        level = models.NivelJerarquia.objects.filter(
+            empresa=empresa,
+            pk=form.cleaned_data.get('nivel_id'),
+            activo=True,
+        ).first() or _level_for_order(
+            empresa,
+            order,
+            form.cleaned_data['nivel_nombre'],
+        )
+        selected_node_id = form.cleaned_data.get('nodo_id')
+        if selected_node_id:
+            node = models.NodoJerarquia.objects.filter(
+                empresa=empresa,
+                pk=selected_node_id,
+                nivel=level,
+                parent=parent,
+                activo=True,
+            ).first()
+            if not node:
+                raise ValueError(f'El valor seleccionado para {level.nombre} no corresponde a la ruta superior.')
+            parent = node
+            last_node = node
+            continue
+        codigo = form.cleaned_data['codigo']
+        sibling_order = models.NodoJerarquia.objects.filter(
+            empresa=empresa,
+            parent=parent,
+            nivel=level,
+        ).count() + 1
+        node, created = models.NodoJerarquia.objects.get_or_create(
+            empresa=empresa,
+            parent=parent,
+            codigo=codigo,
+            defaults={
+                'nivel': level,
+                'nombre': form.cleaned_data['nodo_nombre'],
+                'orden': sibling_order,
+                'activo': True,
+            },
+        )
+        if not created:
+            node.nivel = level
+            node.nombre = form.cleaned_data['nodo_nombre']
+            node.activo = True
+            node.save(update_fields=['nivel', 'nombre', 'activo'])
+        parent = node
+        last_node = node
+    return last_node
+
+
+def _save_hierarchy_value(empresa, form):
+    level = form.cleaned_data['nivel']
+    parent = form.cleaned_data.get('parent')
+    codigo = form.cleaned_data['codigo']
+    sibling_order = models.NodoJerarquia.objects.filter(
+        empresa=empresa,
+        parent=parent,
+        nivel=level,
+    ).count() + 1
+    node, created = models.NodoJerarquia.objects.update_or_create(
+        empresa=empresa,
+        parent=parent,
+        codigo=codigo,
+        defaults={
+            'nivel': level,
+            'nombre': form.cleaned_data['nombre'],
+            'activo': True,
+        },
+    )
+    if created:
+        node.orden = sibling_order
+        node.save(update_fields=['orden'])
+    return node
+
+
 @login_required
 def dashboard(request):
     servicios = list(get_accessible_services(request.user)[:8])
@@ -131,6 +685,248 @@ def dashboard(request):
             {'label': 'Servicios editables', 'count': len(editable_services)},
         ],
     })
+
+
+@login_required
+def technical_location_index(request):
+    _ensure_admin_access(request)
+    empresas = models.Empresa.objects.order_by('nombre')
+    rows = []
+    for empresa in empresas:
+        rows.append({
+            'empresa': empresa,
+            'niveles_count': models.NivelJerarquia.objects.filter(empresa=empresa, activo=True).count(),
+            'nodos_count': models.NodoJerarquia.objects.filter(empresa=empresa, activo=True).count(),
+            'equipos_count': models.Equipo.objects.filter(nodo__empresa=empresa).count(),
+        })
+    return render(request, 'core/technical_location_index.html', {
+        'rows': rows,
+    })
+
+
+@login_required
+def hierarchy_tree(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    rows = _technical_location_rows(empresa)
+    levels = list(models.NivelJerarquia.objects.filter(empresa=empresa, activo=True).order_by('orden'))
+    return render(request, 'core/hierarchy_tree.html', {
+        'empresa': empresa,
+        'rows': rows,
+        'levels': levels,
+    })
+
+
+@login_required
+def hierarchy_structure(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    initial = _hierarchy_structure_initial_rows(empresa)
+
+    if request.method == 'POST':
+        formset = HierarchyStructureFormSet(request.POST)
+        if formset.is_valid():
+            try:
+                with transaction.atomic():
+                    _save_hierarchy_structure(empresa, formset)
+                messages.success(request, 'Estructura base de ubicacion tecnica guardada.')
+                return redirect('hierarchy_tree', empresa_id=empresa.pk)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+            except IntegrityError:
+                messages.error(
+                    request,
+                    'No se pudo guardar la estructura porque hay niveles duplicados o una '
+                    'colision de orden. Revisa los nombres de los niveles e intenta nuevamente.',
+                )
+    else:
+        formset = HierarchyStructureFormSet(initial=initial)
+
+    form_rows = [
+        {
+            'orden': index + 1,
+            'form': form,
+        }
+        for index, form in enumerate(formset.forms)
+    ]
+    return render(request, 'core/hierarchy_structure_form.html', {
+        'empresa': empresa,
+        'formset': formset,
+        'form_rows': form_rows,
+    })
+
+
+@login_required
+def hierarchy_values(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    levels = list(models.NivelJerarquia.objects.filter(empresa=empresa, activo=True).order_by('orden'))
+
+    if request.method == 'POST':
+        form = HierarchyValueForm(request.POST, empresa=empresa)
+        if not levels:
+            messages.error(request, 'Primero define la estructura base de la ubicacion tecnica para esta empresa.')
+        elif form.is_valid():
+            node = _save_hierarchy_value(empresa, form)
+            messages.success(request, f'Valor guardado: {node.codigo} - {node.nombre}')
+            return redirect('hierarchy_values', empresa_id=empresa.pk)
+    else:
+        form = HierarchyValueForm(empresa=empresa)
+
+    rows = _technical_location_rows(empresa)
+    return render(request, 'core/hierarchy_values.html', {
+        'empresa': empresa,
+        'form': form,
+        'levels': levels,
+        'rows': rows,
+        'hierarchy_nodes_json': json.dumps(_hierarchy_nodes_payload(empresa), ensure_ascii=False),
+    })
+
+
+@login_required
+def hierarchy_create_route(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    initial = _hierarchy_route_initial_rows(empresa)
+    if not initial:
+        messages.info(request, 'Primero define la estructura base de la ubicacion tecnica para esta empresa.')
+        return redirect('hierarchy_structure', empresa_id=empresa.pk)
+    if request.method == 'POST':
+        formset = HierarchyRouteFormSet(request.POST)
+        if formset.is_valid():
+            try:
+                with transaction.atomic():
+                    node = _save_hierarchy_route(empresa, formset)
+                if node:
+                    messages.success(request, f'Ubicacion tecnica guardada: {node.ut}')
+                    return redirect('hierarchy_tree', empresa_id=empresa.pk)
+                messages.error(request, 'Completa al menos un nivel para guardar la ubicacion tecnica.')
+            except ValueError as exc:
+                messages.error(request, str(exc))
+    else:
+        formset = HierarchyRouteFormSet(initial=initial)
+
+    options = _hierarchy_options_by_order(empresa)
+    form_rows = [
+        {
+            'orden': index + 1,
+            'form': form,
+            'opciones': options.get(index + 1, []),
+        }
+        for index, form in enumerate(formset.forms)
+    ]
+    return render(request, 'core/hierarchy_route_form.html', {
+        'empresa': empresa,
+        'formset': formset,
+        'form_rows': form_rows,
+        'rutas_existentes': [row['nodo'].ut for row in _technical_location_rows(empresa) if not row['nodo'].hijos.filter(activo=True).exists()],
+        'hierarchy_nodes_json': json.dumps(_hierarchy_nodes_payload(empresa), ensure_ascii=False),
+    })
+
+
+@login_required
+def hierarchy_move_node(request, pk):
+    _ensure_admin_access(request)
+    node = get_object_or_404(
+        models.NodoJerarquia.objects.select_related('empresa', 'nivel', 'parent'),
+        pk=pk,
+    )
+    if request.method == 'POST':
+        form = HierarchyMoveNodeForm(request.POST, node=node)
+        if form.is_valid():
+            parent = form.cleaned_data['parent']
+            with transaction.atomic():
+                node.parent = parent
+                node.save(update_fields=['parent'])
+                start_order = parent.nivel.orden + 1 if parent else 1
+                _sync_subtree_levels(node, start_order)
+            messages.success(request, 'Nodo movido y niveles ajustados por posicion.')
+            return redirect('hierarchy_tree', empresa_id=node.empresa_id)
+    else:
+        form = HierarchyMoveNodeForm(node=node, initial={'parent': node.parent_id})
+    return render(request, 'core/hierarchy_move_node.html', {
+        'node': node,
+        'form': form,
+    })
+
+
+@login_required
+def hierarchy_insert_between(request, pk):
+    _ensure_admin_access(request)
+    child = get_object_or_404(
+        models.NodoJerarquia.objects.select_related('empresa', 'nivel', 'parent'),
+        pk=pk,
+    )
+    parent = child.parent
+    if request.method == 'POST':
+        form = HierarchyInsertLevelForm(request.POST)
+        if form.is_valid():
+            insert_order = child.nivel.orden
+            with transaction.atomic():
+                for level in models.NivelJerarquia.objects.filter(
+                    empresa=child.empresa,
+                    orden__gte=insert_order,
+                ).order_by('-orden'):
+                    level.orden += 1
+                    level.save(update_fields=['orden'])
+                new_level = models.NivelJerarquia.objects.create(
+                    empresa=child.empresa,
+                    nombre=form.cleaned_data['nivel_nombre'],
+                    orden=insert_order,
+                    activo=True,
+                )
+                new_node = models.NodoJerarquia.objects.create(
+                    empresa=child.empresa,
+                    nivel=new_level,
+                    parent=parent,
+                    codigo=form.cleaned_data['codigo'],
+                    nombre=form.cleaned_data['nodo_nombre'],
+                    orden=child.orden,
+                    activo=True,
+                )
+                child.parent = new_node
+                child.save(update_fields=['parent'])
+            messages.success(request, 'Nivel intermedio insertado.')
+            return redirect('hierarchy_tree', empresa_id=child.empresa_id)
+    else:
+        form = HierarchyInsertLevelForm()
+    return render(request, 'core/hierarchy_insert_between.html', {
+        'child': child,
+        'parent': parent,
+        'form': form,
+    })
+
+
+@login_required
+def hierarchy_delete_node(request, pk):
+    _ensure_admin_access(request)
+    node = get_object_or_404(
+        models.NodoJerarquia.objects.select_related('empresa', 'nivel', 'parent'),
+        pk=pk,
+        activo=True,
+    )
+    if request.method != 'POST':
+        return redirect('hierarchy_tree', empresa_id=node.empresa_id)
+
+    with transaction.atomic():
+        subtree_ids = _active_subtree_ids(node)
+        equipment_count = models.Equipo.objects.filter(nodo_id__in=subtree_ids).count()
+        deleted_count = models.NodoJerarquia.objects.filter(
+            pk__in=subtree_ids,
+            activo=True,
+        ).update(activo=False)
+
+    messages.success(
+        request,
+        f'Ubicacion tecnica desactivada: {node.ut}. Se desactivaron {deleted_count} valores de la rama.',
+    )
+    if equipment_count:
+        messages.warning(
+            request,
+            f'{equipment_count} equipos siguen asociados a esa ubicacion historica. '
+            'Puedes reasignarlos editando cada equipo.',
+        )
+    return redirect('hierarchy_tree', empresa_id=node.empresa_id)
 
 
 @login_required
@@ -222,12 +1018,15 @@ def model_create(request, model_key):
     else:
         form = FormClass()
 
-    return render(request, _form_template_for(model_key), {
+    context = {
         'config': config,
         'model_key': model_key,
         'form': form,
         'mode': 'create',
-    })
+    }
+    if model_key == 'equipo':
+        context.update(_equipment_location_context(form=form))
+    return render(request, _form_template_for(model_key), context)
 
 
 @login_required
@@ -254,14 +1053,17 @@ def model_update(request, model_key, pk):
     else:
         form = FormClass(instance=obj)
 
-    return render(request, _form_template_for(model_key), {
+    context = {
         'config': config,
         'model_key': model_key,
         'form': form,
         'object': obj,
         'mode': 'update',
         'permission': permission,
-    })
+    }
+    if model_key == 'equipo':
+        context.update(_equipment_location_context(form=form, obj=obj))
+    return render(request, _form_template_for(model_key), context)
 
 
 @login_required
@@ -752,16 +1554,19 @@ def service_detail(request, pk):
     matrices = models.MatrizRiesgo.objects.filter(estrategia=servicio.estrategia).order_by('-fecha_creado', 'nombre') if servicio.estrategia_id else []
     access_form = ServiceAccessGrantForm(service=servicio)
     access_rows = list(permission['access_rows'])
+    service_equipment_payload = _service_equipment_browser_payload(servicio)
     return render(request, 'core/service_detail.html', {
         'service': servicio,
         'permission': permission,
         'aca_count': aca_count,
+        'equipment_count': len(service_equipment_payload['equipment']),
         'dimension_rows': dimension_rows,
         'matrices': matrices,
         'access_form': access_form,
         'access_rows': access_rows,
         'dimension_count': len(estrategia_dims),
         'mindco_viewer': is_mindco_user(request.user),
+        'service_equipment_payload': service_equipment_payload,
     })
 
 
@@ -845,7 +1650,7 @@ def service_aca_list(request, pk):
 
     criticidades = list(
         models.Criticidad.objects.filter(aca_carga__servicio=servicio)
-        .select_related('equipo', 'equipo__sistema', 'aca_carga')
+        .select_related('equipo', 'equipo__nodo', 'aca_carga')
         .prefetch_related(
             Prefetch(
                 'dimensiones',
@@ -862,13 +1667,10 @@ def service_aca_list(request, pk):
         ('status', 'Estado'),
         ('fecha_analisis', 'Fecha análisis'),
         ('ubicacion_tecnica', 'Ubicación Técnica'),
-        ('sistema', 'Sistema'),
         ('descripcion_ut', 'Descripción U.Técnica'),
         ('equipo', 'Equipo'),
         ('tag', 'TAG'),
         ('escenario_falla', 'Escenario de Falla'),
-        ('frecuencia_original', 'Frecuencia Falla'),
-        ('frecuencia_normalizada', 'Frecuencia Normalizada'),
     ]
     for ed in estrategia_dims:
         columns.append((f'dim_{ed.dimension_id}', ed.dimension.nombre))
@@ -895,7 +1697,6 @@ def service_aca_list(request, pk):
             'status': status,
             'fecha_analisis': crit.aca_carga.fecha_analisis.strftime('%d/%m/%Y') if crit.aca_carga and crit.aca_carga.fecha_analisis else '',
             'ubicacion_tecnica': crit.equipo.ut if crit.equipo else '',
-            'sistema': crit.equipo.sistema.nombre_sistema if crit.equipo and crit.equipo.sistema_id else '',
             'descripcion_ut': crit.equipo.descripcion_ut if crit.equipo else '',
             'equipo': crit.equipo.nombre_equipo if crit.equipo else '',
             'tag': crit.equipo.tag_equipo if crit.equipo else '',
@@ -1068,6 +1869,7 @@ def service_aca_new(request, pk):
         'dimension_formset': dimension_formset,
         'selected_strategy': strategy,
         'matrix_selector': matrix_selector,
+        'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'auto_version': edit_crit.aca_carga.version_carga if edit_crit and edit_crit.aca_carga else _next_service_aca_version(servicio),
         'auto_fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit and edit_crit.aca_carga else timezone.localdate(),
         'editing_crit': edit_crit,
@@ -2066,6 +2868,7 @@ def aca_registro_new_legacy(request):
         'dimension_formset': dimension_formset,
         'selected_service': selected_service,
         'selected_strategy': selected_strategy,
+        'service_equipment_payload': _service_equipment_browser_payload(selected_service),
     })
 
 

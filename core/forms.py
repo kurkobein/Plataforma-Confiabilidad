@@ -5,6 +5,7 @@ from django import forms
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import models
+from django.db.models import Q
 from django.forms import formset_factory
 from django.utils import timezone
 
@@ -327,20 +328,11 @@ class ACARegistroForm(forms.Form):
         elif strategy_obj and strategy_obj.empresa_id:
             empresa_id = strategy_obj.empresa_id
 
-        equipos_qs = app_models.Equipo.objects.none()
-        if service_obj:
+        equipos_qs = get_service_equipment(service_obj) if service_obj else app_models.Equipo.objects.none()
+        if not service_obj and empresa_id:
             equipos_qs = app_models.Equipo.objects.filter(
-                servicios_equipo__servicio_id=service_obj.pk
-            ).select_related('sistema', 'sistema__empresa').distinct().order_by('tag_equipo', 'nombre_equipo')
-
-        if empresa_id:
-            fallback_qs = app_models.Equipo.objects.filter(
-                sistema__empresa_id=empresa_id
-            ).select_related('sistema', 'sistema__empresa').distinct().order_by('tag_equipo', 'nombre_equipo')
-            if equipos_qs.exists():
-                equipos_qs = (equipos_qs | fallback_qs).distinct().order_by('tag_equipo', 'nombre_equipo')
-            else:
-                equipos_qs = fallback_qs
+                Q(nodo__empresa_id=empresa_id) | Q(nodo__isnull=True)
+            ).select_related('nodo', 'nodo__empresa').distinct().order_by('tag_equipo', 'nombre_equipo')
 
         self.fields['equipo'].queryset = equipos_qs
         self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_equipo} - {obj.nombre_equipo}"
@@ -658,6 +650,188 @@ class ServiceAccessGrantForm(forms.Form):
             field.widget.attrs['class'] = f'{existing} input-control'.strip()
 
 
+class HierarchyRouteRowForm(forms.Form):
+    nodo_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    nivel_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    nivel_nombre = forms.CharField(required=False, max_length=100, label='Nivel')
+    codigo = forms.CharField(required=False, max_length=50, label='Codigo')
+    nodo_nombre = forms.CharField(required=False, max_length=200, label='Nombre')
+
+    def __init__(self, *args, **kwargs):
+        initial_order = kwargs.pop('initial_order', None)
+        super().__init__(*args, **kwargs)
+        self.initial_order = initial_order
+        for _, field in self.fields.items():
+            field.widget.attrs['class'] = 'input-control'
+        self.fields['nivel_nombre'].widget.attrs['readonly'] = 'readonly'
+
+    @property
+    def has_content(self):
+        return any(
+            bool(self.cleaned_data.get('nodo_id')) or (self.cleaned_data.get(name) or '').strip()
+            for name in ('codigo', 'nodo_nombre')
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        field_names = ('nivel_nombre', 'codigo', 'nodo_nombre')
+        for name in field_names:
+            cleaned[name] = (cleaned.get(name) or '').strip()
+        if cleaned.get('nodo_id'):
+            return cleaned
+        if not any(cleaned.get(name) for name in ('codigo', 'nodo_nombre')):
+            return cleaned
+        for name in ('codigo', 'nodo_nombre'):
+            if not cleaned.get(name):
+                self.add_error(name, 'Completa este campo para guardar el nivel.')
+        cleaned['codigo'] = cleaned.get('codigo', '').upper()
+        return cleaned
+
+
+HierarchyRouteFormSet = formset_factory(HierarchyRouteRowForm, extra=0, can_delete=True)
+
+
+class HierarchyStructureRowForm(forms.Form):
+    nivel_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    nivel_nombre = forms.CharField(required=False, max_length=100, label='Nivel')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            field.widget.attrs['class'] = 'input-control'
+
+    @property
+    def has_content(self):
+        return bool((self.cleaned_data.get('nivel_nombre') or '').strip())
+
+    def clean_nivel_nombre(self):
+        return (self.cleaned_data.get('nivel_nombre') or '').strip()
+
+
+HierarchyStructureFormSet = formset_factory(HierarchyStructureRowForm, extra=0, can_delete=True)
+
+
+class HierarchyValueForm(forms.Form):
+    nivel = forms.ModelChoiceField(
+        queryset=app_models.NivelJerarquia.objects.none(),
+        label='Nivel',
+        empty_label='Selecciona un nivel',
+    )
+    parent = forms.ModelChoiceField(
+        queryset=app_models.NodoJerarquia.objects.none(),
+        required=False,
+        label='Nodo superior',
+        empty_label='Sin nodo superior',
+    )
+    codigo = forms.CharField(max_length=50, label='Codigo')
+    nombre = forms.CharField(max_length=200, label='Nombre')
+
+    def __init__(self, *args, empresa=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empresa = empresa
+        if empresa:
+            self.fields['nivel'].queryset = app_models.NivelJerarquia.objects.filter(
+                empresa=empresa,
+                activo=True,
+            ).order_by('orden')
+            self.fields['parent'].queryset = app_models.NodoJerarquia.objects.filter(
+                empresa=empresa,
+                activo=True,
+            ).select_related('nivel', 'parent').order_by('nivel__orden', 'orden', 'codigo', 'nombre')
+        self.fields['parent'].label_from_instance = lambda obj: f'{obj.ut} - {obj.ruta_nombre}'
+        for _, field in self.fields.items():
+            field.widget.attrs['class'] = 'input-control'
+
+    def clean_codigo(self):
+        return (self.cleaned_data.get('codigo') or '').strip().upper()
+
+    def clean_nombre(self):
+        return (self.cleaned_data.get('nombre') or '').strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        level = cleaned.get('nivel')
+        parent = cleaned.get('parent')
+        if not self.empresa or not level:
+            return cleaned
+        if level.empresa_id != self.empresa.pk:
+            self.add_error('nivel', 'El nivel debe pertenecer a la empresa seleccionada.')
+        if parent and parent.empresa_id != self.empresa.pk:
+            self.add_error('parent', 'El nodo superior debe pertenecer a la empresa seleccionada.')
+        if level.orden == 1 and parent:
+            self.add_error('parent', 'El primer nivel no debe tener nodo superior.')
+        if level.orden > 1:
+            if not parent:
+                self.add_error('parent', 'Selecciona el nodo superior del nivel anterior.')
+            elif parent.nivel.orden != level.orden - 1:
+                self.add_error('parent', 'El nodo superior debe pertenecer al nivel inmediatamente anterior.')
+        return cleaned
+
+
+class HierarchyMoveNodeForm(forms.Form):
+    parent = forms.ModelChoiceField(
+        queryset=app_models.NodoJerarquia.objects.none(),
+        required=False,
+        label='Nodo superior',
+        empty_label='Dejar como raiz',
+    )
+
+    def __init__(self, *args, node=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.node = node
+        queryset = app_models.NodoJerarquia.objects.none()
+        if node:
+            excluded = {node.pk}
+            stack = list(node.hijos.values_list('pk', flat=True))
+            while stack:
+                child_id = stack.pop()
+                if child_id in excluded:
+                    continue
+                excluded.add(child_id)
+                stack.extend(app_models.NodoJerarquia.objects.filter(parent_id=child_id).values_list('pk', flat=True))
+            queryset = app_models.NodoJerarquia.objects.filter(
+                empresa=node.empresa,
+                activo=True,
+            ).exclude(
+                pk__in=excluded,
+            ).select_related(
+                'nivel',
+                'parent',
+            ).order_by(
+                'nivel__orden',
+                'orden',
+                'nombre',
+            )
+        self.fields['parent'].queryset = queryset
+        self.fields['parent'].label_from_instance = lambda obj: f'{obj.ut} - {obj.ruta_nombre}'
+        self.fields['parent'].widget.attrs['class'] = 'input-control'
+
+    def clean_parent(self):
+        parent = self.cleaned_data.get('parent')
+        if not parent or not self.node:
+            return parent
+        if parent.empresa_id != self.node.empresa_id:
+            raise forms.ValidationError('El nodo superior debe pertenecer a la misma empresa.')
+        return parent
+
+
+class HierarchyInsertLevelForm(forms.Form):
+    nivel_nombre = forms.CharField(max_length=100, label='Nombre del nivel')
+    codigo = forms.CharField(max_length=50, label='Codigo del valor')
+    nodo_nombre = forms.CharField(max_length=200, label='Nombre del valor')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for _, field in self.fields.items():
+            field.widget.attrs['class'] = 'input-control'
+
+    def clean_codigo(self):
+        return (self.cleaned_data.get('codigo') or '').strip().upper()
+
+    def clean_nodo_nombre(self):
+        return (self.cleaned_data.get('nodo_nombre') or '').strip()
+
+
 class ServicioACARegistroForm(forms.Form):
     fecha_analisis = forms.DateField(
         required=False,
@@ -750,6 +924,124 @@ class ServicioACARegistroForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         return cleaned
+
+class EquipoForm(BaseModelForm):
+    empresa = forms.ModelChoiceField(
+        queryset=app_models.Empresa.objects.none(),
+        required=False,
+        label='Empresa',
+    )
+
+    class Meta:
+        model = app_models.Equipo
+        fields = ['tag_equipo', 'nombre_equipo', 'empresa', 'nodo', 'ut', 'descripcion_ut']
+        widgets = {
+            'nodo': forms.HiddenInput(),
+            'ut': forms.TextInput(attrs={'class': 'input-control'}),
+            'descripcion_ut': forms.TextInput(attrs={'class': 'input-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._resolved_node = None
+        self.fields['empresa'].queryset = app_models.Empresa.objects.order_by('nombre')
+        self.fields['ut'].help_text = 'Puedes pegar la UT completa; se validara contra los valores registrados.'
+        self.fields['nodo'].queryset = app_models.NodoJerarquia.objects.filter(
+            activo=True,
+        ).select_related(
+            'empresa',
+            'nivel',
+            'parent',
+        ).order_by(
+            'empresa__nombre',
+            'nivel__orden',
+            'orden',
+            'nombre',
+        )
+        self.fields['nodo'].required = False
+        self.fields['nodo'].label = 'Ubicacion tecnica jerarquica'
+        if self.instance and getattr(self.instance, 'nodo_id', None):
+            self.fields['empresa'].initial = self.instance.nodo.empresa_id
+
+    def clean(self):
+        cleaned = super().clean()
+        empresa = cleaned.get('empresa')
+        nodo = cleaned.get('nodo')
+        ut = (cleaned.get('ut') or '').strip()
+        if empresa and nodo and nodo.empresa_id != empresa.pk:
+            self.add_error('nodo', 'La ubicacion tecnica debe pertenecer a la empresa seleccionada.')
+
+        if ut:
+            if not empresa:
+                self.add_error('empresa', 'Selecciona una empresa para resolver la UT.')
+                return cleaned
+            resolved_node = self._resolve_node_from_ut(empresa, ut)
+            if resolved_node:
+                self._resolved_node = resolved_node
+                cleaned['nodo'] = resolved_node
+        elif not nodo:
+            self.add_error('ut', 'Ingresa una UT o selecciona una ubicacion tecnica.')
+        return cleaned
+
+    def _resolve_node_from_ut(self, empresa, ut):
+        codes = [
+            app_models._technical_segment(part)
+            for part in ut.split('-')
+            if part.strip()
+        ]
+        levels = list(app_models.NivelJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).order_by('orden'))
+
+        if not levels:
+            self.add_error('ut', 'La empresa no tiene estructura de ubicacion tecnica configurada.')
+            return None
+        if len(codes) != len(levels):
+            self.add_error(
+                'ut',
+                f'La UT tiene {len(codes)} componentes y la estructura de {empresa} requiere {len(levels)} niveles.',
+            )
+            return None
+
+        parent = None
+        resolved = None
+        for index, (level, code) in enumerate(zip(levels, codes), start=1):
+            candidates = app_models.NodoJerarquia.objects.filter(
+                empresa=empresa,
+                nivel=level,
+                parent=parent,
+                activo=True,
+            )
+            node = next(
+                (
+                    item for item in candidates
+                    if app_models._technical_segment(item.codigo) == code
+                ),
+                None,
+            )
+            if not node:
+                parent_label = f' bajo {parent.codigo} - {parent.nombre}' if parent else ''
+                self.add_error(
+                    'ut',
+                    f'No existe el codigo "{code}" para el nivel {index} ({level.nombre}){parent_label}.',
+                )
+                return None
+            parent = node
+            resolved = node
+        return resolved
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        nodo = self._resolved_node or self.cleaned_data.get('nodo')
+        if nodo:
+            instance.ut = nodo.ut
+            instance.descripcion_ut = nodo.ruta_nombre[:255]
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
 
 class ServicioForm(BaseModelForm):
     metodologias = forms.ModelMultipleChoiceField(

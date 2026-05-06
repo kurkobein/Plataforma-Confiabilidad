@@ -9,6 +9,9 @@
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'model_list' model_key %}">Volver</a>
+        {% if model_key == 'empresa' %}
+            <a class="btn" href="{% url 'hierarchy_tree' object.pk %}">Jerarquía UT</a>
+        {% endif %}
         {% if model_key == 'estrategia' %}
             <a class="btn" href="{% url 'dimension_tables_editor' object.pk %}">Editar tablas</a>
         {% endif %}

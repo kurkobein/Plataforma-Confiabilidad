@@ -24,14 +24,12 @@ from core.models import (
     Metodologia,
     Servicio,
     ServicioEquipo,
-    Sistema,
     Usuario,
 )
 
 HEADER_MAP = {
     "CLIENTE": "servicio_codigo",
     "Ubicación Técnica": "ubicacion_tecnica",
-    "Sistema": "sistema",
     "Descripción  U.Técnica": "descripcion_ut",
     "Equipo": "equipo_tipo",
     "TAG": "tag",
@@ -323,34 +321,22 @@ class Command(BaseCommand):
             rows.append(payload)
         return rows
 
-    def get_or_create_sistema(self, empresa, name):
-        nombre = qtext(name) or f"{empresa.nombre} · General"
-        codigo = slug(nombre)
-        obj, _ = Sistema.objects.get_or_create(
-            empresa=empresa,
-            nombre_sistema=nombre[:200],
-            defaults={"codigo_sistema": codigo},
-        )
-        return obj
-
     def get_or_create_component(self, name):
         nombre = qtext(name) or "SIN_COMPONENTE"
         obj, _ = Componente.objects.get_or_create(nombre=nombre[:200], defaults={"descripcion": nombre})
         return obj
 
     def get_or_create_equipo(self, empresa, row):
-        sistema = self.get_or_create_sistema(empresa, row.get("sistema"))
         tag = qtext(row.get("tag")) or qtext(row.get("ubicacion_tecnica")) or "SIN_TAG"
         nombre = qtext(row.get("descripcion_ut")) or qtext(row.get("equipo_tipo")) or tag
-        obj, _ = Equipo.objects.get_or_create(
-            sistema=sistema,
-            tag_equipo=tag[:100],
-            defaults={
-                "nombre_equipo": nombre[:200],
-                "ut": qtext(row.get("ubicacion_tecnica"))[:200],
-                "descripcion_ut": qtext(row.get("descripcion_ut"))[:255],
-            },
-        )
+        obj = Equipo.objects.filter(tag_equipo=tag[:100]).first()
+        if not obj:
+            obj = Equipo.objects.create(
+                tag_equipo=tag[:100],
+                nombre_equipo=nombre[:200],
+                ut=qtext(row.get("ubicacion_tecnica"))[:200],
+                descripcion_ut=qtext(row.get("descripcion_ut"))[:255],
+            )
         componente = self.get_or_create_component(row.get("equipo_tipo"))
         ComponenteEquipo.objects.get_or_create(equipo=obj, componente=componente)
         return obj

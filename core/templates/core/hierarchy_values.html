@@ -1,0 +1,185 @@
+{% extends 'core/base.html' %}
+{% block title %}Valores UT | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Valores UT - {{ empresa }}</h2>
+        <p>Registra los codigos y nombres disponibles para cada nivel de la estructura.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'hierarchy_tree' empresa.pk %}">Volver</a>
+        <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
+        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Registrar UT</a>
+    </div>
+</div>
+
+<div class="hierarchy-layout">
+    <form method="post" class="card hierarchy-builder-card">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        {% if not levels %}
+            <div class="message warning" style="margin-bottom: 16px;">
+                Primero define la estructura base de la ubicacion tecnica para esta empresa.
+            </div>
+            <div class="actions">
+                <a class="btn btn-primary" href="{% url 'hierarchy_structure' empresa.pk %}">Definir estructura</a>
+            </div>
+        {% else %}
+        <div class="form-grid">
+            <div class="form-field">
+                <label>{{ form.nivel.label }}</label>
+                {{ form.nivel }}
+                {{ form.nivel.errors }}
+            </div>
+            <div class="form-field" id="parent-field">
+                <label>{{ form.parent.label }}</label>
+                {{ form.parent }}
+                {{ form.parent.errors }}
+            </div>
+            <div class="form-field">
+                <label>{{ form.codigo.label }}</label>
+                {{ form.codigo }}
+                {{ form.codigo.errors }}
+            </div>
+            <div class="form-field">
+                <label>{{ form.nombre.label }}</label>
+                {{ form.nombre }}
+                {{ form.nombre.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top: 1rem;">
+            <button class="btn btn-primary" type="submit">Guardar valor</button>
+        </div>
+        {% endif %}
+    </form>
+
+    <div class="card hierarchy-side-card">
+        <h3 class="card-title">Filtro rapido</h3>
+        <div class="form-field">
+            <label>Nivel</label>
+            <select class="input-control" id="value-level-filter">
+                <option value="">Todos</option>
+                {% for level in levels %}
+                    <option value="{{ level.pk }}">{{ level.orden }}. {{ level.nombre }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-field" style="margin-top:12px;">
+            <label>Nodo superior</label>
+            <select class="input-control" id="value-parent-filter">
+                <option value="">Todos</option>
+                <option value="root">Raiz</option>
+                {% for row in rows %}
+                    <option value="{{ row.nodo.pk }}">{{ row.nodo.ut }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="table-wrap" style="margin-top:16px;">
+    <table class="data-table" id="hierarchy-values-table">
+        <thead>
+            <tr>
+                <th>Nivel</th>
+                <th>Nodo superior</th>
+                <th>Codigo</th>
+                <th>Nombre</th>
+                <th>UT</th>
+                <th>Ruta</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr data-level-id="{{ row.nodo.nivel_id }}" data-parent-id="{% if row.nodo.parent_id %}{{ row.nodo.parent_id }}{% else %}root{% endif %}">
+                    <td>{{ row.nodo.nivel.orden }}. {{ row.nodo.nivel.nombre }}</td>
+                    <td>{% if row.nodo.parent %}{{ row.nodo.parent.ut }}{% else %}Raiz{% endif %}</td>
+                    <td><strong>{{ row.nodo.codigo }}</strong></td>
+                    <td>{{ row.nodo.nombre }}</td>
+                    <td>{{ row.nodo.ut }}</td>
+                    <td>{{ row.nodo.ruta_nombre }}</td>
+                    <td>
+                        <div class="actions">
+                            <a class="btn" href="{% url 'model_update' 'nodojerarquia' row.nodo.pk %}">Editar</a>
+                            <form method="post"
+                                  action="{% url 'hierarchy_delete_node' row.nodo.pk %}"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Esto desactivara este valor y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. ¿Continuar?');">
+                                {% csrf_token %}
+                                <button class="btn btn-danger" type="submit">Eliminar</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="7">No hay valores registrados.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script type="application/json" id="hierarchy-nodes-data">{{ hierarchy_nodes_json|safe }}</script>
+
+<script>
+(function () {
+    const nodes = JSON.parse(document.getElementById('hierarchy-nodes-data').textContent || '[]');
+    const levelSelect = document.getElementById('id_nivel');
+    const parentSelect = document.getElementById('id_parent');
+    const parentField = document.getElementById('parent-field');
+    const codigoInput = document.getElementById('id_codigo');
+    const levelFilter = document.getElementById('value-level-filter');
+    const parentFilter = document.getElementById('value-parent-filter');
+    const tableRows = Array.from(document.querySelectorAll('#hierarchy-values-table tbody tr[data-level-id]'));
+    const selectedParent = parentSelect ? parentSelect.value : '';
+
+    function selectedLevelOrder() {
+        const option = levelSelect.options[levelSelect.selectedIndex];
+        if (!option || !option.textContent.includes('.')) return null;
+        return parseInt(option.textContent.split('.')[0], 10);
+    }
+
+    function refreshParentOptions() {
+        const order = selectedLevelOrder();
+        if (!parentSelect || !order) return;
+        if (order === 1) {
+            parentField.style.display = 'none';
+            parentSelect.innerHTML = '<option value="">Sin nodo superior</option>';
+            parentSelect.value = '';
+            return;
+        }
+        parentField.style.display = '';
+        const options = nodes
+            .filter(node => Number(node.level_order) === Number(order - 1))
+            .sort((a, b) => a.ut.localeCompare(b.ut));
+        parentSelect.innerHTML = '<option value="">Selecciona el nodo superior</option>' + options
+            .map(node => `<option value="${node.id}">${node.ut} - ${node.name}</option>`)
+            .join('');
+        if (options.some(node => String(node.id) === String(selectedParent))) {
+            parentSelect.value = selectedParent;
+        }
+    }
+
+    function applyFilters() {
+        const level = levelFilter.value;
+        const parent = parentFilter.value;
+        tableRows.forEach(row => {
+            const levelOk = !level || row.dataset.levelId === level;
+            const parentOk = !parent || row.dataset.parentId === parent;
+            row.style.display = levelOk && parentOk ? '' : 'none';
+        });
+    }
+
+    if (codigoInput) {
+        codigoInput.addEventListener('input', function () {
+            this.value = this.value.toUpperCase();
+        });
+    }
+    if (levelSelect) levelSelect.addEventListener('change', refreshParentOptions);
+    if (levelFilter) levelFilter.addEventListener('change', applyFilters);
+    if (parentFilter) parentFilter.addEventListener('change', applyFilters);
+
+    refreshParentOptions();
+})();
+</script>
+{% endblock %}

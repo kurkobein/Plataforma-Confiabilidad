@@ -62,6 +62,10 @@
                             {% else %}
                                 <a class="btn" href="{% url 'model_detail' model_key row.pk %}">Ver</a>
 
+                                {% if model_key == 'empresa' %}
+                                    <a class="btn" href="{% url 'hierarchy_tree' row.pk %}">Jerarquía UT</a>
+                                {% endif %}
+
                                 {% if model_key == 'estrategia' %}
                                     <a class="btn" href="{% url 'dimension_tables_editor' row.pk %}">Tablas</a>
                                 {% endif %}

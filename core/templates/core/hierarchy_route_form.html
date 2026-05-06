@@ -1,68 +1,78 @@
 {% extends 'core/base.html' %}
-{% block title %}Constructor UT | Mindco{% endblock %}
+{% block title %}Registrar UT | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Constructor de UT - {{ empresa }}</h2>
-        <p>Completa la ubicación técnica por filas. Puedes elegir nodos existentes o escribir uno nuevo.</p>
+        <h2>Registrar UT - {{ empresa }}</h2>
+        <p>Completa el codigo y nombre de cada nivel. La UT se arma con los codigos.</p>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'hierarchy_tree' empresa.pk %}">Volver</a>
+        <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Editar estructura</a>
+        <a class="btn" href="{% url 'hierarchy_values' empresa.pk %}">Registrar valores</a>
     </div>
 </div>
 
-<div class="grid" style="grid-template-columns: 2fr 1fr; gap: 1rem; align-items: start;">
-    <form method="post" class="card">
+<div class="hierarchy-layout">
+    <form method="post" class="card hierarchy-builder-card">
         {% csrf_token %}
         {{ formset.management_form }}
         {% if formset.non_form_errors %}<div class="form-errors">{{ formset.non_form_errors }}</div>{% endif %}
 
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th style="width: 80px;">Orden</th>
-                    <th>Nivel</th>
-                    <th style="width: 160px;">Abrev.</th>
-                    <th>Valor / Nodo</th>
-                </tr>
-            </thead>
-            <tbody id="route-rows">
-                {% for row in form_rows %}
+        <div class="table-wrap">
+            <table class="data-table hierarchy-builder-table">
+                <thead>
                     <tr>
-                        <td class="row-order">{{ row.orden }}</td>
-                        <td>{{ row.form.nivel_nombre.errors }}{{ row.form.nivel_nombre }}</td>
-                        <td>{{ row.form.nivel_abreviatura.errors }}{{ row.form.nivel_abreviatura }}</td>
-                        <td>
-                            {{ row.form.nodo_nombre.errors }}
-                            {{ row.form.nodo_nombre }}
-                            <datalist id="nodos-nivel-{{ row.orden }}">
-                                {% for opcion in row.opciones %}
-                                    <option value="{{ opcion }}"></option>
-                                {% endfor %}
-                            </datalist>
-                        </td>
+                        <th style="width: 80px;">Orden</th>
+                        <th>Nivel</th>
+                        <th>Valor registrado</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody id="route-rows">
+                    {% for row in form_rows %}
+                        <tr>
+                            <td class="row-order">{{ row.orden }}</td>
+                            <td>
+                                {{ row.form.nodo_id }}
+                                {{ row.form.nivel_id }}
+                                {{ row.form.nivel_nombre.errors }}
+                                {{ row.form.nivel_nombre }}
+                            </td>
+                            <td>
+                                {{ row.form.codigo.errors }}
+                                {{ row.form.nodo_nombre.errors }}
+                                {{ row.form.codigo.as_hidden }}
+                                {{ row.form.nodo_nombre.as_hidden }}
+                                <select class="input-control hierarchy-node-select" data-order="{{ row.orden }}">
+                                    <option value="">Selecciona</option>
+                                </select>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
-        <div style="margin-top: 1rem;">
-            <label><strong>Vista previa UT</strong></label>
-            <input type="text" id="ut-preview" class="input-control" readonly>
+        <div class="form-grid hierarchy-preview-grid">
+            <div class="form-field">
+                <label><strong>UT unificada</strong></label>
+                <input type="text" id="ut-preview" class="input-control" readonly>
+            </div>
+            <div class="form-field">
+                <label><strong>Ruta legible</strong></label>
+                <input type="text" id="route-preview" class="input-control" readonly>
+            </div>
         </div>
 
         <div class="actions" style="margin-top: 1rem;">
-            <button class="btn" type="button" id="add-row">Agregar nivel</button>
             <button class="btn btn-primary" type="submit">Guardar UT</button>
         </div>
     </form>
 
-    <div class="card">
-        <h3 style="margin-top: 0;">Ubicaciones existentes</h3>
-        <p>Referencia rápida para reutilizar valores ya creados.</p>
-
+    <div class="card hierarchy-side-card">
+        <h3 class="card-title">Ubicaciones existentes</h3>
         {% if rutas_existentes %}
-            <div style="max-height: 520px; overflow: auto;">
+            <div class="existing-routes">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -79,53 +89,86 @@
                 </table>
             </div>
         {% else %}
-            <p>No existen ubicaciones técnicas para esta empresa.</p>
+            <p class="muted">No existen ubicaciones tecnicas para esta empresa.</p>
         {% endif %}
     </div>
 </div>
 
+<script type="application/json" id="hierarchy-nodes-data">{{ hierarchy_nodes_json|safe }}</script>
+
 <script>
 (function () {
     const tbody = document.getElementById('route-rows');
-    const total = document.getElementById('id_form-TOTAL_FORMS');
-    const btn = document.getElementById('add-row');
     const preview = document.getElementById('ut-preview');
+    const routePreview = document.getElementById('route-preview');
+    const nodes = JSON.parse(document.getElementById('hierarchy-nodes-data').textContent || '[]');
 
-    function setupNodoInput(input, order) {
-        input.setAttribute('list', `nodos-nivel-${order}`);
-        input.addEventListener('input', updatePreview);
+    function segment(value) {
+        return (value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function rows() {
+        return Array.from(tbody.querySelectorAll('tr'));
+    }
+
+    function field(row, suffix) {
+        return row.querySelector(`input[name$="-${suffix}"]`);
+    }
+
+    function nodeForRow(row) {
+        const nodeId = field(row, 'nodo_id')?.value;
+        return nodes.find(node => String(node.id) === String(nodeId)) || null;
     }
 
     function updatePreview() {
-        const valores = Array.from(tbody.querySelectorAll('input[name$="-nodo_nombre"]'))
-            .map(input => input.value.trim())
-            .filter(Boolean);
-        preview.value = valores.join('-');
+        let parentId = null;
+        const codes = [];
+        const route = [];
+        rows().forEach((row, index) => {
+            const order = index + 1;
+            const select = row.querySelector('.hierarchy-node-select');
+            const selectedNode = nodeForRow(row);
+            const options = (order === 1 || parentId) ? nodes.filter(node =>
+                Number(node.level_order) === Number(order) &&
+                (node.parent_id || null) === (parentId || null)
+            ) : [];
+            select.innerHTML = '<option value="">Selecciona</option>' + options
+                .map(node => `<option value="${node.id}">${node.code} - ${node.name}</option>`)
+                .join('');
+            if (selectedNode && options.some(node => String(node.id) === String(selectedNode.id))) {
+                select.value = selectedNode.id;
+                field(row, 'codigo').value = selectedNode.code;
+                field(row, 'nodo_nombre').value = selectedNode.name;
+                parentId = selectedNode.id;
+            } else {
+                select.value = '';
+                field(row, 'nodo_id').value = '';
+                field(row, 'codigo').value = '';
+                field(row, 'nodo_nombre').value = '';
+                parentId = null;
+            }
+
+            const code = segment(field(row, 'codigo')?.value || '');
+            const name = (field(row, 'nodo_nombre')?.value || '').trim();
+            if (code) {
+                codes.push(code);
+                const levelName = (field(row, 'nivel_nombre')?.value || `Nivel ${order}`).trim();
+                route.push(`${levelName}: ${code}${name ? ' - ' + name : ''}`);
+            }
+        });
+        preview.value = codes.join('-');
+        routePreview.value = route.join(' > ');
     }
 
-    Array.from(tbody.querySelectorAll('tr')).forEach((tr, idx) => {
-        const order = idx + 1;
-        const input = tr.querySelector('input[name$="-nodo_nombre"]');
-        if (input) setupNodoInput(input, order);
-    });
-
-    btn.addEventListener('click', function () {
-        const index = parseInt(total.value, 10);
-        const order = index + 1;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="row-order">${order}</td>
-            <td><input type="text" name="form-${index}-nivel_nombre" value="Nivel ${order}" maxlength="100" class="input-control" id="id_form-${index}-nivel_nombre"></td>
-            <td><input type="text" name="form-${index}-nivel_abreviatura" value="N${order}" maxlength="20" class="input-control" id="id_form-${index}-nivel_abreviatura"></td>
-            <td>
-                <input type="text" name="form-${index}-nodo_nombre" maxlength="200" class="input-control" id="id_form-${index}-nodo_nombre" list="nodos-nivel-${order}">
-                <datalist id="nodos-nivel-${order}"></datalist>
-            </td>
-        `;
-        tbody.appendChild(tr);
-        total.value = index + 1;
-        setupNodoInput(tr.querySelector('input[name$="-nodo_nombre"]'), order);
-        updatePreview();
+    rows().forEach((row) => {
+        const select = row.querySelector('.hierarchy-node-select');
+        select.addEventListener('change', function () {
+            const node = nodes.find(item => String(item.id) === String(this.value));
+            field(row, 'nodo_id').value = node ? node.id : '';
+            field(row, 'codigo').value = node ? node.code : '';
+            field(row, 'nodo_nombre').value = node ? node.name : '';
+            updatePreview();
+        });
     });
 
     updatePreview();

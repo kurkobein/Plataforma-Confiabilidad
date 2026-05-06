@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
+import re
 
 
 class ActiveUsuarioManager(models.Manager):
@@ -195,17 +196,70 @@ class Componente(BaseUnmanagedModel):
         return self.nombre
 
 
-class Sistema(BaseUnmanagedModel):
-    nombre_sistema = models.CharField(max_length=200)
-    codigo_sistema = models.CharField(max_length=100)
-    empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='sistemas')
+def _technical_segment(value):
+    value = (value or '').strip().upper()
+    value = re.sub(r'[^A-Z0-9]+', '-', value)
+    return value.strip('-') or 'SIN-CODIGO'
+
+
+class NivelJerarquia(BaseUnmanagedModel):
+    empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='niveles_jerarquia')
+    nombre = models.CharField(max_length=100)
+    orden = models.PositiveIntegerField(default=0)
+    activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_sistemas'
-        ordering = ['empresa__nombre', 'nombre_sistema']
+        db_table = 'reliability_niveljerarquia'
+        ordering = ['empresa__nombre', 'orden', 'nombre']
+        unique_together = (
+            ('empresa', 'orden'),
+            ('empresa', 'nombre'),
+        )
 
     def __str__(self):
-        return f'{self.codigo_sistema} - {self.nombre_sistema}'
+        return f'{self.empresa.sigla} / {self.orden}. {self.nombre}'
+
+
+class NodoJerarquia(BaseUnmanagedModel):
+    empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='nodos_jerarquia')
+    nivel = models.ForeignKey(NivelJerarquia, on_delete=models.DO_NOTHING, db_column='nivel_id', related_name='nodos')
+    parent = models.ForeignKey('self', on_delete=models.DO_NOTHING, db_column='parent_id', blank=True, null=True, related_name='hijos')
+    codigo = models.CharField(max_length=50)
+    nombre = models.CharField(max_length=200)
+    orden = models.PositiveIntegerField(default=0)
+    activo = models.BooleanField(default=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_nodojerarquia'
+        ordering = ['empresa__nombre', 'nivel__orden', 'orden', 'codigo', 'nombre']
+        unique_together = (
+            ('empresa', 'parent', 'codigo'),
+        )
+
+    def __str__(self):
+        return self.ut
+
+    def path_nodes(self):
+        nodes = []
+        current = self
+        seen = set()
+        while current and current.pk not in seen:
+            seen.add(current.pk)
+            nodes.append(current)
+            current = current.parent
+        return list(reversed(nodes))
+
+    @property
+    def depth(self):
+        return len(self.path_nodes()) - 1
+
+    @property
+    def ut(self):
+        return '-'.join(_technical_segment(node.codigo) for node in self.path_nodes())
+
+    @property
+    def ruta_nombre(self):
+        return ' > '.join(f'{node.nivel.nombre}: {node.codigo} - {node.nombre}' for node in self.path_nodes())
 
 
 class Equipo(BaseUnmanagedModel):
@@ -213,7 +267,7 @@ class Equipo(BaseUnmanagedModel):
     nombre_equipo = models.CharField(max_length=200)
     ut = models.CharField(max_length=200)
     descripcion_ut = models.CharField(max_length=255)
-    sistema = models.ForeignKey(Sistema, on_delete=models.DO_NOTHING, db_column='sistema_id', related_name='equipos')
+    nodo = models.ForeignKey(NodoJerarquia, on_delete=models.DO_NOTHING, db_column='nodo_id', blank=True, null=True, related_name='equipos')
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_equipo'

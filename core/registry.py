@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from . import models
-from .forms import EmpresaForm, ServicioForm
+from .forms import EmpresaForm, EquipoForm, ServicioForm
 
 MODEL_REGISTRY = OrderedDict({
     'empresa': {
@@ -45,16 +45,6 @@ MODEL_REGISTRY = OrderedDict({
         'allow_direct_crud': True,
         'delete_superuser_only': True,
     },
-    'sistema': {
-        'model': models.Sistema,
-        'label': 'Sistemas',
-        'group': 'Configuración',
-        'search_fields': ['nombre_sistema', 'codigo_sistema'],
-        'show_in_sidebar': False,
-        'show_in_dashboard': True,
-        'allow_direct_crud': True,
-        'delete_superuser_only': True,
-    },
     'componente': {
         'model': models.Componente,
         'label': 'Componentes',
@@ -69,9 +59,30 @@ MODEL_REGISTRY = OrderedDict({
         'model': models.Equipo,
         'label': 'Equipos',
         'group': 'Operación',
+        'form_class': EquipoForm,
         'search_fields': ['tag_equipo', 'nombre_equipo', 'ut', 'descripcion_ut'],
         'show_in_sidebar': True,
         'show_in_dashboard': True,
+        'allow_direct_crud': True,
+        'delete_superuser_only': True,
+    },
+    'niveljerarquia': {
+        'model': models.NivelJerarquia,
+        'label': 'Niveles jerarquia UT',
+        'group': 'Configuración',
+        'search_fields': ['nombre'],
+        'show_in_sidebar': False,
+        'show_in_dashboard': False,
+        'allow_direct_crud': True,
+        'delete_superuser_only': True,
+    },
+    'nodojerarquia': {
+        'model': models.NodoJerarquia,
+        'label': 'Nodos jerarquia UT',
+        'group': 'Configuración',
+        'search_fields': ['codigo', 'nombre'],
+        'show_in_sidebar': False,
+        'show_in_dashboard': False,
         'allow_direct_crud': True,
         'delete_superuser_only': True,
     },

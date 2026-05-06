@@ -184,13 +184,13 @@ def get_service_permission(user, servicio):
 
 
 def get_service_equipment(servicio):
-    base_qs = models.Equipo.objects.select_related('sistema', 'sistema__empresa').order_by('tag_equipo', 'nombre_equipo')
-    direct_ids = list(
-        models.ServicioEquipo.objects.filter(servicio=servicio).values_list('equipo_id', flat=True)
-    )
-    if direct_ids:
-        return base_qs.filter(pk__in=direct_ids).distinct()
-    return base_qs.filter(sistema__empresa_id=servicio.empresa_id).distinct()
+    base_qs = models.Equipo.objects.select_related('nodo', 'nodo__empresa').order_by('tag_equipo', 'nombre_equipo')
+    if not servicio:
+        return base_qs.none()
+
+    return base_qs.filter(
+        Q(servicios_equipo__servicio_id=servicio.pk) | Q(nodo__empresa_id=servicio.empresa_id)
+    ).distinct()
 
 
 def get_users_for_service_access(servicio):

@@ -13,7 +13,6 @@
         <a class="btn" href="{% url 'model_list' 'equipo' %}">Volver</a>
         {% if mode == 'update' and object %}
             <a class="btn" href="{% url 'model_detail' 'equipo' object.pk %}">Ver detalle</a>
-            
         {% endif %}
     </div>
 </div>
@@ -21,7 +20,10 @@
 <div class="card">
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
+        {{ form.nodo }}
         {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        {% if form.nodo.errors %}<div class="form-errors">{{ form.nodo.errors }}</div>{% endif %}
+
         <div class="detail-grid">
             <div><strong>{{ form.tag_equipo.label }}</strong></div>
             <div>
@@ -29,29 +31,47 @@
                 {% if form.tag_equipo.help_text %}<small>{{ form.tag_equipo.help_text }}</small>{% endif %}
                 {{ form.tag_equipo.errors }}
             </div>
+
             <div><strong>{{ form.nombre_equipo.label }}</strong></div>
             <div>
                 {{ form.nombre_equipo }}
                 {% if form.nombre_equipo.help_text %}<small>{{ form.nombre_equipo.help_text }}</small>{% endif %}
                 {{ form.nombre_equipo.errors }}
             </div>
+
+            <div><strong>{{ form.empresa.label }}</strong></div>
+            <div>
+                {{ form.empresa }}
+                {% if form.empresa.help_text %}<small>{{ form.empresa.help_text }}</small>{% endif %}
+                {{ form.empresa.errors }}
+            </div>
+
+            <div><strong>Ubicacion tecnica</strong></div>
+            <div>
+                <div id="technical-location-picker" class="technical-location-picker">
+                    <div id="technical-location-fields" class="technical-location-fields"></div>
+                    <p id="technical-location-empty" class="muted" style="display:none; margin:8px 0 0;">
+                        Selecciona una empresa con jerarquia configurada o crea la jerarquia de la empresa.
+                    </p>
+                </div>
+            </div>
+
             <div><strong>{{ form.ut.label }}</strong></div>
             <div>
                 {{ form.ut }}
                 {% if form.ut.help_text %}<small>{{ form.ut.help_text }}</small>{% endif %}
                 {{ form.ut.errors }}
+                <div class="actions" style="margin-top:8px;">
+                    <button class="btn" type="button" id="resolve-ut-button">Resolver UT</button>
+                </div>
+                <div id="ut-resolve-feedback" class="message warning" style="display:none; margin-top:8px;"></div>
             </div>
+
             <div><strong>{{ form.descripcion_ut.label }}</strong></div>
             <div>
                 {{ form.descripcion_ut }}
                 {% if form.descripcion_ut.help_text %}<small>{{ form.descripcion_ut.help_text }}</small>{% endif %}
                 {{ form.descripcion_ut.errors }}
-            </div>
-            <div><strong>{{ form.sistema.label }}</strong></div>
-            <div>
-                {{ form.sistema }}
-                {% if form.sistema.help_text %}<small>{{ form.sistema.help_text }}</small>{% endif %}
-                {{ form.sistema.errors }}
             </div>
         </div>
         <div class="actions" style="margin-top:20px;">
@@ -59,4 +79,227 @@
         </div>
     </form>
 </div>
+
+<script type="application/json" id="tech-location-levels-data">{{ tech_location_levels_json|safe }}</script>
+<script type="application/json" id="tech-location-nodes-data">{{ tech_location_nodes_json|safe }}</script>
+
+<script>
+(function () {
+    const levels = JSON.parse(document.getElementById('tech-location-levels-data').textContent || '[]');
+    const nodes = JSON.parse(document.getElementById('tech-location-nodes-data').textContent || '[]');
+    const selectedInitial = '{{ tech_location_selected_id|default:"" }}';
+    const selectedEmpresaInitial = '{{ tech_location_empresa_id|default:"" }}';
+
+    const empresaSelect = document.getElementById('id_empresa');
+    const nodeInput = document.getElementById('id_nodo');
+    const utInput = document.getElementById('id_ut');
+    const descriptionInput = document.getElementById('id_descripcion_ut');
+    const fieldsWrap = document.getElementById('technical-location-fields');
+    const emptyState = document.getElementById('technical-location-empty');
+    const resolveButton = document.getElementById('resolve-ut-button');
+    const utFeedback = document.getElementById('ut-resolve-feedback');
+
+    if (!empresaSelect || !nodeInput || !fieldsWrap) return;
+
+    const nodeById = new Map(nodes.map(node => [String(node.id), node]));
+
+    if (!nodeInput.value && selectedInitial) {
+        nodeInput.value = selectedInitial;
+    }
+    if (!empresaSelect.value && selectedEmpresaInitial) {
+        empresaSelect.value = selectedEmpresaInitial;
+    }
+
+    function selectedEmpresaId() {
+        if (empresaSelect.value) return empresaSelect.value;
+        const selectedNode = nodeById.get(String(nodeInput.value));
+        return selectedNode ? selectedNode.empresa_id : null;
+    }
+
+    function pathForNode(nodeId) {
+        const path = [];
+        let current = nodeById.get(String(nodeId));
+        const seen = new Set();
+        while (current && !seen.has(String(current.id))) {
+            seen.add(String(current.id));
+            path.push(current);
+            current = current.parent_id ? nodeById.get(String(current.parent_id)) : null;
+        }
+        return path.reverse();
+    }
+
+    function updateUnifiedFields(node) {
+        if (!node) return;
+        if (utInput) utInput.value = node.ut || '';
+        if (descriptionInput) descriptionInput.value = node.route || '';
+        setFeedback('', '');
+    }
+
+    function segment(value) {
+        return (value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function setFeedback(message, kind) {
+        if (!utFeedback) return;
+        if (!message) {
+            utFeedback.style.display = 'none';
+            utFeedback.textContent = '';
+            utFeedback.className = 'message warning';
+            return;
+        }
+        utFeedback.textContent = message;
+        utFeedback.style.display = '';
+        utFeedback.className = `message ${kind || 'warning'}`;
+    }
+
+    function resolveUtString() {
+        if (!utInput || !utInput.value.trim()) return false;
+        const empresaId = selectedEmpresaId();
+        if (!empresaId) {
+            setFeedback('Selecciona una empresa para resolver la UT.', 'warning');
+            return false;
+        }
+
+        const companyLevels = levels
+            .filter(level => Number(level.empresa_id) === Number(empresaId))
+            .sort((a, b) => a.order - b.order);
+
+        const codes = utInput.value
+            .split('-')
+            .map(segment)
+            .filter(Boolean);
+
+        if (!companyLevels.length) {
+            setFeedback('La empresa no tiene estructura de ubicacion tecnica configurada.', 'warning');
+            return false;
+        }
+        if (codes.length !== companyLevels.length) {
+            setFeedback(`La UT tiene ${codes.length} componentes y la estructura requiere ${companyLevels.length} niveles.`, 'warning');
+            return false;
+        }
+
+        let parentId = null;
+        let finalNode = null;
+        for (let index = 0; index < companyLevels.length; index += 1) {
+            const level = companyLevels[index];
+            const code = codes[index];
+            const node = nodes.find(item =>
+                Number(item.empresa_id) === Number(empresaId) &&
+                Number(item.level_id) === Number(level.id) &&
+                (item.parent_id || null) === (parentId || null) &&
+                segment(item.code) === code
+            );
+            if (!node) {
+                const parent = parentId ? nodeById.get(String(parentId)) : null;
+                const parentText = parent ? ` bajo ${parent.code} - ${parent.name}` : '';
+                setFeedback(`No existe el codigo "${code}" para el nivel ${index + 1} (${level.name})${parentText}.`, 'warning');
+                return false;
+            }
+            parentId = node.id;
+            finalNode = node;
+        }
+
+        if (finalNode) {
+            nodeInput.value = finalNode.id;
+            updateUnifiedFields(finalNode);
+            renderPicker();
+            setFeedback(`UT resuelta: ${finalNode.ut}`, 'success');
+            return true;
+        }
+        return false;
+    }
+
+    function renderPicker() {
+        const empresaId = selectedEmpresaId();
+        fieldsWrap.innerHTML = '';
+
+        if (!empresaId) {
+            emptyState.style.display = '';
+            return;
+        }
+
+        const companyLevels = levels
+            .filter(level => Number(level.empresa_id) === Number(empresaId))
+            .sort((a, b) => a.order - b.order);
+
+        if (!companyLevels.length) {
+            emptyState.style.display = '';
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        const currentPath = pathForNode(nodeInput.value);
+        let parentId = null;
+        let deepestSelected = null;
+
+        companyLevels.forEach((level, index) => {
+            const currentPathNode = currentPath[index];
+            const options = nodes
+                .filter(node =>
+                    Number(node.empresa_id) === Number(empresaId) &&
+                    Number(node.level_id) === Number(level.id) &&
+                    (node.parent_id || null) === (parentId || null)
+                )
+                .sort((a, b) => a.code.localeCompare(b.code));
+
+            const group = document.createElement('div');
+            group.className = 'form-field';
+
+            const label = document.createElement('label');
+            label.textContent = `${level.order}. ${level.name}`;
+
+            const select = document.createElement('select');
+            select.className = 'input-control';
+            select.dataset.levelId = level.id;
+            select.innerHTML = '<option value="">Selecciona</option>' + options
+                .map(node => `<option value="${node.id}">${node.code} - ${node.name}</option>`)
+                .join('');
+
+            if (currentPathNode && options.some(node => String(node.id) === String(currentPathNode.id))) {
+                select.value = currentPathNode.id;
+                parentId = currentPathNode.id;
+                deepestSelected = currentPathNode;
+            } else {
+                parentId = null;
+            }
+
+            select.addEventListener('change', function () {
+                nodeInput.value = this.value;
+                const selected = nodeById.get(String(this.value));
+                updateUnifiedFields(selected);
+                renderPicker();
+            });
+
+            group.appendChild(label);
+            group.appendChild(select);
+            fieldsWrap.appendChild(group);
+        });
+
+        if (deepestSelected) {
+            nodeInput.value = deepestSelected.id;
+            updateUnifiedFields(deepestSelected);
+        }
+    }
+
+    empresaSelect.addEventListener('change', function () {
+        nodeInput.value = '';
+        if (utInput) utInput.value = '';
+        if (descriptionInput) descriptionInput.value = '';
+        setFeedback('', '');
+        renderPicker();
+    });
+
+    if (resolveButton) {
+        resolveButton.addEventListener('click', resolveUtString);
+    }
+    if (utInput) {
+        utInput.addEventListener('change', resolveUtString);
+        utInput.addEventListener('input', function () {
+            this.value = this.value.toUpperCase();
+        });
+    }
+
+    renderPicker();
+})();
+</script>
 {% endblock %}

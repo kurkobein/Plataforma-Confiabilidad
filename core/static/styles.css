@@ -581,7 +581,60 @@ select {
     background: #f8fafc;
 }
 
+.hierarchy-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.hierarchy-builder-card,
+.hierarchy-side-card,
+.hierarchy-filter-card {
+    align-self: start;
+}
+
+.hierarchy-builder-table th,
+.hierarchy-builder-table td {
+    vertical-align: middle;
+}
+
+.compact-actions {
+    gap: 4px;
+    flex-wrap: nowrap;
+}
+
+.btn-icon {
+    min-width: 36px;
+    padding: 8px 10px;
+    text-align: center;
+}
+
+.hierarchy-preview-grid,
+.technical-location-fields {
+    margin-top: 16px;
+}
+
+.existing-routes {
+    max-height: 520px;
+    overflow: auto;
+}
+
+.technical-location-picker {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    background: #f8fafc;
+}
+
+.technical-location-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+
 @media (max-width: 900px) {
+    .hierarchy-layout,
     .matrix-workspace,
     .form-grid,
     .option-compact-row {

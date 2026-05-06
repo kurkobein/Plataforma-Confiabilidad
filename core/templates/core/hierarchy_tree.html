@@ -1,43 +1,105 @@
 {% extends 'core/base.html' %}
-{% block title %}Jerarquía {{ empresa }} | Mindco{% endblock %}
+{% block title %}Jerarquia {{ empresa }} | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Jerarquía de {{ empresa }}</h2>
-        <p>Listado de nodos creados desde el constructor de ubicación técnica.</p>
+        <h2>Jerarquia tecnica de {{ empresa }}</h2>
+        <p>Rutas jerarquicas usadas como ubicacion tecnica de equipos.</p>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'model_list' 'empresa' %}">Empresas</a>
-        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Constructor UT</a>
+        <a class="btn" href="{% url 'technical_location_index' %}">Empresas</a>
+        <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
+        <a class="btn" href="{% url 'hierarchy_values' empresa.pk %}">Valores</a>
+        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Registrar UT</a>
     </div>
 </div>
 
-<div class="card">
-    <table class="data-table">
+<div class="card hierarchy-filter-card">
+    <div class="form-grid">
+        <div class="form-field">
+            <label>Nivel</label>
+            <select class="input-control" id="level-filter">
+                <option value="">Todos</option>
+                {% for level in levels %}
+                    <option value="{{ level.pk }}">{{ level.orden }}. {{ level.nombre }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-field">
+            <label>Nodo superior</label>
+            <select class="input-control" id="parent-filter">
+                <option value="">Todos</option>
+                <option value="root">Raiz</option>
+                {% for row in rows %}
+                    <option value="{{ row.nodo.pk }}">{{ row.nodo.ut }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="data-table" id="hierarchy-table">
         <thead>
             <tr>
                 <th>UT</th>
                 <th>Nivel</th>
+                <th>Codigo</th>
                 <th>Nombre</th>
+                <th>Ruta</th>
+                <th>Equipos</th>
                 <th>Acciones</th>
             </tr>
         </thead>
         <tbody>
             {% for row in rows %}
-                <tr>
+                <tr data-level-id="{{ row.nodo.nivel_id }}" data-parent-id="{% if row.nodo.parent_id %}{{ row.nodo.parent_id }}{% else %}root{% endif %}">
                     <td style="padding-left: {{ row.depth|add:1 }}.5rem;"><strong>{{ row.nodo.ut }}</strong></td>
-                    <td>{{ row.nodo.nivel.nombre }}</td>
+                    <td>{{ row.nodo.nivel.orden }}. {{ row.nodo.nivel.nombre }}</td>
+                    <td><strong>{{ row.nodo.codigo }}</strong></td>
                     <td>{{ row.nodo.nombre }}</td>
-                    <td class="actions">
-                        <a class="btn" href="{% url 'model_update' 'nodojerarquia' row.nodo.pk %}">Editar</a>
-                        <a class="btn" href="{% url 'hierarchy_move_node' row.nodo.pk %}">Mover</a>
-                        <a class="btn" href="{% url 'hierarchy_insert_between' row.nodo.pk %}">Insertar nivel arriba</a>
+                    <td>{{ row.nodo.ruta_nombre }}</td>
+                    <td>{{ row.nodo.equipos.count }}</td>
+                    <td>
+                        <div class="actions">
+                            <a class="btn" href="{% url 'model_update' 'nodojerarquia' row.nodo.pk %}">Editar</a>
+                            <a class="btn" href="{% url 'hierarchy_move_node' row.nodo.pk %}">Mover</a>
+                            <a class="btn" href="{% url 'hierarchy_insert_between' row.nodo.pk %}">Insertar nivel arriba</a>
+                            <form method="post"
+                                  action="{% url 'hierarchy_delete_node' row.nodo.pk %}"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Esto desactivara esta ubicacion tecnica y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. ¿Continuar?');">
+                                {% csrf_token %}
+                                <button class="btn btn-danger" type="submit">Eliminar</button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="4">No hay nodos creados para esta empresa.</td></tr>
+                <tr><td colspan="7">No hay ubicaciones tecnicas creadas para esta empresa.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+<script>
+(function () {
+    const levelFilter = document.getElementById('level-filter');
+    const parentFilter = document.getElementById('parent-filter');
+    const rows = Array.from(document.querySelectorAll('#hierarchy-table tbody tr[data-level-id]'));
+
+    function applyFilters() {
+        const level = levelFilter.value;
+        const parent = parentFilter.value;
+        rows.forEach(row => {
+            const levelOk = !level || row.dataset.levelId === level;
+            const parentOk = !parent || row.dataset.parentId === parent;
+            row.style.display = levelOk && parentOk ? '' : 'none';
+        });
+    }
+
+    levelFilter.addEventListener('change', applyFilters);
+    parentFilter.addEventListener('change', applyFilters);
+})();
+</script>
 {% endblock %}

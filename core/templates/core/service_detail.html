@@ -39,6 +39,11 @@
         <strong>{{ aca_count }}</strong>
         <div class="muted">Dimensiones activas: {{ dimension_count }}</div>
     </div>
+    <div class="stat">
+        <small>Equipos</small>
+        <strong>{{ equipment_count }}</strong>
+        <div class="muted">De la empresa del servicio</div>
+    </div>
 </div>
 
 <div class="grid-22">
@@ -60,6 +65,37 @@
             <div class="stat"><small>RCM</small><strong style="font-size:18px;">Próximamente</strong></div>
             <div class="stat"><small>FMECA</small><strong style="font-size:18px;">Próximamente</strong></div>
         </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Equipos del servicio</h3>
+    <p class="muted">Se muestran los equipos asociados directamente al servicio o pertenecientes a la misma empresa por su ubicaci&oacute;n t&eacute;cnica.</p>
+    <div class="form-grid" id="service-equipment-level-filters"></div>
+    <div class="form-grid" style="margin-top:12px;">
+        <div class="form-field">
+            <label for="service-equipment-search">Buscar</label>
+            <input id="service-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+        </div>
+        <div class="form-field">
+            <label>Resultados</label>
+            <input id="service-equipment-count" class="input-control" type="text" readonly value="">
+        </div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Ubicaci&oacute;n T&eacute;cnica</th>
+                    <th>Descripci&oacute;n U.T&eacute;cnica</th>
+                    <th>Equipo</th>
+                    <th>TAG</th>
+                </tr>
+            </thead>
+            <tbody id="service-equipment-table">
+                <tr><td colspan="4" class="muted">Cargando equipos...</td></tr>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -194,4 +230,124 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{{ service_equipment_payload|json_script:"service-equipment-data" }}
+<script>
+(function () {
+    const dataNode = document.getElementById('service-equipment-data');
+    const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+    const levels = payload.levels || [];
+    const nodes = payload.nodes || [];
+    const equipment = payload.equipment || [];
+    const filtersBox = document.getElementById('service-equipment-level-filters');
+    const searchInput = document.getElementById('service-equipment-search');
+    const countInput = document.getElementById('service-equipment-count');
+    const tableBody = document.getElementById('service-equipment-table');
+
+    function normalize(value) {
+        return (value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function selectedNodeIds() {
+        if (!filtersBox) return [];
+        return Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'))
+            .map(select => select.value)
+            .filter(Boolean)
+            .map(String);
+    }
+
+    function matches(item) {
+        const pathIds = (item.path_node_ids || []).map(String);
+        const levelOk = selectedNodeIds().every(nodeId => pathIds.includes(nodeId));
+        if (!levelOk) return false;
+        const query = normalize(searchInput ? searchInput.value : '');
+        if (!query) return true;
+        return normalize([item.ut, item.descripcion_ut, item.equipo, item.tag, item.path_text].join(' ')).includes(query);
+    }
+
+    function repopulateFilters(changedIndex) {
+        const selects = Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = changedIndex + 1; index < selects.length; index += 1) {
+            selects[index].value = '';
+        }
+        selects.forEach(function (select, index) {
+            const previous = index > 0 ? selects[index - 1].value : '';
+            const level = levels[index];
+            if (!level) return;
+            const options = nodes
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .filter(node => index === 0 ? !node.parent_id : String(node.parent_id || '') === String(previous || ''))
+                .sort((a, b) => a.label.localeCompare(b.label));
+            const selected = select.value;
+            select.disabled = index > 0 && !previous;
+            select.innerHTML = `<option value="">${index > 0 && !previous ? 'Selecciona nivel superior' : 'Todos'}</option>` + options
+                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
+                .join('');
+            if (options.some(node => String(node.id) === String(selected))) {
+                select.value = selected;
+            }
+        });
+    }
+
+    function renderTable() {
+        const matchesList = equipment.filter(matches);
+        const limited = matchesList.slice(0, 200);
+        if (countInput) {
+            countInput.value = matchesList.length > 200
+                ? `${matchesList.length} encontrados, mostrando 200`
+                : `${matchesList.length} encontrados`;
+        }
+        if (!tableBody) return;
+        if (!limited.length) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="muted">No hay equipos para los filtros seleccionados.</td></tr>';
+            return;
+        }
+        tableBody.innerHTML = limited.map(item => `
+            <tr>
+                <td><strong>${escapeHtml(item.ut)}</strong></td>
+                <td>${escapeHtml(item.descripcion_ut)}</td>
+                <td>${escapeHtml(item.equipo)}</td>
+                <td>${escapeHtml(item.tag)}</td>
+            </tr>
+        `).join('');
+    }
+
+    function initFilters() {
+        if (!filtersBox) return;
+        filtersBox.innerHTML = levels.map((level, index) => `
+            <div class="form-field">
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" data-equipment-level-filter data-level-index="${index}">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+        `).join('');
+        filtersBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
+            select.addEventListener('change', function () {
+                repopulateFilters(Number(select.dataset.levelIndex || 0));
+                renderTable();
+            });
+        });
+        if (searchInput) searchInput.addEventListener('input', renderTable);
+        repopulateFilters(-1);
+        renderTable();
+    }
+
+    initFilters();
+})();
+</script>
 {% endblock %}
