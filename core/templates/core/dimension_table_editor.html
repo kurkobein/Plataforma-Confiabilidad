@@ -324,7 +324,77 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function current() { return store.items.find(x => String(x.id) === String(store.active)) || null; }
   function slugifyLite(v) { return (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 100); }
   function isCalculated(item) { return !!(item && item.tipo_calculo); }
-  function dependencyValue(item) { return (item && item.config_calculo && (item.config_calculo.dependencia || item.config_calculo.depende_de || item.config_calculo.source || item.config_calculo.fuente)) || ''; }
+  function sourceKey(src) {
+    if (!src) return '';
+    if (src.estrategia_dimension_id) return 'ed:' + src.estrategia_dimension_id;
+    if (src.dimension_id) return 'dim:' + src.dimension_id;
+    return 'campo:' + (src.campo || slugifyLite(src.nombre || src.id || ''));
+  }
+  function sourceRef(src) {
+    if (!src) return null;
+    const ref = {
+      campo: src.campo || slugifyLite(src.nombre || ''),
+      nombre: src.nombre || ''
+    };
+    if (src.estrategia_dimension_id) ref.estrategia_dimension_id = src.estrategia_dimension_id;
+    if (src.dimension_id) ref.dimension_id = src.dimension_id;
+    return ref;
+  }
+  function sourceByKey(key) {
+    if (!key) return null;
+    const raw = String(key);
+    const normalized = raw.replace(/^campo:/, '').replace(/^dim:/, '').replace(/^ed:/, '').replace(/^estrategia_dimension:/, '');
+    return store.items.find(src => sourceKey(src) === raw)
+      || store.items.find(src => String(src.estrategia_dimension_id || '') === normalized)
+      || store.items.find(src => String(src.dimension_id || '') === normalized)
+      || store.items.find(src => String(src.campo || slugifyLite(src.nombre || '')) === normalized)
+      || store.items.find(src => String(src.nombre || '') === normalized)
+      || null;
+  }
+  function dependencyRef(item) {
+    if (!item || !item.config_calculo) return '';
+    if (item.config_calculo.estrategia_dimension_id || item.config_calculo.dimension_id) return item.config_calculo;
+    return item.config_calculo.dependencia || item.config_calculo.depende_de || item.config_calculo.source || item.config_calculo.fuente || '';
+  }
+  function refKey(ref) {
+    if (!ref) return '';
+    if (typeof ref === 'object') {
+      if (ref.estrategia_dimension_id) return 'ed:' + ref.estrategia_dimension_id;
+      if (ref.dimension_id) return 'dim:' + ref.dimension_id;
+      return 'campo:' + (ref.campo || ref.source || slugifyLite(ref.nombre || ''));
+    }
+    const value = String(ref);
+    if (value.startsWith('ed:')) return value;
+    if (value.startsWith('dim:')) return value;
+    if (value.startsWith('estrategia_dimension:')) return value.replace(/^estrategia_dimension:/, 'ed:');
+    return 'campo:' + value;
+  }
+  function refSelectionKey(ref) {
+    const key = refKey(ref);
+    const source = sourceByKey(key);
+    return source ? sourceKey(source) : key;
+  }
+  function dependencyValue(item) {
+    const ref = dependencyRef(item);
+    if (!ref) return '';
+    const source = sourceByKey(refKey(ref));
+    if (source) return source.nombre || source.campo;
+    if (typeof ref === 'object') return ref.nombre || ref.campo || ref.estrategia_dimension_id || ref.dimension_id || '';
+    return String(ref);
+  }
+  function operandMatchesSource(operand, src) {
+    if (!src) return false;
+    const key = sourceKey(src);
+    if (refKey(operand) === key) return true;
+    const campo = src.campo || slugifyLite(src.nombre || '');
+    if (typeof operand !== 'object') return String(operand) === campo || String(operand) === src.nombre;
+    if (operand.estrategia_dimension_id && String(operand.estrategia_dimension_id) === String(src.estrategia_dimension_id || '')) return true;
+    if (operand.dimension_id && String(operand.dimension_id) === String(src.dimension_id || '')) return true;
+    return operand.campo === campo || operand.nombre === src.nombre;
+  }
+  function operandIsResult(operand) {
+    return operand === '$resultado' || (operand && typeof operand === 'object' && (operand.resultado === true || operand.tipo === 'resultado'));
+  }
   function ensureColumns(item) { if (isCalculated(item) || item.tipo === 'numerico_libre') { item.columnas = []; return; } if (Array.isArray(item.columnas) && item.columnas.length) return; item.columnas = defaultColumns(item.tipo); }
   function defaultColumns(type) {
     if (type === 'numerico_libre') return [];
@@ -428,11 +498,11 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span><div style="margin-top:8px;">' + addStep + '</div>'; return; }
     calcSourcesWrap.innerHTML = steps.map((step, stepIdx) => {
       const sourceList = sources.map(src => {
-        const campo = src.campo || slugifyLite(src.nombre || '');
-        const checked = step.operandos.includes(campo) ? 'checked' : '';
-        return '<label><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(' + stepIdx + ',\'' + campo + '\', this.checked)"> ' + (src.nombre || campo) + '</label>';
+        const key = sourceKey(src);
+        const checked = step.operandos.some(op => operandMatchesSource(op, src)) ? 'checked' : '';
+        return '<label><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(' + stepIdx + ',\'' + key + '\', this.checked)"> ' + (src.nombre || src.campo || key) + '</label>';
       }).join('');
-      const resultChecked = step.operandos.includes('$resultado') ? 'checked' : '';
+      const resultChecked = step.operandos.some(op => operandIsResult(op)) ? 'checked' : '';
       const resultOption = stepIdx > 0
         ? '<label class="calc-result-option"><input type="checkbox" ' + resultChecked + ' onchange="toggleCalcSource(' + stepIdx + ',\'$resultado\', this.checked)"> Resultado anterior</label>'
         : '';
@@ -468,13 +538,22 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     fTipoCalculo.value = item.tipo_calculo || '';
     renderList();
   }
-  function toggleCalcSource(stepIdx, campo, checked) {
+  function toggleCalcSource(stepIdx, sourceKeyValue, checked) {
     const item = current(); if (!item) return;
     const steps = calculationSteps(item);
     const step = steps[stepIdx];
     if (!step) return;
-    if (checked && !step.operandos.includes(campo)) step.operandos.push(campo);
-    if (!checked) step.operandos = step.operandos.filter(x => x !== campo);
+    if (sourceKeyValue === '$resultado') {
+      if (checked && !step.operandos.some(op => operandIsResult(op))) step.operandos.push('$resultado');
+      if (!checked) step.operandos = step.operandos.filter(op => !operandIsResult(op));
+      syncCalculationConfig(item);
+      return;
+    }
+    const src = sourceByKey(sourceKeyValue);
+    const ref = src ? sourceRef(src) : sourceKeyValue.replace(/^campo:/, '');
+    const matches = op => src ? operandMatchesSource(op, src) : refKey(op) === refKey(ref);
+    if (checked && !step.operandos.some(matches)) step.operandos.push(ref);
+    if (!checked) step.operandos = step.operandos.filter(op => !matches(op));
     syncCalculationConfig(item);
   }
   function addCalculationStep() {
@@ -494,23 +573,24 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
   function renderDependencySources() {
     const item = current(); if (!item || !dependencyBlock) return;
-    const selected = dependencyValue(item);
+    const selected = refSelectionKey(dependencyRef(item));
     const sources = store.items.filter(x => String(x.id) !== String(item.id));
     fDependencia.innerHTML = '<option value="">Sin dependencia</option>' + sources.map(src => {
-      const campo = src.campo || slugifyLite(src.nombre || '');
-      return `<option value="${campo}" ${campo === selected ? 'selected' : ''}>${src.nombre || campo}</option>`;
+      const key = sourceKey(src);
+      return `<option value="${key}" ${key === selected ? 'selected' : ''}>${src.nombre || src.campo || key}</option>`;
     }).join('');
   }
   function updateDependency(value) {
     const item = current(); if (!item) return;
     item.config_calculo = item.config_calculo || {};
+    delete item.config_calculo.depende_de;
+    delete item.config_calculo.source;
+    delete item.config_calculo.fuente;
     if (value) {
-      item.config_calculo.dependencia = value;
+      const src = sourceByKey(value);
+      item.config_calculo.dependencia = src ? sourceRef(src) : value.replace(/^campo:/, '');
     } else {
       delete item.config_calculo.dependencia;
-      delete item.config_calculo.depende_de;
-      delete item.config_calculo.source;
-      delete item.config_calculo.fuente;
     }
     renderList();
   }
@@ -647,6 +727,34 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function addRow() { const item = current(); if (!item) return; const valores = {}; item.columnas.forEach(col => valores[col.clave_interna] = ''); item.filas.push({ id: 'r' + Date.now(), etiqueta: '', valores }); renderRows(); }
   function updateCell(rowIdx, key, value) { const item = current(); if (!item) return; const row = item.filas[rowIdx]; row.valores = row.valores || {}; row.valores[key] = value; if (key === 'etiqueta') row.etiqueta = value; }
   function removeRow(idx) { const item = current(); if (!item) return; item.filas.splice(idx, 1); renderRows(); }
+  function normalizedOperand(operand) {
+    if (operandIsResult(operand)) return '$resultado';
+    const source = sourceByKey(refSelectionKey(operand)) || sourceByKey(refKey(operand));
+    return source ? sourceRef(source) : operand;
+  }
+  function normalizedCalculationConfig(item) {
+    const config = item.config_calculo || { operandos: [] };
+    const steps = Array.isArray(config.pasos) ? config.pasos : [];
+    if (steps.length) {
+      const normalizedSteps = steps.map(step => ({
+        operacion: step.operacion || step.tipo_calculo || item.tipo_calculo || 'suma',
+        operandos: Array.isArray(step.operandos) ? step.operandos.map(normalizedOperand) : []
+      })).filter(step => step.operacion && step.operandos.length);
+      return {
+        pasos: normalizedSteps,
+        operandos: normalizedSteps[0]?.operandos || []
+      };
+    }
+    return {
+      operandos: Array.isArray(config.operandos) ? config.operandos.map(normalizedOperand) : []
+    };
+  }
+  function normalizedDependency(item) {
+    const ref = dependencyRef(item);
+    if (!ref) return null;
+    const source = sourceByKey(refSelectionKey(ref)) || sourceByKey(refKey(ref));
+    return source ? sourceRef(source) : ref;
+  }
   function normalize() {
     store.items.forEach(item => { if (item.tipo_calculo) syncCalculationConfig(item); });
     return store.items.map((item, idx) => ({
@@ -659,8 +767,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
       tipo_calculo: item.tipo_calculo || '',
       config_calculo: item.tipo_calculo
-        ? (item.config_calculo || { operandos: [] })
-        : ((['rangos', 'opciones'].includes(item.tipo) && dependencyValue(item)) ? { dependencia: dependencyValue(item) } : null),
+        ? normalizedCalculationConfig(item)
+        : ((['rangos', 'opciones'].includes(item.tipo) && normalizedDependency(item)) ? { dependencia: normalizedDependency(item) } : null),
       obligatorio: item.obligatorio !== false,
       columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : withoutSecondaryColumns(item.columnas).map((col, colIdx) => ({
         nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,

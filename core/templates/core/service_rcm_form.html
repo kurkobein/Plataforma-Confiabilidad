@@ -1,0 +1,453 @@
+{% extends 'core/base.html' %}
+{% block title %}Nuevo RCM | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Nuevo registro RCM</h2>
+        <p>{{ service.codigo_servicio }} · FMEA/FMECA</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'service_rcm_list' service.pk %}">Volver a registros</a>
+    </div>
+</div>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.equipo }}
+
+    <div class="card">
+        <h3 class="card-title">Equipo</h3>
+        <div class="form-field full">
+            <label for="rcm-equipment-search">Buscar equipo por U.T.</label>
+            <div class="form-grid" id="rcm-equipment-level-filters"></div>
+            <div class="form-grid" style="margin-top:12px;">
+                <div class="form-field">
+                    <label for="rcm-equipment-search">Buscar</label>
+                    <input id="rcm-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+                </div>
+                <div class="form-field">
+                    <label for="rcm-equipment-results">Equipo</label>
+                    <select id="rcm-equipment-results" class="input-control">
+                        <option value="">Selecciona un equipo</option>
+                    </select>
+                    <small class="muted" id="rcm-equipment-count"></small>
+                </div>
+            </div>
+            {% if form.equipo.errors %}<div class="form-error">{{ form.equipo.errors }}</div>{% endif %}
+        </div>
+        <div class="form-grid" style="margin-top:12px;">
+            <div class="form-field">
+                <label>Ubicación Técnica</label>
+                <input id="rcm-equipment-ut" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+            </div>
+            <div class="form-field">
+                <label>Descripción U.Técnica</label>
+                <input id="rcm-equipment-description" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+            </div>
+            <div class="form-field">
+                <label>Equipo</label>
+                <input id="rcm-equipment-name" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+            </div>
+            <div class="form-field">
+                <label>TAG</label>
+                <input id="rcm-equipment-tag" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Análisis RCM</h3>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="{{ form.fecha_analisis.id_for_label }}">{{ form.fecha_analisis.label }}</label>
+                {{ form.fecha_analisis }}
+                {% if form.fecha_analisis.errors %}<div class="form-error">{{ form.fecha_analisis.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field">
+                <label for="{{ form.estado.id_for_label }}">{{ form.estado.label }}</label>
+                {{ form.estado }}
+                {% if form.estado.errors %}<div class="form-error">{{ form.estado.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field">
+                <label for="{{ form.criticidad.id_for_label }}">{{ form.criticidad.label }}</label>
+                {{ form.criticidad }}
+                {% if form.criticidad.help_text %}<small class="muted">{{ form.criticidad.help_text }}</small>{% endif %}
+                {% if form.criticidad.errors %}<div class="form-error">{{ form.criticidad.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full">
+                <label for="{{ form.falla_funcional.id_for_label }}">{{ form.falla_funcional.label }}</label>
+                {{ form.falla_funcional }}
+                {% if form.falla_funcional.errors %}<div class="form-error">{{ form.falla_funcional.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full">
+                <label for="{{ form.modo_de_falla.id_for_label }}">{{ form.modo_de_falla.label }}</label>
+                {{ form.modo_de_falla }}
+                {% if form.modo_de_falla.errors %}<div class="form-error">{{ form.modo_de_falla.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full">
+                <label for="{{ form.causa.id_for_label }}">{{ form.causa.label }}</label>
+                {{ form.causa }}
+                {% if form.causa.errors %}<div class="form-error">{{ form.causa.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full">
+                <label for="{{ form.efecto.id_for_label }}">{{ form.efecto.label }}</label>
+                {{ form.efecto }}
+                {% if form.efecto.errors %}<div class="form-error">{{ form.efecto.errors }}</div>{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">FMEA/FMECA</h3>
+        {% if form.impact_dimensions %}
+            {{ form.severidad }}
+            <div class="form-field full">
+                <label>Consecuencias</label>
+                <div class="dimension-grid">
+                    {% for item in form.impact_dimensions %}
+                        <div class="dimension-card">
+                            <div class="dimension-card-header">
+                                <div>
+                                    <strong>{{ item.dimension.nombre }}</strong>
+                                    <div class="muted dimension-meta">{{ item.dimension.tipo_funcional }} · {{ item.dimension.tipo_dato }}</div>
+                                </div>
+                                {% if item.mode == 'escala' %}<span class="pill">Escala</span>{% elif item.mode == 'catalogo' %}<span class="pill">Tabla</span>{% else %}<span class="pill-soft">Valor manual</span>{% endif %}
+                            </div>
+                            <div class="option-compact-row">
+                                <div class="form-field">
+                                    <label for="{{ item.field.id_for_label }}">{{ item.field.label }}</label>
+                                    {{ item.field }}
+                                    {% if item.field.errors %}<div class="form-error">{{ item.field.errors }}</div>{% endif %}
+                                </div>
+                                {% if item.option_rows %}
+                                    <button type="button"
+                                            class="btn btn-toggle-option"
+                                            data-option-toggle
+                                            data-panel-id="rcm-impact-panel-{{ forloop.counter0 }}"
+                                            aria-expanded="false">
+                                        Ver tabla
+                                    </button>
+                                {% endif %}
+                            </div>
+                            {% if item.option_rows %}
+                                <div id="rcm-impact-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
+                                    <div class="table-wrap">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    {% for header in item.option_headers %}<th>{{ header }}</th>{% endfor %}
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in item.option_rows %}
+                                                    <tr>
+                                                        {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+                                                        <td>
+                                                            <button type="button"
+                                                                    class="btn"
+                                                                    data-rcm-pick-option
+                                                                    data-target="{{ item.field.id_for_label }}"
+                                                                    data-value="{{ row.pk }}"
+                                                                    data-numeric="{{ row.value_numeric }}">
+                                                                Elegir
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>Severidad</label>
+                    <input id="rcm-severity-display" class="input-control" type="text" readonly placeholder="Se calcula desde consecuencias">
+                    {% if form.severidad.errors %}<div class="form-error">{{ form.severidad.errors }}</div>{% endif %}
+                </div>
+            </div>
+        {% endif %}
+        <div class="form-grid">
+            {% if not form.impact_dimensions %}
+                <div class="form-field">
+                    <label for="{{ form.severidad.id_for_label }}">{{ form.severidad.label }}</label>
+                    {{ form.severidad }}
+                    {% if form.severidad.errors %}<div class="form-error">{{ form.severidad.errors }}</div>{% endif %}
+                </div>
+            {% endif %}
+            <div class="form-field">
+                <label for="{{ form.ocurrencia.id_for_label }}">{{ form.ocurrencia.label }}</label>
+                {{ form.ocurrencia }}
+                {% if form.ocurrencia.errors %}<div class="form-error">{{ form.ocurrencia.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field">
+                <label for="{{ form.deteccion.id_for_label }}">{{ form.deteccion.label }}</label>
+                {{ form.deteccion }}
+                {% if form.deteccion.errors %}<div class="form-error">{{ form.deteccion.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field">
+                <label>NPR</label>
+                <input id="rcm-npr" class="input-control" type="text" readonly value="">
+            </div>
+        </div>
+        {% if form.non_field_errors %}<div class="form-error form-error-block">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="actions" style="margin-top:12px;">
+            <button class="btn btn-primary" type="submit">Guardar registro RCM</button>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+{{ service_equipment_payload|json_script:"rcm-equipment-data" }}
+{{ service_equipment_endpoints|json_script:"rcm-equipment-endpoints" }}
+{{ form.impact_value_map|json_script:"rcm-impact-values" }}
+<script>
+(function () {
+    const dataNode = document.getElementById('rcm-equipment-data');
+    const endpointsNode = document.getElementById('rcm-equipment-endpoints');
+    const impactValuesNode = document.getElementById('rcm-impact-values');
+    const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+    const endpoints = endpointsNode ? JSON.parse(endpointsNode.textContent || '{}') : {};
+    const impactValues = impactValuesNode ? JSON.parse(impactValuesNode.textContent || '{}') : {};
+    const levels = payload.levels || [];
+    const levelWrap = document.getElementById('rcm-equipment-level-filters');
+    const searchInput = document.getElementById('rcm-equipment-search');
+    const resultSelect = document.getElementById('rcm-equipment-results');
+    const countText = document.getElementById('rcm-equipment-count');
+    const hiddenEquipment = document.getElementById('{{ form.equipo.id_for_label }}');
+    const selected = {
+        ut: document.getElementById('rcm-equipment-ut'),
+        description: document.getElementById('rcm-equipment-description'),
+        name: document.getElementById('rcm-equipment-name'),
+        tag: document.getElementById('rcm-equipment-tag'),
+    };
+    const resultMap = new Map();
+    const selectors = [];
+    let searchTimer = null;
+
+    function setEquipment(item) {
+        hiddenEquipment.value = item ? item.id : '';
+        selected.ut.value = item ? (item.ut || '') : '';
+        selected.description.value = item ? (item.descripcion_ut || '') : '';
+        selected.name.value = item ? (item.equipo || '') : '';
+        selected.tag.value = item ? (item.tag || '') : '';
+    }
+
+    function clearResults(message) {
+        resultSelect.innerHTML = '<option value="">Selecciona un equipo</option>';
+        countText.textContent = message || '';
+        resultMap.clear();
+    }
+
+    function selectedNodeId() {
+        for (let index = selectors.length - 1; index >= 0; index -= 1) {
+            if (selectors[index].value) {
+                return selectors[index].value;
+            }
+        }
+        return '';
+    }
+
+    function loadNodes(levelIndex, parentId) {
+        if (!endpoints.nodes || !selectors[levelIndex]) {
+            return;
+        }
+        const select = selectors[levelIndex];
+        select.disabled = true;
+        select.innerHTML = '<option value="">Cargando...</option>';
+        const url = new URL(endpoints.nodes, window.location.origin);
+        if (parentId) {
+            url.searchParams.set('parent_id', parentId);
+        }
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const level = levels[levelIndex];
+                const nodes = (data.nodes || []).filter(node => Number(node.level_id) === Number(level.id));
+                select.innerHTML = '<option value="">Todos</option>';
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = node.label;
+                    select.appendChild(option);
+                });
+                select.disabled = nodes.length === 0;
+            })
+            .catch(() => {
+                select.innerHTML = '<option value="">Sin datos</option>';
+                select.disabled = true;
+            });
+    }
+
+    function resetLowerLevels(startIndex) {
+        for (let index = startIndex; index < selectors.length; index += 1) {
+            selectors[index].innerHTML = '<option value="">Todos</option>';
+            selectors[index].disabled = true;
+        }
+    }
+
+    function searchEquipment() {
+        if (!endpoints.search) {
+            return;
+        }
+        const query = (searchInput.value || '').trim();
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            clearResults('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.');
+            return;
+        }
+        const url = new URL(endpoints.search, window.location.origin);
+        if (query) {
+            url.searchParams.set('q', query);
+        }
+        if (nodeId) {
+            url.searchParams.set('node_id', nodeId);
+        }
+        url.searchParams.set('limit', '50');
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const items = data.items || [];
+                clearResults(items.length ? '' : 'Sin resultados.');
+                items.forEach(item => {
+                    resultMap.set(String(item.id), item);
+                    const option = document.createElement('option');
+                    option.value = item.id;
+                    option.textContent = [item.ut, item.tag, item.equipo].filter(Boolean).join(' | ');
+                    resultSelect.appendChild(option);
+                });
+                countText.textContent = data.truncated ? `${data.count} resultados, mostrando ${data.limit}.` : `${data.count || 0} resultados.`;
+            })
+            .catch(() => {
+                clearResults('No se pudo buscar equipos.');
+            });
+    }
+
+    if (levelWrap && levels.length) {
+        levels.forEach((level, index) => {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            const label = document.createElement('label');
+            label.textContent = level.name;
+            const select = document.createElement('select');
+            select.className = 'input-control';
+            select.innerHTML = '<option value="">Todos</option>';
+            select.disabled = index > 0;
+            select.addEventListener('change', function () {
+                resetLowerLevels(index + 1);
+                if (selectors[index + 1]) {
+                    loadNodes(index + 1, select.value);
+                }
+                searchEquipment();
+            });
+            field.appendChild(label);
+            field.appendChild(select);
+            levelWrap.appendChild(field);
+            selectors.push(select);
+        });
+        loadNodes(0, '');
+    }
+
+    searchInput.addEventListener('input', function () {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(searchEquipment, 250);
+    });
+    resultSelect.addEventListener('change', function () {
+        setEquipment(resultMap.get(String(resultSelect.value)) || null);
+    });
+
+    const initialId = hiddenEquipment.value;
+    if (initialId && endpoints.detail_template) {
+        fetch(endpoints.detail_template.replace('__id__', initialId))
+            .then(response => response.json())
+            .then(data => {
+                if (data.item) {
+                    setEquipment(data.item);
+                    resultMap.set(String(data.item.id), data.item);
+                    resultSelect.innerHTML = `<option value="${data.item.id}">${[data.item.ut, data.item.tag, data.item.equipo].filter(Boolean).join(' | ')}</option>`;
+                }
+            });
+    }
+
+    document.querySelectorAll('[data-option-toggle]').forEach(button => {
+        button.addEventListener('click', function () {
+            const panel = document.getElementById(button.dataset.panelId || '');
+            if (!panel) {
+                return;
+            }
+            const expanded = button.getAttribute('aria-expanded') === 'true';
+            panel.hidden = expanded;
+            button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        });
+    });
+
+    document.querySelectorAll('[data-rcm-pick-option]').forEach(button => {
+        button.addEventListener('click', function () {
+            const target = document.getElementById(button.dataset.target || '');
+            if (!target) {
+                return;
+            }
+            target.value = button.dataset.value || '';
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    });
+
+    const severity = document.getElementById('{{ form.severidad.id_for_label }}');
+    const severityDisplay = document.getElementById('rcm-severity-display');
+    const occurrence = document.getElementById('{{ form.ocurrencia.id_for_label }}');
+    const detection = document.getElementById('{{ form.deteccion.id_for_label }}');
+    const npr = document.getElementById('rcm-npr');
+    const impactFieldNames = Object.keys(impactValues || {});
+
+    function numericImpactValue(fieldName) {
+        const input = document.querySelector(`[name="${fieldName}"]`);
+        if (!input) {
+            return null;
+        }
+        const fieldMap = impactValues[fieldName] || {};
+        if (fieldMap.__manual__) {
+            const manualValue = Number(input.value || 0);
+            return manualValue > 0 ? manualValue : null;
+        }
+        const mapped = fieldMap[input.value];
+        const numericValue = Number(mapped || 0);
+        return numericValue > 0 ? numericValue : null;
+    }
+
+    function currentSeverity() {
+        if (impactFieldNames.length) {
+            const values = impactFieldNames
+                .map(fieldName => numericImpactValue(fieldName))
+                .filter(value => value !== null);
+            const maxValue = values.length ? Math.max.apply(null, values) : '';
+            severity.value = maxValue ? String(maxValue) : '';
+            if (severityDisplay) {
+                severityDisplay.value = maxValue ? String(maxValue) : '';
+            }
+            return Number(maxValue || 0);
+        }
+        return Number(severity.value || 0);
+    }
+
+    function updateNpr() {
+        const values = [currentSeverity(), Number(occurrence.value || 0), Number(detection.value || 0)];
+        npr.value = values.every(value => value > 0) ? String(values[0] * values[1] * values[2]) : '';
+    }
+    [severity, occurrence, detection].forEach(input => input.addEventListener('input', updateNpr));
+    impactFieldNames.forEach(fieldName => {
+        const input = document.querySelector(`[name="${fieldName}"]`);
+        if (input) {
+            input.addEventListener('change', updateNpr);
+            input.addEventListener('input', updateNpr);
+        }
+    });
+    updateNpr();
+})();
+</script>
+{% endblock %}

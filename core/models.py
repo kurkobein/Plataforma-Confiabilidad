@@ -301,7 +301,7 @@ class ServicioEquipo(BaseUnmanagedModel):
         return f'{self.servicio} / {self.equipo}'
 
 
-class AcaCarga(BaseUnmanagedModel):
+class Carga(BaseUnmanagedModel):
     STATUS_COMPLETO = 'Completo'
     STATUS_INCOMPLETO = 'Incompleto'
     STATUS_CHOICES = [
@@ -315,16 +315,16 @@ class AcaCarga(BaseUnmanagedModel):
     status = models.CharField('Estado', max_length=20, choices=STATUS_CHOICES, default=STATUS_INCOMPLETO)
     creado_en = models.DateTimeField()
     actualizado = models.DateTimeField()
-    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='cargas_aca')
-    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='cargas_aca')
-    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='cargas_aca')
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='cargas')
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='cargas')
+    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='cargas')
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_acacarga'
         ordering = ['-fecha_analisis', '-creado_en']
 
     def __str__(self):
-        return f'ACA {self.id} - {self.fecha_analisis}'
+        return f'Carga {self.id} - {self.fecha_analisis}'
 
 
 class Criticidad(BaseUnmanagedModel):
@@ -336,7 +336,7 @@ class Criticidad(BaseUnmanagedModel):
     valor_criticidad_equipo = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     criticidad_final = models.CharField(max_length=30)
     creado_en = models.DateTimeField()
-    aca_carga = models.ForeignKey(AcaCarga, on_delete=models.DO_NOTHING, db_column='aca_carga_id', related_name='criticidades')
+    aca_carga = models.ForeignKey(Carga, on_delete=models.DO_NOTHING, db_column='aca_carga_id', related_name='criticidades')
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', blank=True, null=True, related_name='criticidades')
 
     class Meta(BaseUnmanagedModel.Meta):
@@ -400,6 +400,109 @@ class EstrategiaDimension(BaseUnmanagedModel):
 
     def __str__(self):
         return f'{self.estrategia} / {self.dimension}'
+
+
+class RCM(BaseUnmanagedModel):
+    ESTADO_CHOICES = Carga.STATUS_CHOICES
+
+    carga = models.OneToOneField(Carga, on_delete=models.DO_NOTHING, db_column='carga_id', related_name='rcm')
+    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='registros_rcm')
+    criticidad = models.IntegerField(blank=True, null=True)
+    fecha_analisis = models.DateField()
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=Carga.STATUS_INCOMPLETO)
+    falla_funcional = models.TextField()
+    modo_de_falla = models.TextField()
+    causa = models.TextField()
+    efecto = models.TextField()
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_rcm'
+        ordering = ['-fecha_analisis', 'id']
+        indexes = [
+            models.Index(fields=['equipo'], name='idx_rcm_equipo'),
+            models.Index(fields=['estado'], name='idx_rcm_estado'),
+            models.Index(fields=['fecha_analisis'], name='idx_rcm_fecha'),
+            models.Index(fields=['criticidad'], name='idx_rcm_criticidad'),
+        ]
+
+    @property
+    def tipo_analisis(self):
+        return 'FMECA' if self.criticidad is not None else 'FMEA'
+
+    def __str__(self):
+        return f'RCM {self.id} - {self.equipo}'
+
+
+class FMEA_FMECA(BaseUnmanagedModel):
+    rcm = models.OneToOneField(RCM, on_delete=models.DO_NOTHING, db_column='rcm_id', related_name='fmea_fmeca')
+    severidad = models.IntegerField()
+    ocurrencia = models.IntegerField()
+    deteccion = models.IntegerField()
+    npr = models.IntegerField()
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_fmea_fmeca'
+        ordering = ['-npr', 'id']
+        indexes = [
+            models.Index(fields=['severidad'], name='idx_fmea_severidad'),
+            models.Index(fields=['ocurrencia'], name='idx_fmea_ocurrencia'),
+            models.Index(fields=['deteccion'], name='idx_fmea_deteccion'),
+            models.Index(fields=['npr'], name='idx_fmea_npr'),
+        ]
+
+    def recalcular_desde_evaluaciones(self, commit=True):
+        severidades = []
+        ocurrencia = None
+        deteccion = None
+
+        evaluaciones = self.evaluaciones.select_related('estrategia_dimension__dimension')
+        for evaluacion in evaluaciones:
+            dimension = evaluacion.estrategia_dimension.dimension
+            tipo_funcional = (dimension.tipo_funcional or '').strip().lower()
+            nombre = (dimension.nombre or '').strip().lower()
+            valor = evaluacion.valor_numerico
+
+            if tipo_funcional == 'impacto' or 'impacto' in nombre or 'severidad' in nombre:
+                severidades.append(valor)
+            if ocurrencia is None and (tipo_funcional == 'probabilidad' or 'ocurrencia' in nombre or 'probabilidad' in nombre):
+                ocurrencia = valor
+            if deteccion is None and ('deteccion' in nombre or 'detección' in nombre):
+                deteccion = valor
+
+        if severidades:
+            self.severidad = max(severidades)
+        if ocurrencia is not None:
+            self.ocurrencia = ocurrencia
+        if deteccion is not None:
+            self.deteccion = deteccion
+        self.npr = self.severidad * self.ocurrencia * self.deteccion
+
+        if commit:
+            self.save(update_fields=['severidad', 'ocurrencia', 'deteccion', 'npr'])
+        return self.npr
+
+    def __str__(self):
+        return f'{self.rcm.tipo_analisis} {self.id} - NPR {self.npr}'
+
+
+class EvaluacionFMEA(BaseUnmanagedModel):
+    fmea = models.ForeignKey(FMEA_FMECA, on_delete=models.DO_NOTHING, db_column='fmea_id', related_name='evaluaciones')
+    estrategia_dimension = models.ForeignKey(EstrategiaDimension, on_delete=models.DO_NOTHING, db_column='estrategia_dimension_id', related_name='evaluaciones_fmea')
+    valor_numerico = models.IntegerField()
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_evaluacionfmea'
+        ordering = ['fmea_id', 'estrategia_dimension_id']
+        constraints = [
+            models.UniqueConstraint(fields=['fmea', 'estrategia_dimension'], name='uniq_fmea_dimension'),
+        ]
+        indexes = [
+            models.Index(fields=['fmea'], name='idx_evalfmea_fmea'),
+            models.Index(fields=['estrategia_dimension'], name='idx_evalfmea_edim'),
+        ]
+
+    def __str__(self):
+        return f'FMEA {self.fmea_id} / {self.estrategia_dimension}'
 
 
 class DimensionCatalogo(BaseUnmanagedModel):

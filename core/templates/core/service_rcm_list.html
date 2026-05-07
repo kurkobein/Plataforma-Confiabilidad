@@ -1,0 +1,70 @@
+{% extends 'core/base.html' %}
+{% block title %}RCM | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Registros RCM</h2>
+        <p>{{ service.codigo_servicio }} · FMEA/FMECA asociados al servicio.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'service_detail' service.pk %}">Volver al servicio</a>
+        {% if permission.can_edit %}
+            <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">Registrar</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Resumen</h3>
+    <div class="grid-3">
+        <div class="stat"><small>Servicio</small><strong style="font-size:20px;">{{ service.codigo_servicio }}</strong></div>
+        <div class="stat"><small>Registros</small><strong>{{ rcm_count }}</strong></div>
+        <div class="stat"><small>FMEA</small><strong>{{ fmea_count }}</strong></div>
+        <div class="stat"><small>FMECA</small><strong>{{ fmeca_count }}</strong></div>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Estado</th>
+                <th>U.T.</th>
+                <th>Equipo</th>
+                <th>TAG</th>
+                <th>Falla funcional</th>
+                <th>Modo de falla</th>
+                <th>Criticidad</th>
+                <th>NPR</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>{{ row.registro.fecha_analisis }}</td>
+                    <td>{{ row.registro.tipo_analisis }}</td>
+                    <td>{{ row.registro.get_estado_display }}</td>
+                    <td>{{ row.registro.equipo.ut }}</td>
+                    <td>{{ row.registro.equipo.nombre_equipo }}</td>
+                    <td>{{ row.registro.equipo.tag_equipo }}</td>
+                    <td>{{ row.registro.falla_funcional|truncatechars:80 }}</td>
+                    <td>{{ row.registro.modo_de_falla|truncatechars:80 }}</td>
+                    <td>{{ row.registro.criticidad|default:'-' }}</td>
+                    <td>
+                        {% if row.fmea %}
+                            {{ row.fmea.npr }}
+                            <div class="muted">S {{ row.fmea.severidad }} · O {{ row.fmea.ocurrencia }} · D {{ row.fmea.deteccion }}</div>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="10" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

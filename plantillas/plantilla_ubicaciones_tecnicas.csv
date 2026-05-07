@@ -1,0 +1,8 @@
+Nivel,UT del nivel,Nombre,UT padre,UT completa,TAG,Equipo
+Empresa,E,Empresa ejemplo,,E,,
+Area de negocio,DS,Downstream,E,E-DS,,
+Planta,ERB,Refineria Bio Bio,E-DS,E-DS-ERB,,
+Area,FCCU,Unidad FCCU,E-DS-ERB,E-DS-ERB-FCCU,,
+Sistema,INST,Instrumentacion,E-DS-ERB-FCCU,E-DS-ERB-FCCU-INST,,
+Ubicacion tecnica,0000001FC86,Lazo de control,E-DS-ERB-FCCU-INST,E-DS-ERB-FCCU-INST-0000001FC86,,
+Equipo,EQ001,Bomba principal,E-DS-ERB-FCCU-INST-0000001FC86,E-DS-ERB-FCCU-INST-0000001FC86-EQ001,TAG-001,Bomba principal

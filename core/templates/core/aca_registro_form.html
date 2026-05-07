@@ -132,7 +132,7 @@
                     </div>
 
                 {% elif form.input_mode == 'catalogo' %}
-                    <div class="option-compact-row" {% if form.is_dependent_catalog %}data-dependent-catalog data-dependent-source="{{ form.catalog_dependency }}" data-dependent-catalog-type="{{ form.catalog_type }}" data-option-target="{{ form.catalogo_fila.id_for_label }}"{% endif %}>
+                    <div class="option-compact-row" {% if form.is_dependent_catalog %}data-dependent-catalog data-dependent-source="{{ form.catalog_dependency }}" data-dependent-source-ed-id="{{ form.catalog_dependency_estrategia_dimension_id }}" data-dependent-source-dim-id="{{ form.catalog_dependency_dimension_id }}" data-dependent-source-campo="{{ form.catalog_dependency_campo }}" data-dependent-catalog-type="{{ form.catalog_type }}" data-option-target="{{ form.catalogo_fila.id_for_label }}"{% endif %}>
                         <div class="form-field catalog-picker-field">
                             <label>{{ form.catalogo_fila.label }}</label>
                             <div class="hidden-picker-select">{{ form.catalogo_fila }}</div>
@@ -286,6 +286,7 @@
 
 {% block extra_js %}
 {{ service_equipment_payload|json_script:"service-equipment-data" }}
+{{ service_equipment_endpoints|json_script:"service-equipment-endpoints" }}
 <script>
 (function () {
     const matrixHidden = document.getElementById('{{ base_form.matrix_celda.id_for_label }}');
@@ -300,7 +301,9 @@
     const matrixImpactEstrategiaDimensionId = '{{ matrix_selector.impact_estrategia_dimension_id|default:"" }}';
     const equipmentInput = document.getElementById('{{ base_form.equipo.id_for_label }}');
     const equipmentDataNode = document.getElementById('service-equipment-data');
+    const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
     const equipmentPayload = equipmentDataNode ? JSON.parse(equipmentDataNode.textContent || '{}') : {};
+    const equipmentEndpoints = equipmentEndpointsNode ? JSON.parse(equipmentEndpointsNode.textContent || '{}') : {};
     const equipmentLevels = equipmentPayload.levels || [];
     const equipmentNodes = equipmentPayload.nodes || [];
     const equipmentItems = equipmentPayload.equipment || [];
@@ -476,6 +479,218 @@
         syncEquipmentInfo();
     }
 
+    const lazyEquipmentNodeCache = new Map();
+    const lazyEquipmentById = new Map();
+    let lazyEquipmentSearchTimer = null;
+    let lazyEquipmentRequestId = 0;
+
+    async function lazyFetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function lazyLoadEquipmentNodes(parentId) {
+        if (!equipmentEndpoints.nodes) return [];
+        const key = parentId || 'root';
+        if (lazyEquipmentNodeCache.has(key)) return lazyEquipmentNodeCache.get(key);
+        const url = parentId
+            ? `${equipmentEndpoints.nodes}?parent_id=${encodeURIComponent(parentId)}`
+            : equipmentEndpoints.nodes;
+        const data = await lazyFetchJson(url);
+        const nodes = data.nodes || [];
+        lazyEquipmentNodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    function lazySelectedEquipmentNodeId() {
+        if (!equipmentFilterBox) return '';
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
+        }
+        return '';
+    }
+
+    function lazyOptionLabelForEquipment(item) {
+        const tag = item.tag ? item.tag + ' - ' : '';
+        const name = item.equipo || 'Sin nombre';
+        const ut = item.ut ? ' - ' + item.ut : '';
+        return tag + name + ut;
+    }
+
+    function lazySyncEquipmentInfo(item) {
+        setEquipmentField(equipmentFields.ut, item ? item.ut : '');
+        setEquipmentField(equipmentFields.description, item ? item.descripcion_ut : '');
+        setEquipmentField(equipmentFields.name, item ? item.equipo : '');
+        setEquipmentField(equipmentFields.tag, item ? item.tag : '');
+    }
+
+    async function lazyRefreshEquipmentResults(keepSelection) {
+        if (!equipmentResults || !equipmentEndpoints.search) return;
+        const currentValue = keepSelection && equipmentInput ? String(equipmentInput.value || '') : '';
+        const query = equipmentSearch ? equipmentSearch.value.trim() : '';
+        const nodeId = lazySelectedEquipmentNodeId();
+        if (!nodeId && query.length < 2) {
+            equipmentResults.innerHTML = '<option value="">Selecciona un equipo</option>';
+            if (equipmentCount) equipmentCount.textContent = 'Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.';
+            if (!currentValue && equipmentInput) {
+                equipmentInput.value = '';
+                lazySyncEquipmentInfo(null);
+            }
+            return;
+        }
+
+        const requestId = ++lazyEquipmentRequestId;
+        if (equipmentCount) equipmentCount.textContent = 'Buscando equipos...';
+        const params = new URLSearchParams({ limit: '200' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+
+        let data;
+        try {
+            data = await lazyFetchJson(`${equipmentEndpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== lazyEquipmentRequestId) return;
+            equipmentResults.innerHTML = '<option value="">No se pudieron cargar equipos</option>';
+            if (equipmentCount) equipmentCount.textContent = 'No se pudieron cargar los equipos.';
+            return;
+        }
+        if (requestId !== lazyEquipmentRequestId) return;
+
+        const items = data.items || [];
+        items.forEach(item => lazyEquipmentById.set(String(item.id), item));
+        equipmentResults.innerHTML = '<option value="">Selecciona un equipo</option>' + items
+            .map(item => `<option value="${item.id}">${escapeHtml(lazyOptionLabelForEquipment(item))}</option>`)
+            .join('');
+        if (currentValue && items.some(item => String(item.id) === currentValue)) {
+            equipmentResults.value = currentValue;
+            lazySyncEquipmentInfo(lazyEquipmentById.get(currentValue) || null);
+        } else {
+            equipmentResults.value = '';
+            if (!currentValue && equipmentInput) {
+                equipmentInput.value = '';
+                lazySyncEquipmentInfo(null);
+            }
+        }
+        if (equipmentCount) {
+            equipmentCount.textContent = data.truncated
+                ? `${data.count} equipos encontrados. Mostrando los primeros ${items.length}.`
+                : `${data.count || 0} equipos encontrados.`;
+        }
+    }
+
+    function lazyScheduleEquipmentSearch() {
+        clearTimeout(lazyEquipmentSearchTimer);
+        lazyEquipmentSearchTimer = setTimeout(function () {
+            lazyRefreshEquipmentResults(true);
+        }, 250);
+    }
+
+    async function lazyRepopulateEquipmentFilters(changedIndex) {
+        if (!equipmentFilterBox) return;
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = changedIndex + 1; index < selects.length; index += 1) {
+            selects[index].value = '';
+        }
+        for (const [index, select] of selects.entries()) {
+            const previous = index > 0 ? selects[index - 1].value : '';
+            const level = equipmentLevels[index];
+            if (!level) continue;
+            const selected = select.value;
+            select.disabled = index > 0 && !previous;
+            if (select.disabled) {
+                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
+                continue;
+            }
+            select.innerHTML = '<option value="">Cargando...</option>';
+            let options = [];
+            try {
+                options = await lazyLoadEquipmentNodes(index === 0 ? '' : previous);
+            } catch (error) {
+                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
+                continue;
+            }
+            options = options
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => a.label.localeCompare(b.label));
+            select.innerHTML = '<option value="">Todos</option>' + options
+                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
+                .join('');
+            if (options.some(node => String(node.id) === String(selected))) {
+                select.value = selected;
+            }
+        }
+    }
+
+    function lazySelectEquipmentFromResult() {
+        if (!equipmentInput || !equipmentResults) return;
+        equipmentInput.value = equipmentResults.value || '';
+        lazySyncEquipmentInfo(lazyEquipmentById.get(String(equipmentInput.value || '')) || null);
+    }
+
+    async function lazyApplySelectedEquipmentPath(item) {
+        if (!equipmentInput || !equipmentInput.value || !equipmentFilterBox || !item) return;
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (const [index, select] of selects.entries()) {
+            await lazyRepopulateEquipmentFilters(index - 1);
+            const nodeId = (item.path_node_ids || [])[index];
+            if (nodeId) select.value = String(nodeId);
+        }
+        await lazyRepopulateEquipmentFilters(selects.length - 1);
+    }
+
+    async function lazyLoadSelectedEquipment() {
+        if (!equipmentInput || !equipmentInput.value || !equipmentEndpoints.detail_template) {
+            lazySyncEquipmentInfo(null);
+            return null;
+        }
+        const url = equipmentEndpoints.detail_template.replace('__id__', encodeURIComponent(equipmentInput.value));
+        try {
+            const data = await lazyFetchJson(url);
+            const item = data.item || null;
+            if (item) {
+                lazyEquipmentById.set(String(item.id), item);
+                lazySyncEquipmentInfo(item);
+            }
+            return item;
+        } catch (error) {
+            lazySyncEquipmentInfo(null);
+            return null;
+        }
+    }
+
+    async function initEquipmentBrowser() {
+        if (!equipmentFilterBox || !equipmentResults) return;
+        equipmentFilterBox.innerHTML = equipmentLevels.map((level, index) => `
+            <div class="form-field">
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" data-equipment-level-filter data-level-index="${index}">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+        `).join('');
+        equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
+            select.addEventListener('change', function () {
+                lazyRepopulateEquipmentFilters(Number(select.dataset.levelIndex || 0)).then(function () {
+                    lazyRefreshEquipmentResults(false);
+                });
+            });
+        });
+        if (equipmentSearch) equipmentSearch.addEventListener('input', lazyScheduleEquipmentSearch);
+        equipmentResults.addEventListener('change', lazySelectEquipmentFromResult);
+        await lazyRepopulateEquipmentFilters(-1);
+        const selected = await lazyLoadSelectedEquipment();
+        if (selected) {
+            await lazyApplySelectedEquipmentPath(selected);
+            equipmentResults.innerHTML = `<option value="${selected.id}">${escapeHtml(lazyOptionLabelForEquipment(selected))}</option>`;
+            equipmentResults.value = String(selected.id);
+            if (equipmentCount) equipmentCount.textContent = 'Equipo seleccionado.';
+        } else {
+            await lazyRefreshEquipmentResults(true);
+        }
+    }
+
     function setPanelOpen(button, open) {
         const panel = document.getElementById(button.dataset.panelId);
         if (!panel) return;
@@ -604,12 +819,16 @@
         if (!probSelect || !impactSelect) return;
         const probValue = sourceNumericValue(sourceValues, [
             matrixProbDimensionId,
+            matrixProbDimensionId ? 'dim:' + matrixProbDimensionId : '',
             matrixProbEstrategiaDimensionId ? 'ed:' + matrixProbEstrategiaDimensionId : '',
+            matrixProbEstrategiaDimensionId ? 'estrategia_dimension:' + matrixProbEstrategiaDimensionId : '',
             matrixProbEstrategiaDimensionId,
         ]);
         const impactValue = sourceNumericValue(sourceValues, [
             matrixImpactDimensionId,
+            matrixImpactDimensionId ? 'dim:' + matrixImpactDimensionId : '',
             matrixImpactEstrategiaDimensionId ? 'ed:' + matrixImpactEstrategiaDimensionId : '',
+            matrixImpactEstrategiaDimensionId ? 'estrategia_dimension:' + matrixImpactEstrategiaDimensionId : '',
             matrixImpactEstrategiaDimensionId,
         ]);
 
@@ -641,9 +860,13 @@
 
     function rememberDimensionValue(sourceValues, card, value) {
         if (!card || value === null || value === undefined) return;
-        if (card.dataset.dimensionId) sourceValues[card.dataset.dimensionId] = value;
+        if (card.dataset.dimensionId) {
+            sourceValues[card.dataset.dimensionId] = value;
+            sourceValues['dim:' + card.dataset.dimensionId] = value;
+        }
         if (card.dataset.estrategiaDimensionId) {
             sourceValues['ed:' + card.dataset.estrategiaDimensionId] = value;
+            sourceValues['estrategia_dimension:' + card.dataset.estrategiaDimensionId] = value;
             sourceValues[card.dataset.estrategiaDimensionId] = value;
         }
         if (card.dataset.dimensionName) {
@@ -672,9 +895,14 @@
 
     function updateDependentCatalogs(sourceValues) {
         document.querySelectorAll('[data-dependent-catalog]').forEach(function (box) {
-            const source = box.dataset.dependentSource || '';
             const catalogType = box.dataset.dependentCatalogType || '';
-            const value = toNumber(sourceValues[source] ?? sourceValues[calcSlug(source)]);
+            const value = sourceNumericValue(sourceValues, [
+                box.dataset.dependentSourceEdId ? 'ed:' + box.dataset.dependentSourceEdId : '',
+                box.dataset.dependentSourceDimId || '',
+                box.dataset.dependentSourceDimId ? 'dim:' + box.dataset.dependentSourceDimId : '',
+                box.dataset.dependentSourceCampo || '',
+                box.dataset.dependentSource || '',
+            ]);
             const select = document.getElementById(box.dataset.optionTarget);
             if (!select) return;
 
@@ -742,7 +970,15 @@
         }
 
         const candidates = typeof op === 'object' && op !== null
-            ? [op.campo, op.dimension_id, op.nombre, op.source]
+            ? [
+                op.estrategia_dimension_id ? 'ed:' + op.estrategia_dimension_id : '',
+                op.estrategia_dimension_id ? 'estrategia_dimension:' + op.estrategia_dimension_id : '',
+                op.dimension_id,
+                op.dimension_id ? 'dim:' + op.dimension_id : '',
+                op.campo,
+                op.nombre,
+                op.source
+            ]
             : [op];
 
         for (const candidate of candidates) {

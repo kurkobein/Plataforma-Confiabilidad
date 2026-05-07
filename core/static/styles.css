@@ -292,7 +292,7 @@ th {
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--panel);
-    max-height: 500px;
+    max-height: 700px;
 }
 
 .matriz-wrap {

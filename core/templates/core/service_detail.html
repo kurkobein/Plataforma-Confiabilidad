@@ -61,9 +61,35 @@
     <div class="card">
         <h3 class="card-title">Módulos del servicio</h3>
         <div style="display:grid; gap:10px;">
-            <div class="stat"><small>ACA</small><strong style="font-size:18px;">Activo</strong><div class="actions" style="margin-top:10px;"><a class="btn" href="{% url 'service_aca_list' service.pk %}">Ver registros</a>{% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Registrar</a>{% endif %}</div></div>
-            <div class="stat"><small>RCM</small><strong style="font-size:18px;">Próximamente</strong></div>
-            <div class="stat"><small>FMECA</small><strong style="font-size:18px;">Próximamente</strong></div>
+            <div class="stat"><small>ACA</small><strong style="font-size:18px;">Activo</strong>
+                <div class="actions" style="margin-top:10px;">
+                    <a class="btn" href="{% url 'service_aca_list' service.pk %}">
+                        Ver registros
+                    </a>{% if permission.can_edit %}
+                    <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">
+                        Registrar
+                    </a>{% endif %}
+                </div>
+            </div>
+            <div class="stat">
+                <small>RCM</small>
+                <strong style="font-size:18px;">{{ rcm_count }}</strong>
+                <div class="muted">Registros RCM/FMEA</div>
+                <div class="actions" style="margin-top:10px;">
+                    <a class="btn" href="{% url 'service_rcm_list' service.pk %}">
+                        Ver registros
+                    </a>{% if permission.can_edit %}
+                    <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">
+                        Registrar
+                    </a>{% endif %}
+                </div>
+            </div>
+            <div class="stat">
+                <small>FMECA</small>
+                <strong style="font-size:18px;">
+                    Próximamente
+                </strong>
+            </div>
         </div>
     </div>
 </div>
@@ -239,19 +265,17 @@
     const dataNode = document.getElementById('service-equipment-data');
     const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
     const levels = payload.levels || [];
-    const nodes = payload.nodes || [];
-    const equipment = payload.equipment || [];
     const filtersBox = document.getElementById('service-equipment-level-filters');
     const searchInput = document.getElementById('service-equipment-search');
     const countInput = document.getElementById('service-equipment-count');
     const tableBody = document.getElementById('service-equipment-table');
-
-    function normalize(value) {
-        return (value || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '');
-    }
+    const endpoints = {
+        nodes: "{% url 'service_equipment_nodes' service.pk %}",
+        search: "{% url 'service_equipment_search' service.pk %}"
+    };
+    const nodeCache = new Map();
+    let searchTimer = null;
+    let activeRequest = 0;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -262,61 +286,105 @@
             .replace(/'/g, '&#039;');
     }
 
-    function selectedNodeIds() {
-        if (!filtersBox) return [];
-        return Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'))
-            .map(select => select.value)
-            .filter(Boolean)
-            .map(String);
+    function selectedNodeId() {
+        const selects = Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
+        }
+        return '';
     }
 
-    function matches(item) {
-        const pathIds = (item.path_node_ids || []).map(String);
-        const levelOk = selectedNodeIds().every(nodeId => pathIds.includes(nodeId));
-        if (!levelOk) return false;
-        const query = normalize(searchInput ? searchInput.value : '');
-        if (!query) return true;
-        return normalize([item.ut, item.descripcion_ut, item.equipo, item.tag, item.path_text].join(' ')).includes(query);
+    function setTableMessage(message) {
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(message)}</td></tr>`;
     }
 
-    function repopulateFilters(changedIndex) {
+    async function fetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function loadNodes(parentId) {
+        const key = parentId || 'root';
+        if (nodeCache.has(key)) return nodeCache.get(key);
+        const url = parentId ? `${endpoints.nodes}?parent_id=${encodeURIComponent(parentId)}` : endpoints.nodes;
+        const data = await fetchJson(url);
+        const nodes = data.nodes || [];
+        nodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    async function repopulateFilters(changedIndex) {
         const selects = Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'));
         for (let index = changedIndex + 1; index < selects.length; index += 1) {
             selects[index].value = '';
         }
-        selects.forEach(function (select, index) {
+        for (const [index, select] of selects.entries()) {
             const previous = index > 0 ? selects[index - 1].value : '';
             const level = levels[index];
-            if (!level) return;
-            const options = nodes
-                .filter(node => Number(node.level_id) === Number(level.id))
-                .filter(node => index === 0 ? !node.parent_id : String(node.parent_id || '') === String(previous || ''))
-                .sort((a, b) => a.label.localeCompare(b.label));
+            if (!level) continue;
             const selected = select.value;
             select.disabled = index > 0 && !previous;
-            select.innerHTML = `<option value="">${index > 0 && !previous ? 'Selecciona nivel superior' : 'Todos'}</option>` + options
+            if (select.disabled) {
+                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
+                continue;
+            }
+            select.innerHTML = '<option value="">Cargando...</option>';
+            let options = [];
+            try {
+                options = await loadNodes(index === 0 ? '' : previous);
+            } catch (error) {
+                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
+                continue;
+            }
+            options = options
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => a.label.localeCompare(b.label));
+            select.innerHTML = '<option value="">Todos</option>' + options
                 .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
                 .join('');
             if (options.some(node => String(node.id) === String(selected))) {
                 select.value = selected;
             }
-        });
+        }
     }
 
-    function renderTable() {
-        const matchesList = equipment.filter(matches);
-        const limited = matchesList.slice(0, 200);
-        if (countInput) {
-            countInput.value = matchesList.length > 200
-                ? `${matchesList.length} encontrados, mostrando 200`
-                : `${matchesList.length} encontrados`;
-        }
-        if (!tableBody) return;
-        if (!limited.length) {
-            tableBody.innerHTML = '<tr><td colspan="4" class="muted">No hay equipos para los filtros seleccionados.</td></tr>';
+    async function renderTable() {
+        const requestId = ++activeRequest;
+        const query = searchInput ? searchInput.value.trim() : '';
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            if (countInput) countInput.value = '';
+            setTableMessage('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres para buscar.');
             return;
         }
-        tableBody.innerHTML = limited.map(item => `
+        if (countInput) countInput.value = 'Buscando...';
+        setTableMessage('Buscando equipos...');
+        const params = new URLSearchParams({ limit: '200' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countInput) countInput.value = '';
+            setTableMessage('No se pudieron cargar los equipos.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        if (countInput) {
+            countInput.value = data.truncated
+                ? `${data.count} encontrados, mostrando ${items.length}`
+                : `${data.count || 0} encontrados`;
+        }
+        if (!tableBody) return;
+        if (!items.length) {
+            setTableMessage(data.message || 'No hay equipos para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => `
             <tr>
                 <td><strong>${escapeHtml(item.ut)}</strong></td>
                 <td>${escapeHtml(item.descripcion_ut)}</td>
@@ -324,6 +392,11 @@
                 <td>${escapeHtml(item.tag)}</td>
             </tr>
         `).join('');
+    }
+
+    function scheduleRenderTable() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(renderTable, 250);
     }
 
     function initFilters() {
@@ -338,13 +411,11 @@
         `).join('');
         filtersBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
             select.addEventListener('change', function () {
-                repopulateFilters(Number(select.dataset.levelIndex || 0));
-                renderTable();
+                repopulateFilters(Number(select.dataset.levelIndex || 0)).then(renderTable);
             });
         });
-        if (searchInput) searchInput.addEventListener('input', renderTable);
-        repopulateFilters(-1);
-        renderTable();
+        if (searchInput) searchInput.addEventListener('input', scheduleRenderTable);
+        repopulateFilters(-1).then(renderTable);
     }
 
     initFilters();

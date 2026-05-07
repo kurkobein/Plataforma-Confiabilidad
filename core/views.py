@@ -10,7 +10,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q, TextField, Prefetch
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -28,6 +28,7 @@ from .forms import (
     HierarchyStructureFormSet,
     HierarchyValueForm,
     MatrizBuilderForm,
+    RCMRegistroForm,
     ServiceAccessGrantForm,
     ServicioACARegistroForm,
     get_form_for_key,
@@ -94,7 +95,7 @@ FORM_TEMPLATE_BY_MODEL = {
     'estrategia': 'core/forms/estrategia_form.html',
     'servicio': 'core/forms/servicio_form.html',
     'accesousuario': 'core/forms/accesousuario_form.html',
-    'acacarga': 'core/forms/acacarga_form.html',
+    'carga': 'core/forms/acacarga_form.html',
     'criticidad': 'core/forms/criticidad_form.html',
     'matrizriesgo': 'core/forms/matrizriesgo_form.html',
 }
@@ -347,6 +348,210 @@ def _node_route_from_path(path_ids, rows_by_id):
 
 
 def _service_equipment_browser_payload(service):
+    if not service:
+        return {'levels': [], 'nodes': [], 'equipment': []}
+
+    levels = [
+        {
+            'id': level.pk,
+            'order': level.orden,
+            'name': level.nombre,
+        }
+        for level in models.NivelJerarquia.objects.filter(
+            empresa=service.empresa,
+            activo=True,
+        ).order_by('orden')
+    ]
+
+    return {
+        'levels': levels,
+        'nodes': [],
+        'equipment': [],
+    }
+
+
+def _service_equipment_count(service):
+    if not service:
+        return 0
+    return get_service_equipment(service).order_by().count()
+
+
+def _service_equipment_endpoints(service):
+    if not service:
+        return {'nodes': '', 'search': '', 'detail_template': ''}
+    return {
+        'nodes': reverse('service_equipment_nodes', kwargs={'pk': service.pk}),
+        'search': reverse('service_equipment_search', kwargs={'pk': service.pk}),
+        'detail_template': reverse(
+            'service_equipment_detail',
+            kwargs={'pk': service.pk, 'equipment_pk': 0},
+        ).replace('/0/', '/__id__/'),
+    }
+
+
+def _equipment_path_rows(node_ids):
+    rows_by_id = {}
+    pending = {node_id for node_id in node_ids if node_id}
+    while pending:
+        rows = list(
+            models.NodoJerarquia.objects.filter(
+                pk__in=pending,
+            ).values(
+                'id',
+                'parent_id',
+                'nivel_id',
+                'nivel__orden',
+                'nivel__nombre',
+                'codigo',
+                'nombre',
+                'activo',
+            )
+        )
+        pending = set()
+        for row in rows:
+            rows_by_id[row['id']] = row
+            parent_id = row.get('parent_id')
+            if parent_id and parent_id not in rows_by_id:
+                pending.add(parent_id)
+    return rows_by_id
+
+
+def _equipment_items_payload(equipment_items):
+    equipment_items = list(equipment_items)
+    rows_by_id = _equipment_path_rows({equipo.nodo_id for equipo in equipment_items if equipo.nodo_id})
+    payload = []
+    for equipo in equipment_items:
+        path_ids = _path_ids_for_node(equipo.nodo_id, rows_by_id) if equipo.nodo_id else []
+        payload.append({
+            'id': equipo.pk,
+            'ut': equipo.ut or '',
+            'descripcion_ut': equipo.descripcion_ut or '',
+            'equipo': equipo.nombre_equipo or '',
+            'tag': equipo.tag_equipo or '',
+            'node_id': equipo.nodo_id,
+            'path_node_ids': path_ids,
+            'path_text': _node_route_from_path(path_ids, rows_by_id),
+        })
+    return payload
+
+
+def _service_equipment_search_queryset(service, node=None, query=''):
+    qs = get_service_equipment(service)
+    if node:
+        node_ut = node.ut
+        qs = qs.filter(
+            Q(nodo_id=node.pk)
+            | Q(ut__iexact=node_ut)
+            | Q(ut__istartswith=f'{node_ut}-')
+        )
+
+    query = (query or '').strip()
+    if query:
+        qs = qs.filter(
+            Q(ut__icontains=query)
+            | Q(descripcion_ut__icontains=query)
+            | Q(nombre_equipo__icontains=query)
+            | Q(tag_equipo__icontains=query)
+        )
+    return qs.distinct().order_by('ut', 'tag_equipo', 'nombre_equipo')
+
+
+@login_required
+def service_equipment_levels(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    return JsonResponse(_service_equipment_browser_payload(servicio))
+
+
+@login_required
+def service_equipment_nodes(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    parent_id = (request.GET.get('parent_id') or '').strip()
+    parent = None
+    if parent_id:
+        parent = get_object_or_404(
+            models.NodoJerarquia,
+            pk=parent_id,
+            empresa=servicio.empresa,
+            activo=True,
+        )
+
+    nodes = models.NodoJerarquia.objects.filter(
+        empresa=servicio.empresa,
+        activo=True,
+        parent=parent,
+    ).select_related(
+        'nivel',
+    ).order_by(
+        'nivel__orden',
+        'orden',
+        'codigo',
+        'nombre',
+    )
+
+    payload = []
+    for node in nodes:
+        payload.append({
+            'id': node.pk,
+            'parent_id': node.parent_id,
+            'level_id': node.nivel_id,
+            'level_order': node.nivel.orden,
+            'code': node.codigo,
+            'name': node.nombre,
+            'label': f'{node.codigo} - {node.nombre}',
+        })
+    return JsonResponse({'nodes': payload})
+
+
+@login_required
+def service_equipment_search(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    query = (request.GET.get('q') or '').strip()
+    node_id = (request.GET.get('node_id') or '').strip()
+    try:
+        limit = min(max(int(request.GET.get('limit') or 50), 1), 200)
+    except (TypeError, ValueError):
+        limit = 50
+
+    node = None
+    if node_id:
+        node = get_object_or_404(
+            models.NodoJerarquia,
+            pk=node_id,
+            empresa=servicio.empresa,
+            activo=True,
+        )
+
+    if not node and len(query) < 2:
+        return JsonResponse({
+            'items': [],
+            'count': 0,
+            'requires_filter': True,
+            'message': 'Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.',
+        })
+
+    qs = _service_equipment_search_queryset(servicio, node=node, query=query)
+    total = qs.count()
+    items = list(qs[:limit])
+    return JsonResponse({
+        'items': _equipment_items_payload(items),
+        'count': total,
+        'limit': limit,
+        'truncated': total > limit,
+    })
+
+
+@login_required
+def service_equipment_detail(request, pk, equipment_pk):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    equipo = get_object_or_404(
+        get_service_equipment(servicio),
+        pk=equipment_pk,
+    )
+    payload = _equipment_items_payload([equipo])
+    return JsonResponse({'item': payload[0] if payload else None})
+
+
+def _legacy_service_equipment_browser_payload(service):
     if not service:
         return {'levels': [], 'nodes': [], 'equipment': []}
 
@@ -773,13 +978,125 @@ def hierarchy_values(request, empresa_id):
     else:
         form = HierarchyValueForm(empresa=empresa)
 
-    rows = _technical_location_rows(empresa)
     return render(request, 'core/hierarchy_values.html', {
         'empresa': empresa,
         'form': form,
         'levels': levels,
-        'rows': rows,
-        'hierarchy_nodes_json': json.dumps(_hierarchy_nodes_payload(empresa), ensure_ascii=False),
+        'hierarchy_levels_json': json.dumps([
+            {'id': level.pk, 'order': level.orden, 'name': level.nombre}
+            for level in levels
+        ], ensure_ascii=False),
+    })
+
+
+def _hierarchy_value_node_payload(node):
+    return {
+        'id': node.pk,
+        'parent_id': node.parent_id,
+        'level_id': node.nivel_id,
+        'level_order': node.nivel.orden,
+        'level_name': node.nivel.nombre,
+        'code': node.codigo,
+        'name': node.nombre,
+        'ut': node.ut,
+        'route': node.ruta_nombre,
+        'parent_label': node.parent.ut if node.parent_id and node.parent else 'Raiz',
+        'label': f'{node.codigo} - {node.nombre}',
+        'edit_url': reverse('model_update', kwargs={'model_key': 'nodojerarquia', 'pk': node.pk}),
+        'delete_url': reverse('hierarchy_delete_node', kwargs={'pk': node.pk}),
+    }
+
+
+def _hierarchy_values_base_queryset(empresa):
+    return models.NodoJerarquia.objects.filter(
+        empresa=empresa,
+        activo=True,
+    ).select_related(
+        'nivel',
+        'parent',
+    ).order_by(
+        'nivel__orden',
+        'orden',
+        'codigo',
+        'nombre',
+    )
+
+
+@login_required
+def hierarchy_values_nodes(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    parent_id = (request.GET.get('parent_id') or '').strip()
+    query = (request.GET.get('q') or '').strip()
+    try:
+        limit = min(max(int(request.GET.get('limit') or 500), 1), 1000)
+    except (TypeError, ValueError):
+        limit = 500
+
+    qs = _hierarchy_values_base_queryset(empresa)
+    if parent_id and parent_id != 'root':
+        parent = get_object_or_404(qs, pk=parent_id)
+        qs = qs.filter(parent=parent)
+    elif parent_id == 'root' or not parent_id:
+        qs = qs.filter(parent__isnull=True)
+
+    if query:
+        query_clause = Q(codigo__icontains=query) | Q(nombre__icontains=query)
+        if '-' in query:
+            query_clause |= Q(codigo__icontains=models._technical_segment(query.split('-')[-1]))
+        qs = qs.filter(query_clause)
+
+    total = qs.count()
+    nodes = list(qs[:limit])
+    return JsonResponse({
+        'nodes': [_hierarchy_value_node_payload(node) for node in nodes],
+        'count': total,
+        'limit': limit,
+        'truncated': total > limit,
+    })
+
+
+@login_required
+def hierarchy_values_search(request, empresa_id):
+    _ensure_admin_access(request)
+    empresa = get_object_or_404(models.Empresa, pk=empresa_id)
+    parent_id = (request.GET.get('parent_id') or '').strip()
+    level_id = (request.GET.get('level_id') or '').strip()
+    query = (request.GET.get('q') or '').strip()
+    try:
+        limit = min(max(int(request.GET.get('limit') or 200), 1), 500)
+    except (TypeError, ValueError):
+        limit = 200
+
+    if not parent_id and len(query) < 2:
+        return JsonResponse({
+            'items': [],
+            'count': 0,
+            'requires_filter': True,
+            'message': 'Selecciona un nodo superior o escribe al menos 2 caracteres para buscar.',
+        })
+
+    qs = _hierarchy_values_base_queryset(empresa)
+    if parent_id == 'root':
+        qs = qs.filter(parent__isnull=True)
+    elif parent_id:
+        parent = get_object_or_404(_hierarchy_values_base_queryset(empresa), pk=parent_id)
+        qs = qs.filter(parent=parent)
+    if level_id:
+        qs = qs.filter(nivel_id=level_id)
+    if query:
+        query_clause = Q(codigo__icontains=query) | Q(nombre__icontains=query)
+        if '-' in query:
+            query_clause |= Q(codigo__icontains=models._technical_segment(query.split('-')[-1]))
+        qs = qs.filter(query_clause)
+
+    total = qs.count()
+    nodes = list(qs[:limit])
+    return JsonResponse({
+        'items': [_hierarchy_value_node_payload(node) for node in nodes],
+        'count': total,
+        'limit': limit,
+        'truncated': total > limit,
     })
 
 
@@ -973,7 +1290,6 @@ def model_list(request, model_key):
         'editable_service_ids': editable_service_ids,
         'total_count': total_count,
     })
-
 
 @login_required
 def model_detail(request, model_key, pk):
@@ -1551,22 +1867,23 @@ def service_detail(request, pk):
             'has_scale': item.escalas_valor.exists(),
         })
     aca_count = models.Criticidad.objects.filter(aca_carga__servicio=servicio).count()
+    rcm_count = models.RCM.objects.filter(carga__servicio=servicio).count()
     matrices = models.MatrizRiesgo.objects.filter(estrategia=servicio.estrategia).order_by('-fecha_creado', 'nombre') if servicio.estrategia_id else []
     access_form = ServiceAccessGrantForm(service=servicio)
     access_rows = list(permission['access_rows'])
-    service_equipment_payload = _service_equipment_browser_payload(servicio)
     return render(request, 'core/service_detail.html', {
         'service': servicio,
         'permission': permission,
         'aca_count': aca_count,
-        'equipment_count': len(service_equipment_payload['equipment']),
+        'rcm_count': rcm_count,
+        'equipment_count': _service_equipment_count(servicio),
         'dimension_rows': dimension_rows,
         'matrices': matrices,
         'access_form': access_form,
         'access_rows': access_rows,
         'dimension_count': len(estrategia_dims),
         'mindco_viewer': is_mindco_user(request.user),
-        'service_equipment_payload': service_equipment_payload,
+        'service_equipment_payload': _service_equipment_browser_payload(servicio),
     })
 
 
@@ -1610,6 +1927,99 @@ def service_access_manage(request, pk):
     else:
         messages.error(request, 'No se pudo guardar el permiso.')
     return redirect('service_detail', pk=servicio.pk)
+
+
+@login_required
+def service_rcm_list(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=False)
+    registros_qs = (
+        models.RCM.objects.filter(carga__servicio=servicio)
+        .select_related('carga', 'equipo', 'fmea_fmeca')
+        .order_by('-fecha_analisis', '-id')
+    )
+    rows = []
+    for registro in registros_qs:
+        try:
+            fmea = registro.fmea_fmeca
+        except models.FMEA_FMECA.DoesNotExist:
+            fmea = None
+        rows.append({
+            'registro': registro,
+            'fmea': fmea,
+        })
+
+    return render(request, 'core/service_rcm_list.html', {
+        'service': servicio,
+        'permission': permission,
+        'rows': rows,
+        'rcm_count': registros_qs.count(),
+        'fmea_count': registros_qs.filter(criticidad__isnull=True).count(),
+        'fmeca_count': registros_qs.filter(criticidad__isnull=False).count(),
+    })
+
+
+@login_required
+def service_rcm_new(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    form = RCMRegistroForm(
+        request.POST or None,
+        service=servicio,
+        initial={
+            'fecha_analisis': timezone.localdate(),
+            'estado': models.Carga.STATUS_COMPLETO,
+        },
+    )
+
+    if request.method == 'POST' and form.is_valid():
+        cleaned = form.cleaned_data
+        npr = cleaned['severidad'] * cleaned['ocurrencia'] * cleaned['deteccion']
+        with transaction.atomic():
+            now = timezone.now()
+            carga = models.Carga.objects.create(
+                fecha_analisis=cleaned['fecha_analisis'],
+                version_carga=Decimal('1.0'),
+                usuario=permission.get('profile'),
+                servicio=servicio,
+                estrategia=servicio.estrategia,
+                origen='RCM Manual',
+                status=cleaned['estado'],
+                creado_en=now,
+                actualizado=now,
+            )
+            rcm = models.RCM.objects.create(
+                carga=carga,
+                equipo=cleaned['equipo'],
+                criticidad=cleaned.get('criticidad'),
+                fecha_analisis=cleaned['fecha_analisis'],
+                estado=cleaned['estado'],
+                falla_funcional=cleaned['falla_funcional'],
+                modo_de_falla=cleaned['modo_de_falla'],
+                causa=cleaned['causa'],
+                efecto=cleaned['efecto'],
+            )
+            fmea = models.FMEA_FMECA.objects.create(
+                rcm=rcm,
+                severidad=cleaned['severidad'],
+                ocurrencia=cleaned['ocurrencia'],
+                deteccion=cleaned['deteccion'],
+                npr=npr,
+            )
+            for evaluation in getattr(form, 'cleaned_impact_evaluations', []):
+                models.EvaluacionFMEA.objects.update_or_create(
+                    fmea=fmea,
+                    estrategia_dimension=evaluation['estrategia_dimension'],
+                    defaults={'valor_numerico': evaluation['valor_numerico']},
+                )
+        messages.success(request, 'Registro RCM creado correctamente.')
+        return redirect('service_rcm_list', pk=servicio.pk)
+
+    return render(request, 'core/service_rcm_form.html', {
+        'service': servicio,
+        'permission': permission,
+        'form': form,
+        'service_equipment_payload': _service_equipment_browser_payload(servicio),
+        'service_equipment_endpoints': _service_equipment_endpoints(servicio),
+    })
 
 
 @login_required
@@ -1686,8 +2096,8 @@ def service_aca_list(request, pk):
     complete_count = 0
     incomplete_count = 0
     for crit in criticidades:
-        status = getattr(crit.aca_carga, 'status', '') or models.AcaCarga.STATUS_COMPLETO
-        if status == models.AcaCarga.STATUS_INCOMPLETO:
+        status = getattr(crit.aca_carga, 'status', '') or models.Carga.STATUS_COMPLETO
+        if status == models.Carga.STATUS_INCOMPLETO:
             incomplete_count += 1
         else:
             complete_count += 1
@@ -1747,7 +2157,7 @@ def service_aca_new(request, pk):
     is_draft = request.method == 'POST' and request.POST.get('save_as') == 'draft'
     existing_is_draft = bool(
         edit_crit
-        and getattr(edit_crit.aca_carga, 'status', '') == models.AcaCarga.STATUS_INCOMPLETO
+        and getattr(edit_crit.aca_carga, 'status', '') == models.Carga.STATUS_INCOMPLETO
     )
     allow_incomplete = is_draft or existing_is_draft
     matrix_selector = _service_matrix_selector(servicio)
@@ -1799,7 +2209,7 @@ def service_aca_new(request, pk):
     )
 
     if request.method == 'POST' and base_form.is_valid() and dimension_formset.is_valid():
-        status = models.AcaCarga.STATUS_INCOMPLETO if is_draft else models.AcaCarga.STATUS_COMPLETO
+        status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
         now = timezone.now()
 
         if edit_crit:
@@ -1812,7 +2222,7 @@ def service_aca_new(request, pk):
             carga.save(update_fields=['status', 'actualizado', 'estrategia', 'servicio', 'usuario'])
         else:
             version_carga = _next_service_aca_version(servicio)
-            carga = models.AcaCarga.objects.create(
+            carga = models.Carga.objects.create(
                 fecha_analisis=timezone.localdate(),
                 version_carga=version_carga,
                 origen='Manual',
@@ -1870,6 +2280,7 @@ def service_aca_new(request, pk):
         'selected_strategy': strategy,
         'matrix_selector': matrix_selector,
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
+        'service_equipment_endpoints': _service_equipment_endpoints(servicio),
         'auto_version': edit_crit.aca_carga.version_carga if edit_crit and edit_crit.aca_carga else _next_service_aca_version(servicio),
         'auto_fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit and edit_crit.aca_carga else timezone.localdate(),
         'editing_crit': edit_crit,
@@ -1930,7 +2341,7 @@ def aca_registro_new(request):
 
 
 def _next_service_aca_version(servicio):
-    latest = models.AcaCarga.objects.filter(servicio=servicio).order_by('-fecha_analisis', '-id').first()
+    latest = models.Carga.objects.filter(servicio=servicio).order_by('-fecha_analisis', '-id').first()
     if not latest or latest.version_carga is None:
         return Decimal('1.0')
     try:
@@ -2111,15 +2522,47 @@ def _aca_excluded_dimension_ids(estrategia, matriz=None):
     return excluded_ids
 
 
-def _dimension_dependency_key(dimension):
-    config = _json_loads_safe(getattr(dimension, 'config_calculo', None), {})
+def _dependency_ref_from_config(config):
+    if isinstance(config, str):
+        config = _json_loads_safe(config, {})
     if not isinstance(config, dict):
         return ''
     for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
         value = config.get(key)
         if value not in (None, ''):
-            return str(value).strip()
+            return value if isinstance(value, dict) else str(value).strip()
+    if config.get('estrategia_dimension_id') or config.get('dimension_id'):
+        return config
     return ''
+
+
+def _source_ref_candidates(source_ref):
+    if source_ref in (None, ''):
+        return []
+    if isinstance(source_ref, dict):
+        candidates = []
+        estrategia_dimension_id = (
+            source_ref.get('estrategia_dimension_id')
+            or source_ref.get('estrategiaDimensionId')
+            or source_ref.get('ed_id')
+        )
+        if estrategia_dimension_id not in (None, ''):
+            candidates.append(f'ed:{estrategia_dimension_id}')
+            candidates.append(f'estrategia_dimension:{estrategia_dimension_id}')
+        dimension_id = source_ref.get('dimension_id') or source_ref.get('dimensionId')
+        if dimension_id not in (None, ''):
+            candidates.append(str(dimension_id))
+            candidates.append(f'dim:{dimension_id}')
+        for key in ['campo', 'nombre', 'source', 'fuente', 'dependencia', 'depende_de', 'campo_fuente', 'dimension_fuente']:
+            value = source_ref.get(key)
+            if value not in (None, '') and not isinstance(value, dict):
+                candidates.append(str(value).strip())
+        return [candidate for candidate in candidates if candidate]
+    return [str(source_ref).strip()]
+
+
+def _dimension_dependency_key(dimension):
+    return next(iter(_source_ref_candidates(_dependency_ref_from_config(getattr(dimension, 'config_calculo', None)))), '')
 
 
 def _remember_source_value(source_values, estrategia_dimension, value):
@@ -2128,7 +2571,10 @@ def _remember_source_value(source_values, estrategia_dimension, value):
         return
     dimension = estrategia_dimension.dimension
     campo = _dimension_source_key(estrategia_dimension)
+    source_values[f'ed:{estrategia_dimension.id}'] = decimal_value
+    source_values[f'estrategia_dimension:{estrategia_dimension.id}'] = decimal_value
     source_values[str(dimension.id)] = decimal_value
+    source_values[f'dim:{dimension.id}'] = decimal_value
     source_values[dimension.nombre] = decimal_value
     source_values[_calc_slug(dimension.nombre)] = decimal_value
     if campo:
@@ -2137,12 +2583,14 @@ def _remember_source_value(source_values, estrategia_dimension, value):
 
 
 def _source_value(source_values, source_key):
-    if not source_key:
-        return None
-    value = source_values.get(str(source_key))
-    if value is None:
-        value = source_values.get(_calc_slug(str(source_key)))
-    return _decimal_or_none(value)
+    for candidate in _source_ref_candidates(source_key):
+        value = source_values.get(candidate)
+        if value is None:
+            value = source_values.get(_calc_slug(candidate))
+        decimal_value = _decimal_or_none(value)
+        if decimal_value is not None:
+            return decimal_value
+    return None
 
 
 def _catalog_bound(values, keys):
@@ -2403,21 +2851,15 @@ def _calculation_operation_result(tipo, values):
 
 
 def _calculation_operand_value(operand, source_values, previous_result=None):
-    candidates = []
     if isinstance(operand, dict):
         if operand.get('resultado') is True or operand.get('tipo') == 'resultado':
             return previous_result
-        for key in ['campo', 'dimension_id', 'nombre', 'source']:
-            value = operand.get(key)
-            if value not in (None, ''):
-                candidates.append(str(value))
     else:
         raw = str(operand)
         if raw in {'$resultado', '__resultado__', 'resultado_anterior'}:
             return previous_result
-        candidates.append(raw)
 
-    for candidate in candidates:
+    for candidate in _source_ref_candidates(operand):
         value = source_values.get(candidate)
         if value is None:
             value = source_values.get(_calc_slug(candidate))
@@ -2543,7 +2985,7 @@ def _prepare_dimension_items(estrategia, formset):
             'valor_booleano': valor_booleano,
             'valor_texto': valor_texto or '',
             'is_calculated': bool((getattr(dimension, 'tipo_calculo', '') or '').strip()),
-            'dependency_key': _dimension_dependency_key(dimension),
+            'dependency_key': _dependency_ref_from_config(getattr(dimension, 'config_calculo', None)),
         }
         prepared.append(item)
 
@@ -2811,20 +3253,20 @@ def aca_registro_new_legacy(request):
         if bind_dimensions and base_form.is_valid() and dimension_formset.is_valid():
             cd = base_form.cleaned_data
             now = timezone.now()
-            carga = models.AcaCarga.objects.filter(
+            carga = models.Carga.objects.filter(
                 servicio=cd['servicio'],
                 estrategia=cd['estrategia'],
                 fecha_analisis=cd['fecha_analisis'],
                 version_carga=cd['version_carga'],
             ).order_by('-id').first()
             if not carga:
-                carga = models.AcaCarga.objects.create(
+                carga = models.Carga.objects.create(
                     servicio=cd['servicio'],
                     estrategia=cd['estrategia'],
                     fecha_analisis=cd['fecha_analisis'],
                     version_carga=cd['version_carga'],
                     origen=cd['origen'],
-                    status=models.AcaCarga.STATUS_COMPLETO,
+                    status=models.Carga.STATUS_COMPLETO,
                     usuario=cd['usuario'],
                     creado_en=now,
                     actualizado=now,
@@ -2832,7 +3274,7 @@ def aca_registro_new_legacy(request):
             else:
                 carga.actualizado = now
                 carga.origen = cd['origen']
-                carga.status = models.AcaCarga.STATUS_COMPLETO
+                carga.status = models.Carga.STATUS_COMPLETO
                 carga.usuario = cd['usuario']
                 carga.save(update_fields=['actualizado', 'origen', 'status', 'usuario'])
 
@@ -2866,9 +3308,11 @@ def aca_registro_new_legacy(request):
     return render(request, 'core/aca_registro_form.html', {
         'base_form': base_form,
         'dimension_formset': dimension_formset,
+        'service': selected_service,
         'selected_service': selected_service,
         'selected_strategy': selected_strategy,
         'service_equipment_payload': _service_equipment_browser_payload(selected_service),
+        'service_equipment_endpoints': _service_equipment_endpoints(selected_service),
     })
 
 
@@ -3015,20 +3459,98 @@ def _save_strategy_catalogs(estrategia, payload):
     keep_ids = set()
     tipos_calculo_validos = dict(models.Dimension.TIPO_CALCULO_CHOICES)
     tipos_catalogo_validos = {'opciones', 'rangos', 'numerico_libre'}
+    source_index = {}
+
+    def _index_source_ref(ref, *values):
+        for value in values:
+            if value in (None, ''):
+                continue
+            raw = str(value).strip()
+            if not raw:
+                continue
+            source_index[raw] = ref
+            source_index[_calc_slug(raw)] = ref
+
+    for ed in existing_eds.values():
+        dimension = ed.dimension
+        try:
+            catalogo = getattr(ed, 'catalogo', None)
+        except Exception:
+            catalogo = None
+        ref = {
+            'estrategia_dimension_id': ed.pk,
+            'dimension_id': dimension.pk,
+            'campo': getattr(catalogo, 'campo', '') or _safe_slug(dimension.nombre),
+            'nombre': getattr(catalogo, 'nombre', '') or dimension.nombre,
+        }
+        _index_source_ref(
+            ref,
+            f'ed:{ed.pk}',
+            f'estrategia_dimension:{ed.pk}',
+            f'dim:{dimension.pk}',
+            str(dimension.pk),
+            ref['campo'],
+            ref['nombre'],
+            dimension.nombre,
+        )
+
+    def _source_ref_for_value(value):
+        if value in (None, ''):
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+        if raw.startswith('campo:'):
+            raw = raw.split(':', 1)[1].strip()
+        if raw.startswith('ed:') and raw[3:] in existing_eds:
+            ed = existing_eds[raw[3:]]
+            return dict(source_index.get(raw) or {
+                'estrategia_dimension_id': ed.pk,
+                'dimension_id': ed.dimension_id,
+                'campo': _safe_slug(ed.dimension.nombre),
+                'nombre': ed.dimension.nombre,
+            })
+        if raw.startswith('estrategia_dimension:') and raw.split(':', 1)[1] in existing_eds:
+            ed = existing_eds[raw.split(':', 1)[1]]
+            return dict(source_index.get(f'ed:{ed.pk}') or {
+                'estrategia_dimension_id': ed.pk,
+                'dimension_id': ed.dimension_id,
+                'campo': _safe_slug(ed.dimension.nombre),
+                'nombre': ed.dimension.nombre,
+            })
+        ref = source_index.get(raw) or source_index.get(_calc_slug(raw))
+        return dict(ref) if ref else None
 
     def _normalize_calculation_config(config_raw, tipo_calculo):
         config_raw = config_raw if isinstance(config_raw, dict) else {}
         valid_ops = set(tipos_calculo_validos.keys()) - {''}
+
+        def _clean_source_ref(value):
+            if isinstance(value, dict):
+                cleaned = {}
+                for key in ['estrategia_dimension_id', 'dimension_id', 'campo', 'nombre', 'source']:
+                    raw = value.get(key)
+                    if raw not in (None, ''):
+                        cleaned[key] = raw
+                return cleaned or None
+            if value not in (None, ''):
+                return _source_ref_for_value(value) or str(value)
+            return None
 
         def _clean_operandos(value):
             if not isinstance(value, list):
                 return []
             cleaned = []
             for operand in value:
-                if isinstance(operand, dict):
-                    cleaned.append(operand)
-                elif operand not in (None, ''):
-                    cleaned.append(str(operand))
+                if isinstance(operand, dict) and (operand.get('resultado') is True or operand.get('tipo') == 'resultado'):
+                    cleaned.append({'resultado': True})
+                    continue
+                if not isinstance(operand, dict) and str(operand) in {'$resultado', '__resultado__', 'resultado_anterior'}:
+                    cleaned.append('$resultado')
+                    continue
+                source_ref = _clean_source_ref(operand)
+                if source_ref:
+                    cleaned.append(source_ref)
             return cleaned
 
         raw_steps = config_raw.get('pasos') or config_raw.get('steps') or []
@@ -3056,6 +3578,22 @@ def _save_strategy_catalogs(estrategia, payload):
             config_raw.get('operandos') or config_raw.get('campos') or config_raw.get('sources') or []
         )
         return {'operandos': operandos}
+
+    def _dependency_payload(config_raw):
+        config_raw = config_raw if isinstance(config_raw, dict) else {}
+        for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
+            value = config_raw.get(key)
+            if value in (None, ''):
+                continue
+            if isinstance(value, dict):
+                cleaned = {}
+                for ref_key in ['estrategia_dimension_id', 'dimension_id', 'campo', 'nombre', 'source']:
+                    raw = value.get(ref_key)
+                    if raw not in (None, ''):
+                        cleaned[ref_key] = raw
+                return cleaned or ''
+            return _source_ref_for_value(value) or str(value).strip()
+        return ''
 
     def _clean_catalogo(catalogo):
         models.CriticidadDimension.objects.filter(
@@ -3107,11 +3645,7 @@ def _save_strategy_catalogs(estrategia, payload):
         else:
             dependencia = ''
             if tipo in {'rangos', 'opciones'} and isinstance(config_calculo_raw, dict):
-                for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
-                    value = config_calculo_raw.get(key)
-                    if value not in (None, ''):
-                        dependencia = str(value).strip()
-                        break
+                dependencia = _dependency_payload(config_calculo_raw)
             config_calculo = json.dumps({'dependencia': dependencia}, ensure_ascii=False) if dependencia else None
             columnas = item.get('columnas') if isinstance(item.get('columnas'), list) else []
             columnas = [

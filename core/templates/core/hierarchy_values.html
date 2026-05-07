@@ -33,7 +33,9 @@
             </div>
             <div class="form-field" id="parent-field">
                 <label>{{ form.parent.label }}</label>
-                {{ form.parent }}
+                <div id="value-parent-picker" class="form-grid"></div>
+                <div style="display:none;">{{ form.parent }}</div>
+                <small class="muted">Selecciona la ruta superior paso a paso.</small>
                 {{ form.parent.errors }}
             </div>
             <div class="form-field">
@@ -56,23 +58,13 @@
     <div class="card hierarchy-side-card">
         <h3 class="card-title">Filtro rapido</h3>
         <div class="form-field">
-            <label>Nivel</label>
-            <select class="input-control" id="value-level-filter">
-                <option value="">Todos</option>
-                {% for level in levels %}
-                    <option value="{{ level.pk }}">{{ level.orden }}. {{ level.nombre }}</option>
-                {% endfor %}
-            </select>
+            <label>Buscar</label>
+            <input class="input-control" id="value-search" type="search" placeholder="Codigo o nombre">
         </div>
         <div class="form-field" style="margin-top:12px;">
-            <label>Nodo superior</label>
-            <select class="input-control" id="value-parent-filter">
-                <option value="">Todos</option>
-                <option value="root">Raiz</option>
-                {% for row in rows %}
-                    <option value="{{ row.nodo.pk }}">{{ row.nodo.ut }}</option>
-                {% endfor %}
-            </select>
+            <label>Ruta U.T.</label>
+            <div id="value-filter-picker"></div>
+            <small class="muted" id="value-results-count">Selecciona un nivel superior o busca por texto.</small>
         </div>
     </div>
 </div>
@@ -90,84 +82,253 @@
                 <th>Acciones</th>
             </tr>
         </thead>
-        <tbody>
-            {% for row in rows %}
-                <tr data-level-id="{{ row.nodo.nivel_id }}" data-parent-id="{% if row.nodo.parent_id %}{{ row.nodo.parent_id }}{% else %}root{% endif %}">
-                    <td>{{ row.nodo.nivel.orden }}. {{ row.nodo.nivel.nombre }}</td>
-                    <td>{% if row.nodo.parent %}{{ row.nodo.parent.ut }}{% else %}Raiz{% endif %}</td>
-                    <td><strong>{{ row.nodo.codigo }}</strong></td>
-                    <td>{{ row.nodo.nombre }}</td>
-                    <td>{{ row.nodo.ut }}</td>
-                    <td>{{ row.nodo.ruta_nombre }}</td>
-                    <td>
-                        <div class="actions">
-                            <a class="btn" href="{% url 'model_update' 'nodojerarquia' row.nodo.pk %}">Editar</a>
-                            <form method="post"
-                                  action="{% url 'hierarchy_delete_node' row.nodo.pk %}"
-                                  style="display:inline;"
-                                  onsubmit="return confirm('Esto desactivara este valor y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. ¿Continuar?');">
-                                {% csrf_token %}
-                                <button class="btn btn-danger" type="submit">Eliminar</button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="7">No hay valores registrados.</td></tr>
-            {% endfor %}
+        <tbody id="hierarchy-values-body">
+            <tr><td colspan="7" class="muted">Selecciona un nodo superior o escribe al menos 2 caracteres para buscar.</td></tr>
         </tbody>
     </table>
 </div>
 
-<script type="application/json" id="hierarchy-nodes-data">{{ hierarchy_nodes_json|safe }}</script>
+<script type="application/json" id="hierarchy-levels-data">{{ hierarchy_levels_json|safe }}</script>
 
 <script>
 (function () {
-    const nodes = JSON.parse(document.getElementById('hierarchy-nodes-data').textContent || '[]');
+    const levels = JSON.parse(document.getElementById('hierarchy-levels-data').textContent || '[]');
+    const endpoints = {
+        nodes: "{% url 'hierarchy_values_nodes' empresa.pk %}",
+        search: "{% url 'hierarchy_values_search' empresa.pk %}"
+    };
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
     const levelSelect = document.getElementById('id_nivel');
     const parentSelect = document.getElementById('id_parent');
+    const initialParentId = parentSelect ? String(parentSelect.value || '') : '';
+    const initialParentLabel = parentSelect && parentSelect.selectedOptions.length
+        ? parentSelect.selectedOptions[0].textContent
+        : '';
     const parentField = document.getElementById('parent-field');
+    const parentPicker = document.getElementById('value-parent-picker');
     const codigoInput = document.getElementById('id_codigo');
-    const levelFilter = document.getElementById('value-level-filter');
-    const parentFilter = document.getElementById('value-parent-filter');
-    const tableRows = Array.from(document.querySelectorAll('#hierarchy-values-table tbody tr[data-level-id]'));
-    const selectedParent = parentSelect ? parentSelect.value : '';
+    const filterPicker = document.getElementById('value-filter-picker');
+    const searchInput = document.getElementById('value-search');
+    const countLabel = document.getElementById('value-results-count');
+    const tableBody = document.getElementById('hierarchy-values-body');
+    const nodeCache = new Map();
+    const nodeById = new Map();
+    let filterNodeId = '';
+    let searchTimer = null;
+    let activeRequest = 0;
+    let parentPickerInitialized = false;
 
-    function selectedLevelOrder() {
-        const option = levelSelect.options[levelSelect.selectedIndex];
-        if (!option || !option.textContent.includes('.')) return null;
-        return parseInt(option.textContent.split('.')[0], 10);
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    function refreshParentOptions() {
-        const order = selectedLevelOrder();
-        if (!parentSelect || !order) return;
-        if (order === 1) {
-            parentField.style.display = 'none';
+    async function fetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function loadChildren(parentId) {
+        const key = parentId || 'root';
+        if (nodeCache.has(key)) return nodeCache.get(key);
+        const params = new URLSearchParams({ parent_id: key, limit: '1000' });
+        const data = await fetchJson(`${endpoints.nodes}?${params.toString()}`);
+        const nodes = data.nodes || [];
+        nodes.forEach(node => nodeById.set(String(node.id), node));
+        nodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    function selectedLevelOrder() {
+        const selectedId = levelSelect ? levelSelect.value : '';
+        const level = levels.find(item => String(item.id) === String(selectedId));
+        return level ? Number(level.order) : null;
+    }
+
+    function setHiddenParent(node) {
+        if (!parentSelect) return;
+        if (!node) {
             parentSelect.innerHTML = '<option value="">Sin nodo superior</option>';
             parentSelect.value = '';
             return;
         }
-        parentField.style.display = '';
-        const options = nodes
-            .filter(node => Number(node.level_order) === Number(order - 1))
-            .sort((a, b) => a.ut.localeCompare(b.ut));
-        parentSelect.innerHTML = '<option value="">Selecciona el nodo superior</option>' + options
-            .map(node => `<option value="${node.id}">${node.ut} - ${node.name}</option>`)
-            .join('');
-        if (options.some(node => String(node.id) === String(selectedParent))) {
-            parentSelect.value = selectedParent;
-        }
+        parentSelect.innerHTML = `<option value="${node.id}" selected>${escapeHtml(node.ut)} - ${escapeHtml(node.name)}</option>`;
+        parentSelect.value = String(node.id);
     }
 
-    function applyFilters() {
-        const level = levelFilter.value;
-        const parent = parentFilter.value;
-        tableRows.forEach(row => {
-            const levelOk = !level || row.dataset.levelId === level;
-            const parentOk = !parent || row.dataset.parentId === parent;
-            row.style.display = levelOk && parentOk ? '' : 'none';
+    function pickerSelectMarkup(level, index, disabled) {
+        return `
+            <div class="form-field">
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" data-path-select data-index="${index}" ${disabled ? 'disabled' : ''}>
+                    <option value="">${disabled ? 'Selecciona nivel superior' : 'Todos'}</option>
+                </select>
+            </div>
+        `;
+    }
+
+    function buildPathPicker(container, maxOrder, options) {
+        if (!container) return;
+        const visibleLevels = levels.filter(level => Number(level.order) <= Number(maxOrder));
+        container.innerHTML = visibleLevels.map((level, index) => pickerSelectMarkup(level, index, index > 0)).join('');
+        const selects = Array.from(container.querySelectorAll('[data-path-select]'));
+
+        async function populate(index) {
+            const select = selects[index];
+            const level = visibleLevels[index];
+            if (!select || !level) return;
+            const parentId = index === 0 ? 'root' : selects[index - 1].value;
+            select.disabled = index > 0 && !parentId;
+            if (select.disabled) {
+                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
+                return;
+            }
+            select.innerHTML = '<option value="">Cargando...</option>';
+            let nodes = [];
+            try {
+                nodes = await loadChildren(parentId);
+            } catch (error) {
+                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
+                return;
+            }
+            nodes = nodes.filter(node => Number(node.level_id) === Number(level.id));
+            select.innerHTML = '<option value="">Todos</option>' + nodes
+                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
+                .join('');
+        }
+
+        function deepestSelected() {
+            let node = null;
+            let index = -1;
+            selects.forEach((select, selectIndex) => {
+                if (select.value) {
+                    node = nodeById.get(String(select.value)) || null;
+                    index = selectIndex;
+                }
+            });
+            return { node, index };
+        }
+
+        selects.forEach((select, index) => {
+            select.addEventListener('change', async function () {
+                for (let cursor = index + 1; cursor < selects.length; cursor += 1) {
+                    selects[cursor].innerHTML = '<option value="">Selecciona nivel superior</option>';
+                    selects[cursor].value = '';
+                    selects[cursor].disabled = true;
+                }
+                if (index + 1 < selects.length) {
+                    await populate(index + 1);
+                }
+                const selected = deepestSelected();
+                if (options && typeof options.onChange === 'function') {
+                    options.onChange(selected.node, selected.index, selects.length);
+                }
+            });
         });
+
+        populate(0);
+    }
+
+    function refreshParentPicker() {
+        const order = selectedLevelOrder();
+        if (!parentSelect || !parentField) return;
+        if (!order) {
+            parentField.style.display = 'none';
+            setHiddenParent(null);
+            return;
+        }
+        if (order === 1) {
+            parentField.style.display = 'none';
+            setHiddenParent(null);
+            return;
+        }
+        parentField.style.display = '';
+        const preserveInitialParent = !parentPickerInitialized && initialParentId;
+        if (!preserveInitialParent) {
+            setHiddenParent(null);
+        }
+        buildPathPicker(parentPicker, order - 1, {
+            onChange: function (node, index, total) {
+                setHiddenParent(index === total - 1 ? node : null);
+            }
+        });
+        if (preserveInitialParent) {
+            parentSelect.innerHTML = `<option value="${escapeHtml(initialParentId)}" selected>${escapeHtml(initialParentLabel)}</option>`;
+            parentSelect.value = initialParentId;
+        }
+        parentPickerInitialized = true;
+    }
+
+    function setTableMessage(message) {
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="7" class="muted">${escapeHtml(message)}</td></tr>`;
+    }
+
+    function renderRows(items) {
+        if (!items.length) {
+            setTableMessage('No hay valores para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => `
+            <tr>
+                <td>${escapeHtml(item.level_order)}. ${escapeHtml(item.level_name)}</td>
+                <td>${escapeHtml(item.parent_label || 'Raiz')}</td>
+                <td><strong>${escapeHtml(item.code)}</strong></td>
+                <td>${escapeHtml(item.name)}</td>
+                <td>${escapeHtml(item.ut)}</td>
+                <td>${escapeHtml(item.route)}</td>
+                <td>
+                    <div class="actions">
+                        <a class="btn" href="${escapeHtml(item.edit_url)}">Editar</a>
+                        <form method="post" action="${escapeHtml(item.delete_url)}" style="display:inline;" onsubmit="return confirm('Esto desactivara este valor y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. Continuar?');">
+                            <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
+                            <button class="btn btn-danger" type="submit">Eliminar</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function refreshTable() {
+        const query = searchInput ? searchInput.value.trim() : '';
+        if (!filterNodeId && query.length < 2) {
+            if (countLabel) countLabel.textContent = 'Selecciona un nodo superior o escribe al menos 2 caracteres.';
+            setTableMessage('Selecciona un nodo superior o escribe al menos 2 caracteres para buscar.');
+            return;
+        }
+        const requestId = ++activeRequest;
+        if (countLabel) countLabel.textContent = 'Buscando valores...';
+        setTableMessage('Buscando valores...');
+        const params = new URLSearchParams({ limit: '200' });
+        if (filterNodeId) params.set('parent_id', filterNodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countLabel) countLabel.textContent = 'No se pudieron cargar los valores.';
+            setTableMessage('No se pudieron cargar los valores.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        if (countLabel) {
+            countLabel.textContent = data.truncated
+                ? `${data.count} valores encontrados. Mostrando ${items.length}.`
+                : `${data.count || 0} valores encontrados.`;
+        }
+        renderRows(items);
+    }
+
+    function scheduleRefreshTable() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(refreshTable, 250);
     }
 
     if (codigoInput) {
@@ -175,11 +336,16 @@
             this.value = this.value.toUpperCase();
         });
     }
-    if (levelSelect) levelSelect.addEventListener('change', refreshParentOptions);
-    if (levelFilter) levelFilter.addEventListener('change', applyFilters);
-    if (parentFilter) parentFilter.addEventListener('change', applyFilters);
+    if (levelSelect) levelSelect.addEventListener('change', refreshParentPicker);
+    if (searchInput) searchInput.addEventListener('input', scheduleRefreshTable);
 
-    refreshParentOptions();
+    refreshParentPicker();
+    buildPathPicker(filterPicker, levels.length, {
+        onChange: function (node) {
+            filterNodeId = node ? String(node.id) : '';
+            refreshTable();
+        }
+    });
 })();
 </script>
 {% endblock %}
