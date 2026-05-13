@@ -14,7 +14,7 @@
 {% for card in dim_cards %}
 <div class="card">
     <h3 class="card-title">{{ card.estrategia_dimension.orden }}. {{ card.dimension.nombre }}</h3>
-    <p class="muted">{{ card.dimension.tipo_funcional }} · {{ card.dimension.tipo_dato }}</p>
+    <p class="muted">{{ card.estrategia_dimension.get_proceso_uso_display }} · {{ card.dimension.tipo_funcional }} · {{ card.dimension.tipo_dato }}</p>
 
     {% if card.scales %}
         <div class="table-wrap" style="margin-bottom:12px;">

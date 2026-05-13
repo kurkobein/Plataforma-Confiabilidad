@@ -1,5 +1,7 @@
-import json
+﻿import json
 import re
+import html
+from io import BytesIO
 from collections import OrderedDict
 from decimal import Decimal, InvalidOperation
 import base64
@@ -9,15 +11,16 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q, TextField, Prefetch
+from django.db.models import Count, Max, Q, TextField, Prefetch
 from django.http import HttpResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 from numpy import rint
 
 from .access import get_accessible_services, get_editable_services, get_profile_for_user, get_service_equipment, get_service_permission, is_mindco_user
-from .user_sync import archive_profile
+from .user_sync import archive_profile, sync_profile_from_auth_user
 from .forms import (
     ACARegistroForm,
     CriticidadDimensionFormSet,
@@ -28,6 +31,7 @@ from .forms import (
     HierarchyStructureFormSet,
     HierarchyValueForm,
     MatrizBuilderForm,
+    RCMTaskFormSet,
     RCMRegistroForm,
     ServiceAccessGrantForm,
     ServicioACARegistroForm,
@@ -38,7 +42,136 @@ from . import models
 from django.core.exceptions import PermissionDenied
 
 MAX_LIST_COLUMNS = 6
-_RANGE_RE = re.compile(r'^\s*(-?\d+)\s*-\s*(-?\d+)\s*$')
+_RANGE_RE = re.compile(r'^\s*(-?\d+(?:[.,]\d+)?)\s*-\s*(-?\d+(?:[.,]\d+)?)\s*$')
+_MATRIX_DECIMAL_STEP = Decimal('0.01')
+
+
+def _export_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, Decimal):
+        return format(value, 'f')
+    if hasattr(value, 'strftime'):
+        return value.strftime('%d/%m/%Y')
+    return str(value)
+
+
+def _export_filename(prefix, service, extension):
+    code = re.sub(r'[^A-Za-z0-9_-]+', '_', str(service.codigo_servicio or service.pk)).strip('_')
+    date_label = timezone.localdate().strftime('%Y%m%d')
+    return f'{prefix}_{code}_{date_label}.{extension}'
+
+
+def _export_xlsx_response(filename, sheet_name, columns, rows):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name[:31] or 'Registros'
+    headers = [label for _key, label in columns]
+    worksheet.append(headers)
+
+    for row in rows:
+        worksheet.append([_export_value(row.get(key)) for key, _label in columns])
+
+    header_fill = PatternFill('solid', fgColor='E8EEF7')
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(wrap_text=True, vertical='top')
+
+    for row_cells in worksheet.iter_rows(min_row=2):
+        for cell in row_cells:
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
+
+    for index, _header in enumerate(headers, start=1):
+        letter = get_column_letter(index)
+        max_length = max(
+            len(str(worksheet.cell(row=row_idx, column=index).value or ''))
+            for row_idx in range(1, worksheet.max_row + 1)
+        )
+        worksheet.column_dimensions[letter].width = min(max(max_length + 2, 12), 42)
+
+    worksheet.freeze_panes = 'A2'
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _export_pdf_response(filename, title, columns, rows):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    output = BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+    )
+    styles = getSampleStyleSheet()
+    body_style = ParagraphStyle('ExportBody', parent=styles['BodyText'], fontSize=8, leading=10)
+    label_style = ParagraphStyle(
+        'ExportLabel',
+        parent=styles['BodyText'],
+        fontSize=8,
+        leading=10,
+        fontName='Helvetica-Bold',
+    )
+
+    story = [
+        Paragraph(html.escape(title), styles['Title']),
+        Paragraph(f'Total registros: {len(rows)}', styles['Normal']),
+        Spacer(1, 8),
+    ]
+
+    for row_index, row in enumerate(rows, start=1):
+        if row_index > 1:
+            story.append(Spacer(1, 8))
+        story.append(Paragraph(f'Registro {row_index}', styles['Heading3']))
+        table_data = []
+        for key, label in columns:
+            value = html.escape(_export_value(row.get(key))).replace('\n', '<br/>')
+            table_data.append([
+                Paragraph(html.escape(label), label_style),
+                Paragraph(value or '-', body_style),
+            ])
+        table = Table(table_data, colWidths=[52 * mm, 220 * mm], repeatRows=0)
+        table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#D5DBE5')),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F3F6FA')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        story.append(table)
+        if row_index < len(rows) and row_index % 2 == 0:
+            story.append(PageBreak())
+
+    if not rows:
+        story.append(Paragraph('No hay registros para exportar.', styles['Normal']))
+
+    document.build(story)
+    output.seek(0)
+    response = HttpResponse(output.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 
@@ -80,7 +213,7 @@ def _ensure_admin_access(request):
 
 def _ensure_direct_crud_allowed(config):
     if not config.get('allow_direct_crud', True):
-        raise Http404('Este módulo se administra desde un editor específico.')
+        raise Http404('Este módulo se administra desde un editor especí­fico.')
 
 
 FORM_TEMPLATE_BY_MODEL = {
@@ -281,37 +414,40 @@ def _equipment_location_context(form=None, obj=None):
             'orden',
         )
     ]
-    nodes = [
-        {
-            'id': node.pk,
-            'empresa_id': node.empresa_id,
-            'parent_id': node.parent_id,
-            'level_id': node.nivel_id,
-            'level_order': node.nivel.orden,
-            'code': node.codigo,
-            'name': node.nombre,
-            'label': f'{node.codigo} - {node.nombre}',
-            'ut': node.ut,
-            'route': node.ruta_nombre,
-        }
-        for node in models.NodoJerarquia.objects.filter(
-            activo=True,
-        ).select_related(
-            'empresa',
-            'nivel',
-            'parent',
-        ).order_by(
-            'empresa__nombre',
-            'nivel__orden',
-            'orden',
-            'nombre',
-        )
-    ]
+    nodes = []
+    if selected_node_id:
+        try:
+            selected_node_id_int = int(selected_node_id)
+        except (TypeError, ValueError):
+            selected_node_id_int = None
+        if selected_node_id_int:
+            rows_by_id = _equipment_path_rows({selected_node_id_int})
+            for node_id in _path_ids_for_node(selected_node_id_int, rows_by_id):
+                row = rows_by_id.get(node_id)
+                if not row:
+                    continue
+                path_ids = _path_ids_for_node(node_id, rows_by_id)
+                nodes.append({
+                    'id': row['id'],
+                    'empresa_id': row['empresa_id'],
+                    'parent_id': row['parent_id'],
+                    'level_id': row['nivel_id'],
+                    'level_order': row['nivel__orden'],
+                    'code': row['codigo'],
+                    'name': row['nombre'],
+                    'label': f"{row['codigo']} - {row['nombre']}",
+                    'ut': _node_ut_from_path(path_ids, rows_by_id),
+                    'route': _node_route_from_path(path_ids, rows_by_id),
+                })
     return {
         'tech_location_levels_json': json.dumps(levels, ensure_ascii=False),
         'tech_location_nodes_json': json.dumps(nodes, ensure_ascii=False),
         'tech_location_selected_id': str(selected_node_id or ''),
         'tech_location_empresa_id': str(selected_empresa_id or ''),
+        'tech_location_nodes_url_template': reverse(
+            'hierarchy_values_nodes',
+            kwargs={'empresa_id': 0},
+        ).replace('/0/', '/__empresa__/'),
     }
 
 
@@ -398,6 +534,7 @@ def _equipment_path_rows(node_ids):
                 pk__in=pending,
             ).values(
                 'id',
+                'empresa_id',
                 'parent_id',
                 'nivel_id',
                 'nivel__orden',
@@ -427,7 +564,7 @@ def _equipment_items_payload(equipment_items):
             'ut': equipo.ut or '',
             'descripcion_ut': equipo.descripcion_ut or '',
             'equipo': equipo.nombre_equipo or '',
-            'tag': equipo.tag_equipo or '',
+            'tag': equipo.tag_display or '',
             'node_id': equipo.nodo_id,
             'path_node_ids': path_ids,
             'path_text': _node_route_from_path(path_ids, rows_by_id),
@@ -612,7 +749,7 @@ def _legacy_service_equipment_browser_payload(service):
             'ut': equipo.ut or '',
             'descripcion_ut': equipo.descripcion_ut or '',
             'equipo': equipo.nombre_equipo or '',
-            'tag': equipo.tag_equipo or '',
+            'tag': equipo.tag_display or '',
             'node_id': equipo.nodo_id,
             'path_node_ids': path_ids,
             'path_text': _node_route_from_path(path_ids, rows_by_id),
@@ -643,29 +780,13 @@ def _level_for_order(empresa, order, nombre=None):
 
 
 def _active_hierarchy_depth(empresa):
-    nodes = list(
+    return (
         models.NodoJerarquia.objects.filter(
             empresa=empresa,
             activo=True,
-        ).values(
-            'id',
-            'parent_id',
-        )
+        ).aggregate(max_depth=Max('nivel__orden')).get('max_depth')
+        or 0
     )
-    parent_by_id = {row['id']: row['parent_id'] for row in nodes}
-    depth_cache = {}
-
-    def depth_for(node_id):
-        if node_id in depth_cache:
-            return depth_cache[node_id]
-        parent_id = parent_by_id.get(node_id)
-        depth = 1
-        if parent_id in parent_by_id:
-            depth = depth_for(parent_id) + 1
-        depth_cache[node_id] = depth
-        return depth
-
-    return max((depth_for(row['id']) for row in nodes), default=0)
 
 
 def _active_subtree_ids(node):
@@ -707,6 +828,48 @@ def _move_levels_to_temporary_orders(empresa, levels):
         level.save(update_fields=['orden', 'nombre'])
 
 
+def _node_depth_groups(empresa):
+    rows = list(
+        models.NodoJerarquia.objects.filter(
+            empresa=empresa,
+            activo=True,
+        ).values(
+            'id',
+            'parent_id',
+            'nivel_id',
+        )
+    )
+    parent_by_id = {row['id']: row['parent_id'] for row in rows}
+    depth_cache = {}
+
+    def depth_for(node_id):
+        if node_id in depth_cache:
+            return depth_cache[node_id]
+        parent_id = parent_by_id.get(node_id)
+        depth = 1
+        if parent_id in parent_by_id:
+            depth = depth_for(parent_id) + 1
+        depth_cache[node_id] = depth
+        return depth
+
+    groups = {}
+    for row in rows:
+        depth = depth_for(row['id'])
+        groups.setdefault(depth, []).append(row)
+    return groups
+
+
+def _sync_hierarchy_node_levels(empresa, levels_by_order):
+    chunk_size = 1000
+    for depth, rows in _node_depth_groups(empresa).items():
+        level = levels_by_order.get(depth)
+        if not level:
+            continue
+        stale_ids = [row['id'] for row in rows if row['nivel_id'] != level.pk]
+        for index in range(0, len(stale_ids), chunk_size):
+            models.NodoJerarquia.objects.filter(pk__in=stale_ids[index:index + chunk_size]).update(nivel=level)
+
+
 def _save_hierarchy_structure(empresa, formset):
     active_ids = []
     forms_with_content = [
@@ -731,6 +894,11 @@ def _save_hierarchy_structure(empresa, formset):
     existing_levels = list(models.NivelJerarquia.objects.filter(empresa=empresa).order_by('pk'))
     existing = {level.pk: level for level in existing_levels}
     original_names = {level.pk: level.nombre for level in existing_levels}
+    original_active_by_order = {
+        level.orden: level.pk
+        for level in existing_levels
+        if level.activo
+    }
     _move_levels_to_temporary_orders(empresa, existing_levels)
     reusable_by_name = {
         original_name.strip().lower(): existing[level_id]
@@ -771,13 +939,16 @@ def _save_hierarchy_structure(empresa, formset):
             activo=True,
         )
     }
-    roots = models.NodoJerarquia.objects.filter(
-        empresa=empresa,
-        parent__isnull=True,
-        activo=True,
-    ).order_by('orden', 'codigo', 'nombre')
-    for root in roots:
-        _sync_subtree_levels(root, 1, active_levels_by_order)
+    new_active_by_order = {
+        order: level.pk
+        for order, level in active_levels_by_order.items()
+    }
+    needs_node_sync = any(
+        original_active_by_order.get(order) != new_active_by_order.get(order)
+        for order in range(1, deepest_route + 1)
+    )
+    if needs_node_sync:
+        _sync_hierarchy_node_levels(empresa, active_levels_by_order)
 
 
 def _sync_subtree_levels(node, start_order, levels_by_order=None):
@@ -913,12 +1084,11 @@ def technical_location_index(request):
 def hierarchy_tree(request, empresa_id):
     _ensure_admin_access(request)
     empresa = get_object_or_404(models.Empresa, pk=empresa_id)
-    rows = _technical_location_rows(empresa)
     levels = list(models.NivelJerarquia.objects.filter(empresa=empresa, activo=True).order_by('orden'))
     return render(request, 'core/hierarchy_tree.html', {
         'empresa': empresa,
-        'rows': rows,
         'levels': levels,
+        'nodes_url': reverse('hierarchy_values_nodes', kwargs={'empresa_id': empresa.pk}),
     })
 
 
@@ -989,20 +1159,35 @@ def hierarchy_values(request, empresa_id):
     })
 
 
-def _hierarchy_value_node_payload(node):
+def _hierarchy_value_node_payload(node, rows_by_id=None):
+    if rows_by_id:
+        path_ids = _path_ids_for_node(node.pk, rows_by_id)
+        ut = _node_ut_from_path(path_ids, rows_by_id)
+        route = _node_route_from_path(path_ids, rows_by_id)
+        parent_label = _node_ut_from_path(_path_ids_for_node(node.parent_id, rows_by_id), rows_by_id) if node.parent_id else 'Raiz'
+    else:
+        ut = node.ut
+        route = node.ruta_nombre
+        parent_label = node.parent.ut if node.parent_id and node.parent else 'Raiz'
+
     return {
         'id': node.pk,
+        'empresa_id': node.empresa_id,
         'parent_id': node.parent_id,
         'level_id': node.nivel_id,
         'level_order': node.nivel.orden,
         'level_name': node.nivel.nombre,
         'code': node.codigo,
         'name': node.nombre,
-        'ut': node.ut,
-        'route': node.ruta_nombre,
-        'parent_label': node.parent.ut if node.parent_id and node.parent else 'Raiz',
+        'ut': ut,
+        'route': route,
+        'parent_label': parent_label,
         'label': f'{node.codigo} - {node.nombre}',
+        'equipment_count': getattr(node, 'equipment_count', None) if getattr(node, 'equipment_count', None) is not None else node.equipos.count(),
+        'children_count': getattr(node, 'children_count', None) if getattr(node, 'children_count', None) is not None else node.hijos.filter(activo=True).count(),
         'edit_url': reverse('model_update', kwargs={'model_key': 'nodojerarquia', 'pk': node.pk}),
+        'move_url': reverse('hierarchy_move_node', kwargs={'pk': node.pk}),
+        'insert_url': reverse('hierarchy_insert_between', kwargs={'pk': node.pk}),
         'delete_url': reverse('hierarchy_delete_node', kwargs={'pk': node.pk}),
     }
 
@@ -1014,6 +1199,9 @@ def _hierarchy_values_base_queryset(empresa):
     ).select_related(
         'nivel',
         'parent',
+    ).annotate(
+        equipment_count=Count('equipos', distinct=True),
+        children_count=Count('hijos', filter=Q(hijos__activo=True), distinct=True),
     ).order_by(
         'nivel__orden',
         'orden',
@@ -1027,18 +1215,26 @@ def hierarchy_values_nodes(request, empresa_id):
     _ensure_admin_access(request)
     empresa = get_object_or_404(models.Empresa, pk=empresa_id)
     parent_id = (request.GET.get('parent_id') or '').strip()
+    level_id = (request.GET.get('level_id') or '').strip()
     query = (request.GET.get('q') or '').strip()
     try:
         limit = min(max(int(request.GET.get('limit') or 500), 1), 1000)
     except (TypeError, ValueError):
         limit = 500
+    try:
+        offset = max(int(request.GET.get('offset') or 0), 0)
+    except (TypeError, ValueError):
+        offset = 0
 
     qs = _hierarchy_values_base_queryset(empresa)
     if parent_id and parent_id != 'root':
         parent = get_object_or_404(qs, pk=parent_id)
         qs = qs.filter(parent=parent)
-    elif parent_id == 'root' or not parent_id:
+    elif parent_id == 'root' or (not parent_id and not query and not level_id):
         qs = qs.filter(parent__isnull=True)
+
+    if level_id:
+        qs = qs.filter(nivel_id=level_id)
 
     if query:
         query_clause = Q(codigo__icontains=query) | Q(nombre__icontains=query)
@@ -1047,11 +1243,16 @@ def hierarchy_values_nodes(request, empresa_id):
         qs = qs.filter(query_clause)
 
     total = qs.count()
-    nodes = list(qs[:limit])
+    nodes = list(qs[offset:offset + limit])
+    rows_by_id = _equipment_path_rows({node.pk for node in nodes} | {node.parent_id for node in nodes if node.parent_id})
+    next_offset = offset + len(nodes)
     return JsonResponse({
-        'nodes': [_hierarchy_value_node_payload(node) for node in nodes],
+        'nodes': [_hierarchy_value_node_payload(node, rows_by_id=rows_by_id) for node in nodes],
         'count': total,
         'limit': limit,
+        'offset': offset,
+        'next_offset': next_offset,
+        'has_more': next_offset < total,
         'truncated': total > limit,
     })
 
@@ -1067,8 +1268,12 @@ def hierarchy_values_search(request, empresa_id):
         limit = min(max(int(request.GET.get('limit') or 200), 1), 500)
     except (TypeError, ValueError):
         limit = 200
+    try:
+        offset = max(int(request.GET.get('offset') or 0), 0)
+    except (TypeError, ValueError):
+        offset = 0
 
-    if not parent_id and len(query) < 2:
+    if not parent_id and not level_id and len(query) < 2:
         return JsonResponse({
             'items': [],
             'count': 0,
@@ -1091,11 +1296,16 @@ def hierarchy_values_search(request, empresa_id):
         qs = qs.filter(query_clause)
 
     total = qs.count()
-    nodes = list(qs[:limit])
+    nodes = list(qs[offset:offset + limit])
+    rows_by_id = _equipment_path_rows({node.pk for node in nodes} | {node.parent_id for node in nodes if node.parent_id})
+    next_offset = offset + len(nodes)
     return JsonResponse({
-        'items': [_hierarchy_value_node_payload(node) for node in nodes],
+        'items': [_hierarchy_value_node_payload(node, rows_by_id=rows_by_id) for node in nodes],
         'count': total,
         'limit': limit,
+        'offset': offset,
+        'next_offset': next_offset,
+        'has_more': next_offset < total,
         'truncated': total > limit,
     })
 
@@ -1251,6 +1461,7 @@ def model_list(request, model_key):
     config = _get_config(model_key)
     _ensure_direct_crud_allowed(config)
     model = config['model']
+    page_size = 50 if model_key == 'equipo' else 100
 
     editable_service_ids = set()
     if model_key == 'servicio':
@@ -1265,20 +1476,50 @@ def model_list(request, model_key):
             }
     else:
         qs = model.objects.all()
+        if model_key == 'equipo':
+            qs = qs.only(
+                'id',
+                'tag_equipo',
+                'nombre_equipo',
+                'ut',
+                'descripcion_ut',
+                'nodo_id',
+            )
 
     search = request.GET.get('q', '').strip()
-    if search and config['search_fields']:
+    if search and model_key == 'equipo':
+        normalized_search = search.upper()
+        if '-' in normalized_search:
+            qs = qs.filter(
+                Q(ut__iexact=normalized_search)
+                | Q(ut__istartswith=f'{normalized_search}-')
+                | Q(ut__icontains=normalized_search)
+                | Q(tag_equipo__icontains=search)
+                | Q(nombre_equipo__icontains=search)
+            )
+        else:
+            qs = qs.filter(
+                Q(tag_equipo__icontains=search)
+                | Q(nombre_equipo__icontains=search)
+                | Q(ut__icontains=search)
+                | Q(descripcion_ut__icontains=search)
+            )
+    elif search and config['search_fields']:
         clause = Q()
         for field_name in config['search_fields']:
             clause |= Q(**{f'{field_name}__icontains': search})
         qs = qs.filter(clause)
 
-    rows = qs
     total_count = qs.count()
+    paginator = Paginator(qs, page_size)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    rows = page_obj.object_list
 
     list_fields = [
         field for field in _list_fields(model)
-        if field.name != 'id' and not (model_key == 'empresa' and field.name == 'logo')
+        if field.name != 'id'
+        and not (model_key == 'empresa' and field.name == 'logo')
+        and not (model_key == 'equipo' and field.name == 'nodo')
     ]
 
     return render(request, 'core/model_list.html', {
@@ -1289,6 +1530,9 @@ def model_list(request, model_key):
         'list_fields': list_fields,
         'editable_service_ids': editable_service_ids,
         'total_count': total_count,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'page_size': page_size,
     })
 
 @login_required
@@ -1325,14 +1569,22 @@ def model_create(request, model_key):
     config = _get_config(model_key)
     _ensure_direct_crud_allowed(config)
     FormClass = get_form_for_key(model_key)
+    form_kwargs = {}
+    if model_key == 'servicio':
+        creador_usuario = get_profile_for_user(request.user)
+        if not creador_usuario:
+            creador_usuario = sync_profile_from_auth_user(request.user)
+        form_kwargs['creador_usuario'] = creador_usuario
 
     if request.method == 'POST':
-        form = FormClass(request.POST, request.FILES)
+        form = FormClass(request.POST, request.FILES, **form_kwargs)
         if form.is_valid():
+            if model_key == 'servicio' and form_kwargs.get('creador_usuario'):
+                form.instance.creado_por_usuario = form_kwargs['creador_usuario']
             obj = form.save()
             return redirect('model_detail', model_key=model_key, pk=obj.pk)
     else:
-        form = FormClass()
+        form = FormClass(**form_kwargs)
 
     context = {
         'config': config,
@@ -1449,9 +1701,35 @@ def _decimal_or_none(value):
     if value in (None, ''):
         return None
     try:
-        return Decimal(str(value))
+        return Decimal(str(value).strip().replace(',', '.'))
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _quantize_matrix_decimal(value):
+    parsed = _decimal_or_none(value)
+    if parsed is None:
+        return None
+    return parsed.quantize(_MATRIX_DECIMAL_STEP)
+
+
+def _format_matrix_decimal(value):
+    parsed = _quantize_matrix_decimal(value)
+    if parsed is None:
+        return ''
+    text = format(parsed, 'f').rstrip('0').rstrip('.')
+    return text or '0'
+
+
+def _parse_matrix_range(range_text):
+    match = _RANGE_RE.match(str(range_text or '').strip())
+    if not match:
+        return None
+    start = _quantize_matrix_decimal(match.group(1))
+    end = _quantize_matrix_decimal(match.group(2))
+    if start is None or end is None or end < start:
+        return None
+    return start, end
 
 
 def _int_or_default(value, default):
@@ -1523,6 +1801,16 @@ def service_list(request):
     })
 
 
+
+@login_required
+def rcm_index(request):
+    servicios = get_accessible_services(request.user).order_by('-creado_en', 'codigo_servicio')
+    if servicios.count() == 1:
+        return redirect('service_rcm_list', pk=servicios.first().pk)
+    messages.info(request, 'Selecciona un servicio para ver sus registros RCM.')
+    return redirect('service_list')
+
+
 def _service_or_404(request, pk, edit=False):
     servicio = get_object_or_404(
         models.Servicio.objects.select_related('empresa', 'estrategia', 'responsable_usuario', 'creado_por_usuario'),
@@ -1536,10 +1824,10 @@ def _service_or_404(request, pk, edit=False):
     return servicio, permission
 
 
-def _strategy_dimensions(estrategia):
+def _strategy_dimensions(estrategia, proceso=None):
     if not estrategia:
         return []
-    return list(
+    qs = (
         models.EstrategiaDimension.objects.filter(estrategia=estrategia, activo=True)
         .select_related('dimension')
         .prefetch_related(
@@ -1549,6 +1837,9 @@ def _strategy_dimensions(estrategia):
         )
         .order_by('orden', 'id')
     )
+    if proceso:
+        qs = qs.filter(proceso_uso__in=[proceso, models.EstrategiaDimension.PROCESO_AMBOS])
+    return list(qs)
 
 
 def _dimension_display_value(item):
@@ -1556,7 +1847,7 @@ def _dimension_display_value(item):
         return ''
 
     if item.valor_booleano is not None:
-        return 'Sí' if item.valor_booleano else 'No'
+        return 'Sí­' if item.valor_booleano else 'No'
 
     if item.valor_numerico is not None:
         if item.valor_numerico == int(item.valor_numerico):
@@ -1755,7 +2046,7 @@ def _build_homologated_matrix_preview(matriz):
                 prob_value = _quantize_decimal(src_prob.get('valor')) or Decimal(prob_slot)
                 impact_value = _quantize_decimal(src_impact.get('valor')) or Decimal(impact_slot)
                 result_num = prob_value * impact_value
-                matched = _match_legend(int(result_num), _legend_from_matrix(matriz))
+                matched = _match_legend(result_num, _legend_from_matrix(matriz))
                 clasificacion, color = matched
             cell_payload[(prob_slot, impact_slot)] = {
                 'prob_idx': prob_slot,
@@ -1863,11 +2154,14 @@ def service_detail(request, pk):
         dimension_rows.append({
             'orden': item.orden,
             'dimension': item.dimension,
+            'proceso_uso': item.proceso_uso,
+            'proceso_uso_display': item.get_proceso_uso_display(),
             'has_catalog': hasattr(item, 'catalogo'),
             'has_scale': item.escalas_valor.exists(),
         })
     aca_count = models.Criticidad.objects.filter(aca_carga__servicio=servicio).count()
     rcm_count = models.RCM.objects.filter(carga__servicio=servicio).count()
+    total_count = aca_count+rcm_count
     matrices = models.MatrizRiesgo.objects.filter(estrategia=servicio.estrategia).order_by('-fecha_creado', 'nombre') if servicio.estrategia_id else []
     access_form = ServiceAccessGrantForm(service=servicio)
     access_rows = list(permission['access_rows'])
@@ -1876,6 +2170,7 @@ def service_detail(request, pk):
         'permission': permission,
         'aca_count': aca_count,
         'rcm_count': rcm_count,
+        'total_count': total_count,
         'equipment_count': _service_equipment_count(servicio),
         'dimension_rows': dimension_rows,
         'matrices': matrices,
@@ -1929,12 +2224,186 @@ def service_access_manage(request, pk):
     return redirect('service_detail', pk=servicio.pk)
 
 
+def _safe_task_slug(value, fallback='campo'):
+    text = str(value or '').strip().lower()
+    text = re.sub(r'[^a-z0-9áéíóúñ]+', '_', text, flags=re.IGNORECASE)
+    return text.strip('_')[:100] or fallback
+
+
+def _task_field_options_json(values):
+    if isinstance(values, list):
+        cleaned = [str(item).strip() for item in values if str(item).strip()]
+        return json.dumps(cleaned, ensure_ascii=False) if cleaned else ''
+    text = str(values or '').strip()
+    if not text:
+        return ''
+    cleaned = [item.strip() for item in re.split(r'[\n,;]+', text) if item.strip()]
+    return json.dumps(cleaned, ensure_ascii=False) if cleaned else ''
+
+
+def _task_field_options_list(raw):
+    parsed = _json_loads_safe(raw, [])
+    if isinstance(parsed, list):
+        return [str(item) for item in parsed]
+    return []
+
+
+def _task_config_payload(estrategia):
+    tipos = (
+        models.TipoTareaEstrategia.objects.filter(estrategia=estrategia, activo=True)
+        .prefetch_related('campos')
+        .order_by('orden', 'nombre')
+    )
+    payload = []
+    for tipo in tipos:
+        payload.append({
+            'id': tipo.pk,
+            'nombre': tipo.nombre,
+            'codigo': tipo.codigo,
+            'orden': tipo.orden,
+            'activo': tipo.activo,
+            'campos': [
+                {
+                    'id': campo.pk,
+                    'nombre': campo.nombre,
+                    'clave': campo.clave,
+                    'tipo_dato': campo.tipo_dato,
+                    'opciones': _task_field_options_list(campo.opciones_json),
+                    'obligatorio': campo.obligatorio,
+                    'orden': campo.orden,
+                    'activo': campo.activo,
+                }
+                for campo in tipo.campos.all().order_by('orden', 'nombre')
+                if campo.activo
+            ],
+        })
+    return payload
+
+
+def _save_task_config(estrategia, payload):
+    payload = payload if isinstance(payload, list) else []
+    existing_types = {
+        str(item.pk): item
+        for item in models.TipoTareaEstrategia.objects.filter(estrategia=estrategia).prefetch_related('campos')
+    }
+    existing_types_by_code = {
+        item.codigo: item
+        for item in existing_types.values()
+    }
+    keep_type_ids = set()
+    valid_field_types = dict(models.CampoTareaEstrategia.TIPO_DATO_CHOICES)
+
+    def unique_code(base_code):
+        base_code = (base_code or 'tarea')[:80]
+        candidate = base_code
+        stem = base_code[:74]
+        suffix = 2
+        while candidate in existing_types_by_code:
+            candidate = f'{stem}_{suffix}'[:80]
+            suffix += 1
+        return candidate
+
+    for type_idx, item in enumerate(payload, start=1):
+        if not isinstance(item, dict):
+            continue
+        nombre = str(item.get('nombre') or '').strip() or f'Tarea {type_idx}'
+        requested_code = _safe_task_slug(item.get('codigo') or nombre, f'tarea_{type_idx}')[:80]
+        active = item.get('activo', True) is not False
+        raw_id = str(item.get('id') or '').strip()
+
+        tipo = existing_types.get(raw_id)
+        if not tipo:
+            tipo = models.TipoTareaEstrategia(estrategia=estrategia)
+            tipo.codigo = unique_code(requested_code)
+        tipo.nombre = nombre
+        tipo.orden = type_idx
+        tipo.activo = active
+        tipo.save()
+        existing_types_by_code[tipo.codigo] = tipo
+        keep_type_ids.add(tipo.pk)
+
+        existing_fields = {
+            str(field.pk): field
+            for field in tipo.campos.all()
+        }
+        existing_fields_by_key = {
+            field.clave: field
+            for field in existing_fields.values()
+        }
+        keep_field_ids = set()
+        fields = item.get('campos') if isinstance(item.get('campos'), list) else []
+        for field_idx, field_data in enumerate(fields, start=1):
+            if not isinstance(field_data, dict):
+                continue
+            field_name = str(field_data.get('nombre') or '').strip() or f'Campo {field_idx}'
+            field_key = _safe_task_slug(field_data.get('clave') or field_name, f'campo_{field_idx}')
+            tipo_dato = str(field_data.get('tipo_dato') or models.CampoTareaEstrategia.TIPO_TEXTO).strip()
+            if tipo_dato not in valid_field_types:
+                tipo_dato = models.CampoTareaEstrategia.TIPO_TEXTO
+            raw_field_id = str(field_data.get('id') or '').strip()
+            campo = existing_fields.get(raw_field_id) or existing_fields_by_key.get(field_key)
+            if not campo:
+                campo = models.CampoTareaEstrategia(tipo_tarea_estrategia=tipo)
+            campo.nombre = field_name
+            campo.clave = field_key
+            campo.tipo_dato = tipo_dato
+            campo.opciones_json = _task_field_options_json(field_data.get('opciones'))
+            campo.obligatorio = field_data.get('obligatorio', False) is True
+            campo.orden = field_idx
+            campo.activo = field_data.get('activo', True) is not False
+            campo.save()
+            keep_field_ids.add(campo.pk)
+
+        tipo.campos.exclude(pk__in=keep_field_ids).update(activo=False)
+
+    models.TipoTareaEstrategia.objects.filter(estrategia=estrategia).exclude(pk__in=keep_type_ids).update(activo=False)
+
+
+@login_required
+def service_rcm_task_config(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    if not servicio.estrategia_id:
+        messages.warning(request, 'El servicio debe tener una estrategia antes de configurar tareas RCM.')
+        return redirect('service_detail', pk=servicio.pk)
+
+    if request.method == 'POST':
+        payload = _json_payload(request, 'payload_json', []) or []
+        with transaction.atomic():
+            _save_task_config(servicio.estrategia, payload)
+        messages.success(request, 'La configuración de tareas RCM se guardó correctamente.')
+        return redirect('service_rcm_task_config', pk=servicio.pk)
+
+    return render(request, 'core/service_rcm_task_config.html', {
+        'service': servicio,
+        'permission': permission,
+        'task_payload_json': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False),
+        'field_types': models.CampoTareaEstrategia.TIPO_DATO_CHOICES,
+    })
+
+
 @login_required
 def service_rcm_list(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=False)
+    rows, rcm_count, fmea_count, fmeca_count = _service_rcm_rows(servicio)
+
+    return render(request, 'core/service_rcm_list.html', {
+        'service': servicio,
+        'permission': permission,
+        'rows': rows,
+        'rcm_count': rcm_count,
+        'fmea_count': fmea_count,
+        'fmeca_count': fmeca_count,
+    })
+
+
+def _service_rcm_rows(servicio):
     registros_qs = (
         models.RCM.objects.filter(carga__servicio=servicio)
         .select_related('carga', 'equipo', 'fmea_fmeca')
+        .prefetch_related(
+            'fmea_fmeca__evaluaciones__estrategia_dimension__dimension',
+            'fmea_fmeca__tareas_rcm__tipo_tarea_estrategia',
+        )
         .order_by('-fecha_analisis', '-id')
     )
     rows = []
@@ -1943,19 +2412,426 @@ def service_rcm_list(request, pk):
             fmea = registro.fmea_fmeca
         except models.FMEA_FMECA.DoesNotExist:
             fmea = None
+        evaluations = []
+        tasks = []
+        if fmea:
+            evaluations = list(
+                fmea.evaluaciones.select_related('estrategia_dimension__dimension').order_by(
+                    'estrategia_dimension__orden',
+                    'estrategia_dimension_id',
+                )
+            )
+            tasks = list(
+                fmea.tareas_rcm.select_related(
+                    'tipo_tarea_estrategia',
+                ).order_by('orden', 'id')
+            )
         rows.append({
             'registro': registro,
             'fmea': fmea,
+            'evaluations': evaluations,
+            'tasks': tasks,
         })
 
-    return render(request, 'core/service_rcm_list.html', {
-        'service': servicio,
-        'permission': permission,
-        'rows': rows,
-        'rcm_count': registros_qs.count(),
-        'fmea_count': registros_qs.filter(criticidad__isnull=True).count(),
-        'fmeca_count': registros_qs.filter(criticidad__isnull=False).count(),
-    })
+    return (
+        rows,
+        registros_qs.count(),
+        registros_qs.filter(criticidad__isnull=True).count(),
+        registros_qs.filter(criticidad__isnull=False).count(),
+    )
+
+
+def _service_rcm_export_data(servicio):
+    rows, _rcm_count, _fmea_count, _fmeca_count = _service_rcm_rows(servicio)
+    columns = [
+        ('fecha', 'Fecha'),
+        ('tipo', 'Tipo'),
+        ('estado', 'Estado'),
+        ('ubicacion_tecnica', 'U.T.'),
+        ('equipo', 'Equipo'),
+        ('tag', 'TAG'),
+        ('falla_funcional', 'Falla funcional'),
+        ('modo_de_falla', 'Modo de falla'),
+        ('causa', 'Causa'),
+        ('efecto', 'Efecto'),
+        ('criticidad', 'Criticidad'),
+        ('evaluacion', 'Evaluación'),
+        ('tareas', 'Tareas'),
+    ]
+    records = []
+    for item in rows:
+        registro = item['registro']
+        evaluations = [
+            f'{evaluation.estrategia_dimension.dimension.nombre}: {_export_value(evaluation.valor_display) or "-"}'
+            for evaluation in item['evaluations']
+        ]
+        tasks = [
+            f'{task.tipo_tarea_estrategia.nombre}: {task.descripcion}'
+            for task in item['tasks']
+        ]
+        records.append({
+            'fecha': registro.fecha_analisis,
+            'tipo': registro.tipo_analisis,
+            'estado': registro.get_estado_display(),
+            'ubicacion_tecnica': registro.equipo.ut if registro.equipo else '',
+            'equipo': registro.equipo.nombre_equipo if registro.equipo else '',
+            'tag': registro.equipo.tag_display if registro.equipo else '',
+            'falla_funcional': registro.falla_funcional,
+            'modo_de_falla': registro.modo_de_falla,
+            'causa': registro.causa,
+            'efecto': registro.efecto,
+            'criticidad': registro.criticidad,
+            'evaluacion': '\n'.join(evaluations),
+            'tareas': '\n'.join(tasks),
+        })
+    return columns, records
+
+
+@login_required
+def service_rcm_export(request, pk, formato):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    columns, rows = _service_rcm_export_data(servicio)
+    formato = (formato or '').lower()
+    if formato == 'excel':
+        return _export_xlsx_response(
+            _export_filename('RCM', servicio, 'xlsx'),
+            'Registros RCM',
+            columns,
+            rows,
+        )
+    if formato == 'pdf':
+        return _export_pdf_response(
+            _export_filename('RCM', servicio, 'pdf'),
+            f'Registros RCM - {servicio.codigo_servicio}',
+            columns,
+            rows,
+        )
+    raise Http404('Formato de exportación no soportado.')
+
+
+def _rcm_form_initial_from_instance(rcm):
+    return {
+        'equipo': rcm.equipo_id,
+        'fecha_analisis': rcm.fecha_analisis,
+        'estado': rcm.estado,
+        'criticidad': rcm.criticidad,
+        'falla_funcional': rcm.falla_funcional,
+        'modo_de_falla': rcm.modo_de_falla,
+        'causa': rcm.causa,
+        'efecto': rcm.efecto,
+    }
+
+
+def _rcm_task_initials(rcm):
+    try:
+        fmea = rcm.fmea_fmeca
+    except models.FMEA_FMECA.DoesNotExist:
+        return [{}]
+    tasks = list(
+        fmea.tareas_rcm.select_related(
+            'tipo_tarea_estrategia',
+        ).order_by('orden', 'id')
+    )
+    initials = []
+    for task in tasks:
+        dynamic_values = {
+            value.campo.clave: str(_json_safe(value.valor_display))
+            for value in task.valores_campos.select_related('campo').all()
+            if value.valor_display not in (None, '')
+        }
+        initials.append({
+            'id': task.pk,
+            'valores_json': json.dumps(dynamic_values, ensure_ascii=False),
+            'tipo_tarea_estrategia': task.tipo_tarea_estrategia_id,
+            'descripcion': task.descripcion,
+            'tactica': task.tactica,
+            'limite_aceptable': task.limite_aceptable,
+            'parametros': task.parametros,
+            'riesgo_material': task.riesgo_material,
+            'especialidad': task.especialidad,
+            'puesto_trabajo': task.puesto_trabajo,
+            'estado_equipo': task.estado_equipo,
+            'frecuencia_valor': task.frecuencia_valor,
+            'frecuencia_unidad': task.frecuencia_unidad,
+            'frecuencia_texto': task.frecuencia_texto,
+            'duracion_min': task.duracion_min,
+            'duracion_hr': task.duracion_hr,
+            'cantidad_personas': task.cantidad_personas,
+            'hh': task.hh,
+            'plan_sap': task.plan_sap,
+            'descripcion_plan': task.descripcion_plan,
+            'hoja_ruta': task.hoja_ruta,
+            'texto_hoja_ruta': task.texto_hoja_ruta,
+            'operacion_hoja_ruta': task.operacion_hoja_ruta,
+            'texto_operacion': task.texto_operacion,
+            'operacion_pauta': task.operacion_pauta,
+            'pauta': task.pauta,
+            'titulo_pauta': task.titulo_pauta,
+            'repuesto': task.repuesto,
+            'componente_involucrado': task.componente_involucrado,
+            'numero_parte': task.numero_parte,
+            'numero_sap': task.numero_sap,
+            'procedimiento_trabajo': task.procedimiento_trabajo,
+            'costo_hh': task.costo_hh,
+            'costo_repuestos': task.costo_repuestos,
+            'tarifa_servicios': task.tarifa_servicios,
+            'costo_total': task.costo_total,
+            'oportunidad_mejora': task.oportunidad_mejora,
+            'estado': task.estado,
+        })
+    initials.append({})
+    return initials
+
+
+def _rcm_task_formset(request, servicio, rcm=None):
+    initial = _rcm_task_initials(rcm) if rcm else [{}]
+    return RCMTaskFormSet(
+        request.POST or None,
+        prefix='tasks',
+        initial=initial,
+        form_kwargs={'estrategia': servicio.estrategia},
+    )
+
+
+_TASK_TEXT_FIELDS = {
+    'descripcion',
+    'tactica',
+    'limite_aceptable',
+    'parametros',
+    'riesgo_material',
+    'especialidad',
+    'puesto_trabajo',
+    'estado_equipo',
+    'frecuencia_unidad',
+    'frecuencia_texto',
+    'plan_sap',
+    'descripcion_plan',
+    'hoja_ruta',
+    'texto_hoja_ruta',
+    'operacion_hoja_ruta',
+    'texto_operacion',
+    'operacion_pauta',
+    'pauta',
+    'titulo_pauta',
+    'repuesto',
+    'componente_involucrado',
+    'numero_parte',
+    'numero_sap',
+    'procedimiento_trabajo',
+    'oportunidad_mejora',
+}
+_TASK_DECIMAL_FIELDS = {
+    'frecuencia_valor',
+    'duracion_min',
+    'duracion_hr',
+    'cantidad_personas',
+    'hh',
+    'costo_hh',
+    'costo_repuestos',
+    'tarifa_servicios',
+    'costo_total',
+}
+
+
+def _task_config_for_type(tipo_tarea):
+    if not tipo_tarea:
+        return []
+    return list(tipo_tarea.campos.filter(activo=True).order_by('orden', 'nombre'))
+
+
+def _task_display_from_dynamic(fields, values):
+    for field in fields:
+        value = values.get(field.clave)
+        if value not in (None, '', []):
+            return str(value)
+    return ''
+
+
+def _apply_task_dynamic_values_to_fixed_fields(task, fields, values, cleaned):
+    for name in _TASK_TEXT_FIELDS:
+        setattr(task, name, cleaned.get(name) or '')
+    for name in _TASK_DECIMAL_FIELDS:
+        setattr(task, name, cleaned.get(name))
+
+    for field in fields:
+        target = field.clave
+        if target not in _TASK_TEXT_FIELDS and target not in _TASK_DECIMAL_FIELDS:
+            continue
+        raw = values.get(field.clave)
+        if raw in (None, '', []):
+            continue
+        if target in _TASK_DECIMAL_FIELDS:
+            parsed = _decimal_or_none(raw)
+            if parsed is not None:
+                setattr(task, target, parsed)
+        else:
+            setattr(task, target, str(raw))
+
+    if not task.descripcion:
+        task.descripcion = _task_display_from_dynamic(fields, values) or cleaned['tipo_tarea_estrategia'].nombre
+
+
+def _save_task_dynamic_values(task, fields, values):
+    keep_ids = []
+    for field in fields:
+        raw = values.get(field.clave)
+        if raw in (None, '', []):
+            continue
+        defaults = {
+            'valor_texto': '',
+            'valor_numero': None,
+            'valor_booleano': None,
+            'valor_fecha': None,
+        }
+        if field.tipo_dato in {
+            models.CampoTareaEstrategia.TIPO_NUMERO,
+            models.CampoTareaEstrategia.TIPO_DECIMAL,
+        }:
+            defaults['valor_numero'] = _decimal_or_none(raw)
+            if defaults['valor_numero'] is None:
+                defaults['valor_texto'] = str(raw)
+        elif field.tipo_dato == models.CampoTareaEstrategia.TIPO_BOOLEANO:
+            defaults['valor_booleano'] = str(raw).lower() in {'1', 'true', 'si', 'sí', 'on', 'yes'}
+        elif field.tipo_dato == models.CampoTareaEstrategia.TIPO_FECHA:
+            defaults['valor_fecha'] = parse_date(str(raw))
+            if defaults['valor_fecha'] is None:
+                defaults['valor_texto'] = str(raw)
+        else:
+            defaults['valor_texto'] = str(raw)
+
+        value_obj, _ = models.ValorCampoTareaRCM.objects.update_or_create(
+            tarea=task,
+            campo=field,
+            defaults=defaults,
+        )
+        keep_ids.append(value_obj.pk)
+
+    task.valores_campos.exclude(pk__in=keep_ids).delete()
+
+
+def _save_rcm_tasks(fmea, task_formset):
+    saved_ids = []
+    existing_tasks = {
+        item.pk: item
+        for item in fmea.tareas_rcm.all()
+    }
+
+    active_forms = []
+    for form_idx, task_form in enumerate(task_formset.forms, start=1):
+        if not hasattr(task_form, 'cleaned_data'):
+            continue
+        cleaned = task_form.cleaned_data
+        task_id = cleaned.get('id')
+        if cleaned.get('DELETE'):
+            if task_id and task_id in existing_tasks:
+                models.ValorCampoTareaRCM.objects.filter(tarea=existing_tasks[task_id]).delete()
+                existing_tasks[task_id].delete()
+            continue
+        if getattr(task_form, 'empty_task', False):
+            continue
+        sort_order = cleaned['tipo_tarea_estrategia'].orden or form_idx
+        active_forms.append((sort_order, form_idx, task_form))
+
+    active_forms.sort(key=lambda item: (item[0], item[1]))
+    for order, _form_idx, task_form in enumerate(active_forms, start=1):
+        cleaned = task_form.cleaned_data
+        task_id = cleaned.get('id')
+        configured_fields = _task_config_for_type(cleaned['tipo_tarea_estrategia'])
+        dynamic_values = cleaned.get('dynamic_values') or {}
+        task = existing_tasks.get(task_id) if task_id else models.TareaRCM(fmea=fmea)
+        task.fmea = fmea
+        task.tipo_tarea_estrategia = cleaned['tipo_tarea_estrategia']
+        _apply_task_dynamic_values_to_fixed_fields(task, configured_fields, dynamic_values, cleaned)
+        task.orden = order
+        task.estado = cleaned.get('estado') or models.TareaRCM.ESTADO_ACTIVO
+        task.save()
+        _save_task_dynamic_values(task, configured_fields, dynamic_values)
+        saved_ids.append(task.pk)
+
+    stale_tasks = fmea.tareas_rcm.exclude(pk__in=saved_ids)
+    models.ValorCampoTareaRCM.objects.filter(tarea__in=stale_tasks).delete()
+    stale_tasks.delete()
+
+
+def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
+    cleaned = form.cleaned_data
+    now = timezone.now()
+
+    if rcm:
+        carga = rcm.carga
+        carga.fecha_analisis = cleaned['fecha_analisis']
+        carga.status = cleaned['estado']
+        carga.actualizado = now
+        carga.estrategia = servicio.estrategia
+        carga.servicio = servicio
+        if permission.get('profile'):
+            carga.usuario = permission.get('profile')
+        carga.save(update_fields=['fecha_analisis', 'status', 'actualizado', 'estrategia', 'servicio', 'usuario'])
+
+        rcm.equipo = cleaned['equipo']
+        rcm.criticidad = cleaned.get('criticidad')
+        rcm.fecha_analisis = cleaned['fecha_analisis']
+        rcm.estado = cleaned['estado']
+        rcm.falla_funcional = cleaned['falla_funcional']
+        rcm.modo_de_falla = cleaned['modo_de_falla']
+        rcm.causa = cleaned['causa']
+        rcm.efecto = cleaned['efecto']
+        rcm.save(update_fields=[
+            'equipo',
+            'criticidad',
+            'fecha_analisis',
+            'estado',
+            'falla_funcional',
+            'modo_de_falla',
+            'causa',
+            'efecto',
+        ])
+    else:
+        carga = models.Carga.objects.create(
+            fecha_analisis=cleaned['fecha_analisis'],
+            version_carga=Decimal('1.0'),
+            usuario=permission.get('profile'),
+            servicio=servicio,
+            estrategia=servicio.estrategia,
+            origen='RCM Manual',
+            status=cleaned['estado'],
+            creado_en=now,
+            actualizado=now,
+        )
+        rcm = models.RCM.objects.create(
+            carga=carga,
+            equipo=cleaned['equipo'],
+            criticidad=cleaned.get('criticidad'),
+            fecha_analisis=cleaned['fecha_analisis'],
+            estado=cleaned['estado'],
+            falla_funcional=cleaned['falla_funcional'],
+            modo_de_falla=cleaned['modo_de_falla'],
+            causa=cleaned['causa'],
+            efecto=cleaned['efecto'],
+        )
+
+    fmea, _created = models.FMEA_FMECA.objects.get_or_create(rcm=rcm)
+
+    saved_dimension_ids = []
+    for evaluation in getattr(form, 'cleaned_dimension_evaluations', []):
+        estrategia_dimension = evaluation['estrategia_dimension']
+        saved_dimension_ids.append(estrategia_dimension.pk)
+        models.EvaluacionFMEA.objects.update_or_create(
+            fmea=fmea,
+            estrategia_dimension=estrategia_dimension,
+            defaults={
+                'valor_numerico': evaluation.get('valor_numerico'),
+                'valor_texto': evaluation.get('valor_texto') or '',
+                'catalogo_fila': evaluation.get('catalogo_fila'),
+                'escala_valor': evaluation.get('escala_valor'),
+            },
+        )
+    models.EvaluacionFMEA.objects.filter(fmea=fmea).exclude(
+        estrategia_dimension_id__in=saved_dimension_ids,
+    ).delete()
+    if task_formset is not None:
+        _save_rcm_tasks(fmea, task_formset)
+    return rcm
 
 
 @login_required
@@ -1969,47 +2845,11 @@ def service_rcm_new(request, pk):
             'estado': models.Carga.STATUS_COMPLETO,
         },
     )
+    task_formset = _rcm_task_formset(request, servicio)
 
-    if request.method == 'POST' and form.is_valid():
-        cleaned = form.cleaned_data
-        npr = cleaned['severidad'] * cleaned['ocurrencia'] * cleaned['deteccion']
+    if request.method == 'POST' and form.is_valid() and task_formset.is_valid():
         with transaction.atomic():
-            now = timezone.now()
-            carga = models.Carga.objects.create(
-                fecha_analisis=cleaned['fecha_analisis'],
-                version_carga=Decimal('1.0'),
-                usuario=permission.get('profile'),
-                servicio=servicio,
-                estrategia=servicio.estrategia,
-                origen='RCM Manual',
-                status=cleaned['estado'],
-                creado_en=now,
-                actualizado=now,
-            )
-            rcm = models.RCM.objects.create(
-                carga=carga,
-                equipo=cleaned['equipo'],
-                criticidad=cleaned.get('criticidad'),
-                fecha_analisis=cleaned['fecha_analisis'],
-                estado=cleaned['estado'],
-                falla_funcional=cleaned['falla_funcional'],
-                modo_de_falla=cleaned['modo_de_falla'],
-                causa=cleaned['causa'],
-                efecto=cleaned['efecto'],
-            )
-            fmea = models.FMEA_FMECA.objects.create(
-                rcm=rcm,
-                severidad=cleaned['severidad'],
-                ocurrencia=cleaned['ocurrencia'],
-                deteccion=cleaned['deteccion'],
-                npr=npr,
-            )
-            for evaluation in getattr(form, 'cleaned_impact_evaluations', []):
-                models.EvaluacionFMEA.objects.update_or_create(
-                    fmea=fmea,
-                    estrategia_dimension=evaluation['estrategia_dimension'],
-                    defaults={'valor_numerico': evaluation['valor_numerico']},
-                )
+            _save_rcm_form(servicio, permission, form, task_formset=task_formset)
         messages.success(request, 'Registro RCM creado correctamente.')
         return redirect('service_rcm_list', pk=servicio.pk)
 
@@ -2017,9 +2857,77 @@ def service_rcm_new(request, pk):
         'service': servicio,
         'permission': permission,
         'form': form,
+        'task_formset': task_formset,
+        'task_types_available': models.TipoTareaEstrategia.objects.filter(estrategia=servicio.estrategia, activo=True).exists(),
+        'task_field_config_payload': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False) if servicio.estrategia_id else '[]',
+        'editing_rcm': None,
+        'form_title': 'Nuevo registro RCM',
+        'submit_label': 'Guardar registro RCM',
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
     })
+
+
+@login_required
+def service_rcm_edit(request, service_pk, rcm_pk):
+    servicio, permission = _service_or_404(request, service_pk, edit=True)
+    rcm = get_object_or_404(
+        models.RCM.objects.select_related('carga', 'equipo', 'fmea_fmeca').prefetch_related('fmea_fmeca__evaluaciones'),
+        pk=rcm_pk,
+        carga__servicio=servicio,
+    )
+    form = RCMRegistroForm(
+        request.POST or None,
+        service=servicio,
+        rcm=rcm,
+        initial=_rcm_form_initial_from_instance(rcm),
+    )
+    task_formset = _rcm_task_formset(request, servicio, rcm=rcm)
+
+    if request.method == 'POST' and form.is_valid() and task_formset.is_valid():
+        with transaction.atomic():
+            _save_rcm_form(servicio, permission, form, task_formset=task_formset, rcm=rcm)
+        messages.success(request, 'Registro RCM actualizado correctamente.')
+        return redirect('service_rcm_list', pk=servicio.pk)
+
+    return render(request, 'core/service_rcm_form.html', {
+        'service': servicio,
+        'permission': permission,
+        'form': form,
+        'task_formset': task_formset,
+        'task_types_available': models.TipoTareaEstrategia.objects.filter(estrategia=servicio.estrategia, activo=True).exists(),
+        'task_field_config_payload': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False) if servicio.estrategia_id else '[]',
+        'editing_rcm': rcm,
+        'form_title': 'Editar registro RCM',
+        'submit_label': 'Actualizar registro RCM',
+        'service_equipment_payload': _service_equipment_browser_payload(servicio),
+        'service_equipment_endpoints': _service_equipment_endpoints(servicio),
+    })
+
+
+@login_required
+@transaction.atomic
+def service_rcm_delete(request, service_pk, rcm_pk):
+    servicio, permission = _service_or_404(request, service_pk, edit=True)
+    rcm = get_object_or_404(
+        models.RCM.objects.select_related('carga'),
+        pk=rcm_pk,
+        carga__servicio=servicio,
+    )
+
+    if request.method == 'POST':
+        carga = rcm.carga
+        models.ValorCampoTareaRCM.objects.filter(tarea__fmea__rcm=rcm).delete()
+        models.TareaRCM.objects.filter(fmea__rcm=rcm).delete()
+        models.EvaluacionFMEA.objects.filter(fmea__rcm=rcm).delete()
+        models.FMEA_FMECA.objects.filter(rcm=rcm).delete()
+        rcm.delete()
+        if carga and not carga.criticidades.exists() and not models.RCM.objects.filter(carga=carga).exists():
+            carga.delete()
+        messages.success(request, 'Registro RCM eliminado correctamente.')
+        return redirect('service_rcm_list', pk=servicio.pk)
+
+    return redirect('service_rcm_list', pk=servicio.pk)
 
 
 @login_required
@@ -2044,18 +2952,45 @@ def service_dimensions(request, pk):
 @login_required
 def service_aca_list(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=False)
-    estrategia_dims = _strategy_dimensions(servicio.estrategia)
+    columns, rows, complete_count, incomplete_count = _service_aca_table_data(servicio, include_actions=True)
 
-    excluded_dimension_names = {
-        'Probabilidad - Enap',
-        'Impacto - Enap',
-        'Probabilidad - matri4x4',
-        'Impacto - matri4x4',
-    }
+    other_aca_services = []
+    if not rows:
+        accessible_service_ids = [item.pk for item in get_accessible_services(request.user)]
+        other_aca_services = list(
+            models.Criticidad.objects.filter(
+                aca_carga__servicio_id__in=accessible_service_ids,
+            )
+            .exclude(aca_carga__servicio=servicio)
+            .values(
+                'aca_carga__servicio_id',
+                'aca_carga__servicio__codigo_servicio',
+            )
+            .annotate(total=Count('id'))
+            .order_by('aca_carga__servicio__codigo_servicio')
+        )
+
+    return render(request, 'core/service_aca_list.html', {
+        'service': servicio,
+        'permission': permission,
+        'columns': columns,
+        'rows': rows,
+        'aca_count': len(rows),
+        'complete_count': complete_count,
+        'incomplete_count': incomplete_count,
+        'other_aca_services': other_aca_services,
+    })
+
+
+def _service_aca_table_data(servicio, include_actions=False):
+    estrategia_dims = _strategy_dimensions(
+        servicio.estrategia,
+        proceso=models.EstrategiaDimension.PROCESO_ACA,
+    )
 
     estrategia_dims = [
         ed for ed in estrategia_dims
-        if ed.dimension.nombre not in excluded_dimension_names
+        if not _is_generated_matrix_axis_dimension(ed)
     ]
 
     criticidades = list(
@@ -2089,8 +3024,9 @@ def service_aca_list(request, pk):
         ('indicador_criticidad', 'Indicador de Criticidad'),
         ('valor_criticidad_equipo', 'Valor Criticidad Equipo'),
         ('criticidad_final', 'Criticidad Final'),
-        ('acciones', 'Acciones'),
     ])
+    if include_actions:
+        columns.append(('acciones', 'Acciones'))
 
     rows = []
     complete_count = 0
@@ -2109,7 +3045,7 @@ def service_aca_list(request, pk):
             'ubicacion_tecnica': crit.equipo.ut if crit.equipo else '',
             'descripcion_ut': crit.equipo.descripcion_ut if crit.equipo else '',
             'equipo': crit.equipo.nombre_equipo if crit.equipo else '',
-            'tag': crit.equipo.tag_equipo if crit.equipo else '',
+            'tag': crit.equipo.tag_display if crit.equipo else '',
             'escenario_falla': crit.escenario_falla,
             'frecuencia_original': crit.frecuencia_original,
             'frecuencia_normalizada': crit.frecuencia_normalizada,
@@ -2124,15 +3060,29 @@ def service_aca_list(request, pk):
             row[f'dim_{ed.dimension_id}'] = _dimension_display_value(item) if item else ''
         rows.append(row)
 
-    return render(request, 'core/service_aca_list.html', {
-        'service': servicio,
-        'permission': permission,
-        'columns': columns,
-        'rows': rows,
-        'aca_count': len(rows),
-        'complete_count': complete_count,
-        'incomplete_count': incomplete_count,
-    })
+    return columns, rows, complete_count, incomplete_count
+
+
+@login_required
+def service_aca_export(request, pk, formato):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    columns, rows, _complete_count, _incomplete_count = _service_aca_table_data(servicio)
+    formato = (formato or '').lower()
+    if formato == 'excel':
+        return _export_xlsx_response(
+            _export_filename('ACA', servicio, 'xlsx'),
+            'Registros ACA',
+            columns,
+            rows,
+        )
+    if formato == 'pdf':
+        return _export_pdf_response(
+            _export_filename('ACA', servicio, 'pdf'),
+            f'Registros ACA - {servicio.codigo_servicio}',
+            columns,
+            rows,
+        )
+    raise Http404('Formato de exportación no soportado.')
 
 
 @login_required
@@ -2372,6 +3322,9 @@ def _service_matrix_selector(servicio):
             'impact_dimension_id': '',
             'prob_estrategia_dimension_id': '',
             'impact_estrategia_dimension_id': '',
+            'modo_resolucion': models.MatrizRiesgo.RESOLUCION_EXACTA,
+            'prob_axis_generated': False,
+            'impact_axis_generated': False,
             'prob_axis_label': 'Probabilidad',
             'impact_axis_label': 'Impacto',
         }
@@ -2428,6 +3381,9 @@ def _service_matrix_selector(servicio):
         'impact_dimension_id': matriz.dimension_impacto.dimension_id if matriz.dimension_impacto_id else '',
         'prob_estrategia_dimension_id': matriz.dimension_probabilidad_id or '',
         'impact_estrategia_dimension_id': matriz.dimension_impacto_id or '',
+        'modo_resolucion': _matrix_resolution_mode(matriz),
+        'prob_axis_generated': _is_generated_matrix_axis_dimension(matriz.dimension_probabilidad, 'probabilidad') if matriz.dimension_probabilidad_id else False,
+        'impact_axis_generated': _is_generated_matrix_axis_dimension(matriz.dimension_impacto, 'impacto') if matriz.dimension_impacto_id else False,
         'prob_axis_label': matriz.dimension_probabilidad.dimension.nombre if matriz.dimension_probabilidad_id else 'Probabilidad',
         'impact_axis_label': matriz.dimension_impacto.dimension.nombre if matriz.dimension_impacto_id else 'Impacto',
     }
@@ -2499,13 +3455,20 @@ def _aca_excluded_dimension_ids(estrategia, matriz=None):
 
     dims = models.EstrategiaDimension.objects.filter(
         estrategia=estrategia,
-        activo=True
+        activo=True,
+        proceso_uso__in=[
+            models.EstrategiaDimension.PROCESO_ACA,
+            models.EstrategiaDimension.PROCESO_AMBOS,
+        ],
     ).select_related('dimension').prefetch_related('catalogo')
 
     for item in dims:
+        nombre = (item.dimension.nombre or '').strip().lower()
+        if _is_generated_matrix_axis_dimension(item):
+            excluded_ids.add(item.dimension_id)
+            continue
         if item.dimension_id in matrix_input_dimension_ids:
             continue
-        nombre = (item.dimension.nombre or '').strip().lower()
         try:
             catalogo = item.catalogo
         except models.DimensionCatalogo.DoesNotExist:
@@ -2606,15 +3569,23 @@ def _match_catalog_range_row(catalogo, source_value):
     if not catalogo or source_value is None:
         return None
 
-    rows = catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id')
+    rows = list(catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id'))
+    row_bounds = []
+    lowers = []
     for row in rows:
         values = row.values_map()
-        lower = _catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'])
+        lower = _catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mí­nimo'])
         upper = _catalog_bound(values, ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'])
+        row_bounds.append((row, lower, upper))
+        if lower is not None:
+            lowers.append(lower)
 
+    for row, lower, upper in row_bounds:
         if lower is not None and source_value < lower:
             continue
-        if upper is not None and source_value >= upper:
+        if upper is not None and source_value > upper:
+            continue
+        if upper is not None and source_value == upper and upper in lowers:
             continue
         return row
     return None
@@ -2629,7 +3600,7 @@ def _catalog_primary_numeric_from_values(values):
         for key, value in values.items():
             if key in {
                 'limite_inferior', 'limite_superior', 'desde', 'hasta',
-                'min', 'max', 'minimo', 'mínimo', 'maximo', 'máximo',
+                'min', 'max', 'minimo', 'mí­nimo', 'maximo', 'máximo',
                 'valor_secundario',
             }:
                 continue
@@ -2685,11 +3656,21 @@ def _match_catalog_dependency_row(catalogo, source_value):
 def _dimension_formset(request, estrategia, initial=None, bind_post=True, exclude_dimension_ids=None):
     initial = initial or []
     if not estrategia:
-        return CriticidadDimensionFormSet(prefix='dims', form_kwargs={'estrategia': None})
+        return CriticidadDimensionFormSet(
+            prefix='dims',
+            form_kwargs={'estrategia': None, 'proceso': models.EstrategiaDimension.PROCESO_ACA},
+        )
 
     if not initial:
         dims_qs = (
-            models.EstrategiaDimension.objects.filter(estrategia=estrategia, activo=True)
+            models.EstrategiaDimension.objects.filter(
+                estrategia=estrategia,
+                activo=True,
+                proceso_uso__in=[
+                    models.EstrategiaDimension.PROCESO_ACA,
+                    models.EstrategiaDimension.PROCESO_AMBOS,
+                ],
+            )
             .select_related('dimension')
             .order_by('orden', 'id')
         )
@@ -2710,12 +3691,12 @@ def _dimension_formset(request, estrategia, initial=None, bind_post=True, exclud
         return CriticidadDimensionFormSet(
             request.POST,
             prefix='dims',
-            form_kwargs={'estrategia': estrategia},
+            form_kwargs={'estrategia': estrategia, 'proceso': models.EstrategiaDimension.PROCESO_ACA},
         )
     return CriticidadDimensionFormSet(
         initial=initial,
         prefix='dims',
-        form_kwargs={'estrategia': estrategia},
+        form_kwargs={'estrategia': estrategia, 'proceso': models.EstrategiaDimension.PROCESO_ACA},
     )
 
 
@@ -2732,7 +3713,14 @@ def _dimension_formset_initial_from_criticidad(criticidad, estrategia, exclude_d
         ).all()
     }
     dims_qs = (
-        models.EstrategiaDimension.objects.filter(estrategia=estrategia, activo=True)
+        models.EstrategiaDimension.objects.filter(
+            estrategia=estrategia,
+            activo=True,
+            proceso_uso__in=[
+                models.EstrategiaDimension.PROCESO_ACA,
+                models.EstrategiaDimension.PROCESO_AMBOS,
+            ],
+        )
         .select_related('dimension')
         .order_by('orden', 'id')
     )
@@ -2772,7 +3760,7 @@ def _catalog_row_primary_numeric(row):
         if key in values and values.get(key) not in (None, ''):
             return _decimal_or_none(values.get(key))
     for key, value in values.items():
-        if key in {'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max', 'minimo', 'mínimo', 'maximo', 'máximo'}:
+        if key in {'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max', 'minimo', 'mí­nimo', 'maximo', 'máximo'}:
             continue
         decimal_value = _decimal_or_none(value)
         if decimal_value is not None:
@@ -2800,7 +3788,7 @@ def _catalog_row_boolean(row):
         if value in (True, False):
             return value
         if value not in (None, ''):
-            return str(value).strip().lower() in {'true', '1', 'si', 'sí', 'yes'}
+            return str(value).strip().lower() in {'true', '1', 'si', 'sí­', 'yes'}
     return None
 
 
@@ -2961,6 +3949,10 @@ def _prepare_dimension_items(estrategia, formset):
         estrategia_dimension = models.EstrategiaDimension.objects.filter(
             estrategia=estrategia,
             activo=True,
+            proceso_uso__in=[
+                models.EstrategiaDimension.PROCESO_ACA,
+                models.EstrategiaDimension.PROCESO_AMBOS,
+            ],
             dimension=dimension,
         ).select_related('dimension').first()
         if not estrategia_dimension:
@@ -3138,17 +4130,85 @@ def _matrix_axis_values_from_records(matriz, records):
     return prob_val, impact_val
 
 
-def _matrix_cell_for_axis_values(matriz, prob_val, impact_val):
-    if not matriz or prob_val is None or impact_val is None:
+def _matrix_legend_config(matriz):
+    payload = _json_loads_safe(getattr(matriz, 'leyenda_json', ''), [])
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, list):
+        return {'items': payload}
+    return {}
+
+
+def _matrix_resolution_mode(matriz):
+    mode = (_matrix_legend_config(matriz).get('modo_resolucion') or '').strip()
+    valid_modes = {choice[0] for choice in models.MatrizRiesgo.RESOLUCION_CHOICES}
+    return mode if mode in valid_modes else models.MatrizRiesgo.RESOLUCION_EXACTA
+
+
+def _matrix_result_from_axis_values(prob_val, impact_val):
+    prob_val = _decimal_or_none(prob_val)
+    impact_val = _decimal_or_none(impact_val)
+    if prob_val is not None and impact_val is not None:
+        return (prob_val * impact_val).quantize(_MATRIX_DECIMAL_STEP)
+    if impact_val is not None:
+        return impact_val.quantize(_MATRIX_DECIMAL_STEP)
+    if prob_val is not None:
+        return prob_val.quantize(_MATRIX_DECIMAL_STEP)
+    return None
+
+
+def _matrix_threshold_axis_values(matriz, prob_val, impact_val):
+    prob_generated = _is_generated_matrix_axis_dimension(
+        getattr(matriz, 'dimension_probabilidad', None),
+        'probabilidad',
+    )
+    impact_generated = _is_generated_matrix_axis_dimension(
+        getattr(matriz, 'dimension_impacto', None),
+        'impacto',
+    )
+    if prob_generated and not impact_generated:
+        prob_val = None
+    if impact_generated and not prob_generated:
+        impact_val = None
+    return prob_val, impact_val
+
+
+def _matrix_cell_for_result_floor(matriz, result_value):
+    result_value = _quantize_matrix_decimal(result_value)
+    if not matriz or result_value is None:
         return None
     return models.MatrizRiesgoCelda.objects.filter(
         matriz=matriz,
-        probabilidad__valor=prob_val,
-        impacto_nivel__valor=impact_val,
+        resultado_num__lte=result_value,
     ).select_related(
         'probabilidad',
         'impacto_nivel',
-    ).order_by('id').first()
+    ).order_by('-resultado_num', '-id').first()
+
+
+def _matrix_cell_for_axis_values(matriz, prob_val, impact_val):
+    if not matriz:
+        return None
+    if prob_val is not None and impact_val is not None:
+        exact_cell = models.MatrizRiesgoCelda.objects.filter(
+            matriz=matriz,
+            probabilidad__valor=prob_val,
+            impacto_nivel__valor=impact_val,
+        ).select_related(
+            'probabilidad',
+            'impacto_nivel',
+        ).order_by('id').first()
+        if exact_cell:
+            return exact_cell
+
+    if _matrix_resolution_mode(matriz) == models.MatrizRiesgo.RESOLUCION_UMBRAL_RESULTADO:
+        prob_val, impact_val = _matrix_threshold_axis_values(matriz, prob_val, impact_val)
+        return _matrix_cell_for_result_floor(
+            matriz,
+            _matrix_result_from_axis_values(prob_val, impact_val),
+        )
+
+    return None
 
 
 def _resolve_matrix_cell_from_dimension_records(matriz, records):
@@ -3177,7 +4237,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
     indicador = evaluacion.indicador_criticidad or ''
     criticidad_final = evaluacion.criticidad_final or ''
 
-    # 1) Priorizar las dimensiones específicas que usa la matriz
+    # 1) Priorizar las dimensiones especí­ficas que usa la matriz
     if matriz:
         prob_val, impact_val = _matrix_axis_values_from_records(matriz, dims)
 
@@ -3188,15 +4248,25 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
     if impact_val is None and evaluacion.valor_cons_total is not None:
         impact_val = Decimal(evaluacion.valor_cons_total)
 
-    # 3) Si existe matriz, intentar resolver la celda exacta por probabilidad + impacto
-    if matriz and prob_val is not None and impact_val is not None:
+    # 3) Si existe matriz, intentar resolver la celda configurada.
+    #    Por defecto es exacta; algunas matrices pueden usar umbral inferior por resultado.
+    if matriz and (prob_val is not None or impact_val is not None):
         celda = _matrix_cell_for_axis_values(matriz, prob_val, impact_val)
 
         if celda:
-            valor_cons_total = celda.impacto_nivel.valor
-            prob_val = celda.probabilidad.valor
-            valor_criticidad_equipo = celda.resultado_num
-            indicador = f'[ {int(Decimal(valor_cons_total))} - {int(Decimal(prob_val))} ]'
+            if _matrix_resolution_mode(matriz) == models.MatrizRiesgo.RESOLUCION_UMBRAL_RESULTADO:
+                effective_prob_val, effective_impact_val = _matrix_threshold_axis_values(matriz, prob_val, impact_val)
+                result_value = _matrix_result_from_axis_values(effective_prob_val, effective_impact_val)
+                valor_cons_total = effective_impact_val if effective_impact_val is not None else result_value
+                if prob_val is None:
+                    prob_val = celda.probabilidad.valor
+                valor_criticidad_equipo = result_value if result_value is not None else celda.resultado_num
+                indicador = f'[ {_format_matrix_decimal(valor_criticidad_equipo)} -> {_format_matrix_decimal(celda.resultado_num)} ]'
+            else:
+                valor_cons_total = celda.impacto_nivel.valor
+                prob_val = celda.probabilidad.valor
+                valor_criticidad_equipo = celda.resultado_num
+                indicador = f'[ {_format_matrix_decimal(valor_cons_total)} - {_format_matrix_decimal(prob_val)} ]'
             criticidad_final = celda.clasificacion or criticidad_final
 
     # 4) Fallback final: si no encontró celda, calcular con los niveles ya resueltos
@@ -3206,7 +4276,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
     if valor_criticidad_equipo is None and valor_cons_total is not None and prob_val is not None:
         try:
             valor_criticidad_equipo = Decimal(valor_cons_total) * Decimal(prob_val)
-            indicador = f'[ {int(Decimal(valor_cons_total))} - {int(Decimal(prob_val))} ]'
+            indicador = f'[ {_format_matrix_decimal(valor_cons_total)} - {_format_matrix_decimal(prob_val)} ]'
         except Exception:
             valor_criticidad_equipo = evaluacion.valor_criticidad_equipo
 
@@ -3345,6 +4415,7 @@ def _serialize_dimension_catalog(catalogo):
         'tipo_calculo': dimension.tipo_calculo or '',
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
+        'proceso_uso': ed.proceso_uso or models.EstrategiaDimension.PROCESO_ACA,
         'activo': ed.activo,
         'columnas': [
             {
@@ -3362,7 +4433,7 @@ def _serialize_dimension_catalog(catalogo):
 
 def _safe_slug(value):
     value = (value or '').strip().lower()
-    value = re.sub(r'[^a-z0-9áéíóúñ]+', '_', value, flags=re.IGNORECASE)
+    value = re.sub(r'[^a-z0-9Ã¡Ã©Ã­óÃºÃ±]+', '_', value, flags=re.IGNORECASE)
     return value.strip('_')[:100] or 'dimension'
 
 
@@ -3385,10 +4456,15 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'tipo_calculo': dimension.tipo_calculo or '',
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
+        'proceso_uso': ed.proceso_uso or models.EstrategiaDimension.PROCESO_ACA,
         'activo': ed.activo,
         'columnas': [] if dimension.tipo_calculo else _default_columns_for_type(tipo),
         'filas': [],
     }
+
+
+def _hide_from_dimension_tables_editor(estrategia_dimension):
+    return _is_generated_matrix_axis_dimension(estrategia_dimension)
 
 
 def _strategy_catalogs_payload(estrategia, only_active=True):
@@ -3404,6 +4480,9 @@ def _strategy_catalogs_payload(estrategia, only_active=True):
 
     payload = []
     for ed in eds:
+        if _hide_from_dimension_tables_editor(ed):
+            continue
+
         try:
             catalogo = ed.catalogo
         except models.DimensionCatalogo.DoesNotExist:
@@ -3420,7 +4499,7 @@ def _normalize_catalog_cell_value(col_type, raw):
     if col_type == 'numero':
         return {'valor_numero': _decimal_or_none(raw), 'valor_texto': '', 'valor_booleano': None}
     if col_type == 'booleano':
-        bool_val = raw if raw in (True, False) else str(raw).strip().lower() in {'true', '1', 'si', 'sí'} if raw not in (None, '') else None
+        bool_val = raw if raw in (True, False) else str(raw).strip().lower() in {'true', '1', 'si', 'sí­'} if raw not in (None, '') else None
         return {'valor_numero': None, 'valor_texto': '', 'valor_booleano': bool_val}
     return {'valor_numero': None, 'valor_texto': '' if raw is None else str(raw), 'valor_booleano': None}
 
@@ -3458,6 +4537,7 @@ def _save_strategy_catalogs(estrategia, payload):
     existing_eds = {str(obj.pk): obj for obj in models.EstrategiaDimension.objects.filter(estrategia=estrategia).select_related('dimension')}
     keep_ids = set()
     tipos_calculo_validos = dict(models.Dimension.TIPO_CALCULO_CHOICES)
+    procesos_validos = dict(models.EstrategiaDimension.PROCESO_USO_CHOICES)
     tipos_catalogo_validos = {'opciones', 'rangos', 'numerico_libre'}
     source_index = {}
 
@@ -3625,6 +4705,9 @@ def _save_strategy_catalogs(estrategia, payload):
         tipo_calculo = str(item.get('tipo_calculo') or '').strip()
         if tipo_calculo not in tipos_calculo_validos:
             tipo_calculo = ''
+        proceso_uso = str(item.get('proceso_uso') or models.EstrategiaDimension.PROCESO_ACA).strip()
+        if proceso_uso not in procesos_validos:
+            proceso_uso = models.EstrategiaDimension.PROCESO_ACA
         es_calculada = bool(tipo_calculo)
 
         config_calculo_raw = item.get('config_calculo') if isinstance(item.get('config_calculo'), dict) else None
@@ -3702,6 +4785,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 dimension=dimension,
                 orden=idx,
                 obligatorio=obligatorio,
+                proceso_uso=proceso_uso,
                 activo=True,
             )
             catalogo = models.DimensionCatalogo.objects.create(
@@ -3733,6 +4817,7 @@ def _save_strategy_catalogs(estrategia, payload):
 
         estrategia_dimension.orden = idx
         estrategia_dimension.obligatorio = obligatorio
+        estrategia_dimension.proceso_uso = proceso_uso
         estrategia_dimension.activo = True
         estrategia_dimension.save()
 
@@ -3796,6 +4881,9 @@ def _save_strategy_catalogs(estrategia, payload):
 
     for catalogo in to_delete:
         estrategia_dimension = catalogo.estrategia_dimension
+        if _hide_from_dimension_tables_editor(estrategia_dimension):
+            continue
+
         dimension = estrategia_dimension.dimension
 
         _clean_catalogo(catalogo)
@@ -3833,6 +4921,7 @@ def dimension_tables_editor(request, pk):
         'tipos_funcionales': models.Dimension.TIPO_FUNCIONAL_CHOICES,
         'tipos_dato': models.Dimension.TIPO_DATO_CHOICES,
         'tipos_calculo': models.Dimension.TIPO_CALCULO_CHOICES,
+        'procesos_uso': models.EstrategiaDimension.PROCESO_USO_CHOICES,
         'tipos_columna': models.DimensionCatalogoColumna.TIPO_DATO_CHOICES,
     })
 
@@ -3845,10 +4934,11 @@ def _matrix_level_dicts(levels, count, prefix):
     levels = list(levels)
     for idx in range(1, count + 1):
         obj = levels[idx - 1] if idx <= len(levels) else None
+        value = getattr(obj, 'valor', None) if obj else None
         data.append({
             'idx': idx,
             'nombre': getattr(obj, 'nombre', None) or f'{prefix.upper()}{idx}',
-            'valor': _json_safe(getattr(obj, 'valor', None)) or idx,
+            'valor': _json_safe(value) if value is not None else idx,
             'descripcion': getattr(obj, 'descripcion', None) or '',
         })
     return data
@@ -3892,18 +4982,26 @@ def _level_defs_from_strategy_dimension(estrategia_dimension, count, prefix):
     return data
 
 
+def _normalize_matrix_level_defs(defs, count, prefix):
+    defs = defs if isinstance(defs, list) else []
+    normalized = []
+    for idx in range(1, count + 1):
+        raw = defs[idx - 1] if idx <= len(defs) and isinstance(defs[idx - 1], dict) else {}
+        value = _quantize_matrix_decimal(raw.get('valor'))
+        normalized.append({
+            'idx': idx,
+            'nombre': str(raw.get('nombre') or f'{prefix.upper()}{idx}'),
+            'valor': value if value is not None else Decimal(idx),
+            'descripcion': str(raw.get('descripcion') or ''),
+        })
+    return normalized
+
+
 def _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact):
     prob_defs = _json_payload(request, 'prob_levels_json', fallback_prob) or fallback_prob
     impact_defs = _json_payload(request, 'impact_levels_json', fallback_impact) or fallback_impact
-    prob_defs = (prob_defs if isinstance(prob_defs, list) else fallback_prob)[:prob_count]
-    impact_defs = (impact_defs if isinstance(impact_defs, list) else fallback_impact)[:impact_count]
-
-    while len(prob_defs) < prob_count:
-        idx = len(prob_defs) + 1
-        prob_defs.append({'idx': idx, 'nombre': f'P{idx}', 'valor': idx, 'descripcion': ''})
-    while len(impact_defs) < impact_count:
-        idx = len(impact_defs) + 1
-        impact_defs.append({'idx': idx, 'nombre': f'I{idx}', 'valor': idx, 'descripcion': ''})
+    prob_defs = _normalize_matrix_level_defs(prob_defs if isinstance(prob_defs, list) else fallback_prob, prob_count, 'p')
+    impact_defs = _normalize_matrix_level_defs(impact_defs if isinstance(impact_defs, list) else fallback_impact, impact_count, 'i')
 
     return prob_defs, impact_defs
 
@@ -3927,24 +5025,32 @@ def _cell_data_from_request(request):
                 'impact_idx': impact_idx,
                 'clasificacion': str(cell.get('clasificacion') or ''),
                 'color': str(cell.get('color') or '#2a2a3a'),
-                'resultado_num': _decimal_or_none(cell.get('resultado_num')),
+                'resultado_num': _quantize_matrix_decimal(cell.get('resultado_num')),
                 'calcular': bool(cell.get('calcular', True)),
             }
     return result
 
 
-def _matrix_value_bounds(prob_defs, impact_defs):
+def _matrix_result_values(prob_defs, impact_defs):
     values = []
     for prob in prob_defs:
         for impact in impact_defs:
-            try:
-                values.append(int(Decimal(str(prob['valor'])) * Decimal(str(impact['valor']))))
-            except (InvalidOperation, ValueError, TypeError):
+            prob_value = _decimal_or_none(prob.get('valor'))
+            impact_value = _decimal_or_none(impact.get('valor'))
+            if prob_value is None or impact_value is None:
                 continue
+            values.append((prob_value * impact_value).quantize(_MATRIX_DECIMAL_STEP))
+    return values
+
+
+def _matrix_value_bounds(prob_defs, impact_defs):
+    values = _matrix_result_values(prob_defs, impact_defs)
     return (min(values), max(values)) if values else (1, 1)
 
 
 def _safe_legend_items(raw_items):
+    if isinstance(raw_items, dict):
+        raw_items = raw_items.get('items') or raw_items.get('legend') or raw_items.get('leyenda') or []
     if not isinstance(raw_items, list):
         return []
     cleaned = []
@@ -3960,25 +5066,42 @@ def _safe_legend_items(raw_items):
     return cleaned
 
 
+def _matrix_legend_payload(legend_items, modo_resolucion=None):
+    return {
+        'items': legend_items or [],
+        'modo_resolucion': modo_resolucion or models.MatrizRiesgo.RESOLUCION_EXACTA,
+    }
+
+
 def _default_legend_for_bounds(min_value, max_value):
-    min_value = int(min_value)
-    max_value = int(max_value)
-    span = max(max_value - min_value + 1, 1)
-    step = max(span // 4, 1)
-    cuts = [min_value, min_value + step, min_value + (step * 2), min_value + (step * 3), max_value + 1]
-    labels = [('Bajo', '#2ecc71'), ('Medio', '#f1c40f'), ('Alto', '#e67e22'), ('Crítico', '#e74c3c')]
+    min_value = _quantize_matrix_decimal(min_value) or Decimal('0.00')
+    max_value = _quantize_matrix_decimal(max_value) or min_value
+    if max_value < min_value:
+        max_value = min_value
+    if max_value == min_value or max_value - min_value < Decimal('0.04'):
+        return [{'name': 'Bajo', 'range': f'{_format_matrix_decimal(min_value)}-{_format_matrix_decimal(max_value)}', 'color': '#2ecc71'}]
+    span = max_value - min_value
+    step = (span / Decimal('4')).quantize(_MATRIX_DECIMAL_STEP) if span else Decimal('1.00')
+    if step <= 0:
+        step = Decimal('1.00')
+    labels = [('Bajo', '#2ecc71'), ('Medio', '#f1c40f'), ('Alto', '#e67e22'), ('Crí­tico', '#e74c3c')]
     items = []
     current = min_value
     for idx, (label, color) in enumerate(labels):
-        end = cuts[idx + 1] - 1 if idx < 3 else max_value
+        end = min_value + (step * (idx + 1)) if idx < 3 else max_value
+        end = _quantize_matrix_decimal(end) or max_value
         end = min(max_value, max(current, end))
-        items.append({'name': label, 'range': f'{current}-{end}', 'color': color})
-        current = end + 1
-    items[-1]['range'] = f"{items[-1]['range'].split('-')[0]}-{max_value}"
+        items.append({
+            'name': label,
+            'range': f'{_format_matrix_decimal(current)}-{_format_matrix_decimal(end)}',
+            'color': color,
+        })
+        current = end + _MATRIX_DECIMAL_STEP
+    items[-1]['range'] = f"{items[-1]['range'].split('-')[0]}-{_format_matrix_decimal(max_value)}"
     return items
 
 
-def _validate_legend_items(raw_items, min_value, max_value):
+def _validate_legend_items(raw_items, min_value, max_value, result_values=None):
     items = _safe_legend_items(raw_items)
     if not items:
         return None, 'Debes definir al menos un rango en la leyenda.'
@@ -3987,24 +5110,28 @@ def _validate_legend_items(raw_items, min_value, max_value):
     for item in items:
         if not item['name']:
             return None, 'Cada rango de la leyenda debe tener un nombre.'
-        match = _RANGE_RE.match(item['range'])
-        if not match:
-            return None, f"El rango '{item['range']}' no tiene un formato válido. Usa por ejemplo 1-4."
-        start, end = int(match.group(1)), int(match.group(2))
+        range_values = _parse_matrix_range(item['range'])
+        if not range_values:
+            return None, f"El rango '{item['range']}' no tiene un formato valido. Usa por ejemplo 0,1-4,5."
+        start, end = range_values
         if end < start:
             return None, f"El rango '{item['range']}' no es válido porque el final es menor que el inicio."
-        parsed.append({'name': item['name'], 'range': f'{start}-{end}', 'color': item['color'], 'start': start, 'end': end})
+        parsed.append({'name': item['name'], 'range': f'{_format_matrix_decimal(start)}-{_format_matrix_decimal(end)}', 'color': item['color'], 'start': start, 'end': end})
 
     parsed.sort(key=lambda item: item['start'])
-    expected = int(min_value)
-    if parsed[0]['start'] != expected:
-        return None, f'La leyenda debe comenzar exactamente en {expected}.'
-    for item in parsed:
-        if item['start'] != expected:
-            return None, f'Los rangos no pueden saltarse valores. Después de {expected - 1} debe venir {expected}.'
-        expected = item['end'] + 1
-    if expected - 1 != int(max_value):
-        return None, f'La leyenda debe terminar exactamente en {int(max_value)}.'
+    min_value = _quantize_matrix_decimal(min_value) or Decimal('0.00')
+    max_value = _quantize_matrix_decimal(max_value) or min_value
+    values_to_cover = result_values if result_values is not None else [min_value, max_value]
+    uncovered = []
+    for value in values_to_cover:
+        value = _quantize_matrix_decimal(value)
+        if value is None:
+            continue
+        if not any(item['start'] <= value <= item['end'] for item in parsed):
+            uncovered.append(value)
+    if uncovered:
+        samples = ', '.join(_format_matrix_decimal(value) for value in sorted(set(uncovered))[:5])
+        return None, f'La leyenda no cubre los valores calculados: {samples}. Ajusta los rangos para incluirlos.'
     return [{'name': item['name'], 'range': item['range'], 'color': item['color']} for item in parsed], None
 
 
@@ -4024,12 +5151,15 @@ def _legend_from_matrix(matriz, min_value=None, max_value=None):
 
 
 def _match_legend(result_value, legend_items):
+    result_value = _quantize_matrix_decimal(result_value)
+    if result_value is None:
+        return '', '#2a2a3a'
     for item in legend_items:
-        match = _RANGE_RE.match(item['range'])
-        if not match:
+        range_values = _parse_matrix_range(item['range'])
+        if not range_values:
             continue
-        start, end = int(match.group(1)), int(match.group(2))
-        if start <= int(result_value) <= end:
+        start, end = range_values
+        if start <= result_value <= end:
             return item['name'], item['color']
     return '', '#2a2a3a'
 
@@ -4057,11 +5187,10 @@ def _matrix_preview_from_defs(selected_axis, prob_defs, impact_defs, existing_ce
                 color = existing.get('color') or '#2a2a3a'
                 calcular = existing.get('calcular', True)
             else:
-                try:
-                    result_num = Decimal(str(prob_defs[prob_idx - 1]['valor'])) * Decimal(str(impact_defs[impact_idx - 1]['valor']))
-                except (InvalidOperation, ValueError, TypeError):
-                    result_num = Decimal('0')
-                clasificacion, color = _match_legend(int(result_num), legend_items)
+                prob_value = _decimal_or_none(prob_defs[prob_idx - 1].get('valor'))
+                impact_value = _decimal_or_none(impact_defs[impact_idx - 1].get('valor'))
+                result_num = ((prob_value or Decimal('0')) * (impact_value or Decimal('0'))).quantize(_MATRIX_DECIMAL_STEP)
+                clasificacion, color = _match_legend(result_num, legend_items)
                 calcular = True
             row['cells'].append({
                 'prob_idx': prob_idx,
@@ -4095,20 +5224,22 @@ def _matrix_ui_payload(matrix_preview, stored_legend=None):
 
 
 @transaction.atomic
-def _sync_matrix_levels(matriz, model_cls, definitions):
+def _sync_matrix_levels(matriz, model_cls, definitions, delete_stale=True):
     existing = list(model_cls.objects.filter(matriz=matriz).order_by('orden_visual', 'id'))
     keep_ids = []
     result = []
     for idx, definition in enumerate(definitions, start=1):
         obj = existing[idx - 1] if idx <= len(existing) else model_cls(matriz=matriz)
         obj.nombre = str(definition.get('nombre') or f'N{idx}')
-        obj.valor = _decimal_or_none(definition.get('valor')) or Decimal(idx)
+        value = _quantize_matrix_decimal(definition.get('valor'))
+        obj.valor = value if value is not None else Decimal(idx)
         obj.descripcion = str(definition.get('descripcion') or '')
         obj.orden_visual = idx
         obj.save()
         keep_ids.append(obj.pk)
         result.append(obj)
-    model_cls.objects.filter(matriz=matriz).exclude(pk__in=keep_ids).delete()
+    if delete_stale:
+        model_cls.objects.filter(matriz=matriz).exclude(pk__in=keep_ids).delete()
     return result
 
 
@@ -4133,6 +5264,7 @@ def _ensure_matrix_strategy_dimensions_legacy(estrategia, matrix_name, prob_defs
             dimension=prob_dimension,
             orden=next_order,
             obligatorio=True,
+            proceso_uso=models.EstrategiaDimension.PROCESO_ACA,
             activo=True,
         )
         next_order += 1
@@ -4144,8 +5276,9 @@ def _ensure_matrix_strategy_dimensions_legacy(estrategia, matrix_name, prob_defs
         prob_dimension.tipo_dato = 'numerico'
         prob_dimension.save()
         prob_dim.obligatorio = True
+        prob_dim.proceso_uso = models.EstrategiaDimension.PROCESO_ACA
         prob_dim.activo = True
-        prob_dim.save(update_fields=['obligatorio', 'activo'])
+        prob_dim.save(update_fields=['obligatorio', 'proceso_uso', 'activo'])
 
     if not impact_dim:
         impact_dimension = models.Dimension.objects.create(
@@ -4159,6 +5292,7 @@ def _ensure_matrix_strategy_dimensions_legacy(estrategia, matrix_name, prob_defs
             dimension=impact_dimension,
             orden=next_order,
             obligatorio=True,
+            proceso_uso=models.EstrategiaDimension.PROCESO_ACA,
             activo=True,
         )
     else:
@@ -4169,8 +5303,9 @@ def _ensure_matrix_strategy_dimensions_legacy(estrategia, matrix_name, prob_defs
         impact_dimension.tipo_dato = 'numerico'
         impact_dimension.save()
         impact_dim.obligatorio = True
+        impact_dim.proceso_uso = models.EstrategiaDimension.PROCESO_ACA
         impact_dim.activo = True
-        impact_dim.save(update_fields=['obligatorio', 'activo'])
+        impact_dim.save(update_fields=['obligatorio', 'proceso_uso', 'activo'])
 
     return prob_dim, impact_dim
 
@@ -4200,8 +5335,9 @@ def _update_generated_matrix_axis_dimension(estrategia_dimension, axis, matrix_n
     dimension.tipo_dato = 'numerico'
     dimension.save()
     estrategia_dimension.obligatorio = True
+    estrategia_dimension.proceso_uso = models.EstrategiaDimension.PROCESO_ACA
     estrategia_dimension.activo = True
-    estrategia_dimension.save(update_fields=['obligatorio', 'activo'])
+    estrategia_dimension.save(update_fields=['obligatorio', 'proceso_uso', 'activo'])
     return estrategia_dimension
 
 
@@ -4218,6 +5354,7 @@ def _create_generated_matrix_axis_dimension(estrategia, axis, matrix_name, order
         dimension=dimension,
         orden=order,
         obligatorio=True,
+        proceso_uso=models.EstrategiaDimension.PROCESO_ACA,
         activo=True,
     )
 
@@ -4265,8 +5402,10 @@ def _ensure_matrix_strategy_dimensions(
 
 @transaction.atomic
 def _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload):
-    prob_levels = _sync_matrix_levels(matriz, models.NivelProbabilidad, prob_defs)
-    impact_levels = _sync_matrix_levels(matriz, models.NivelImpacto, impact_defs)
+    prob_levels = _sync_matrix_levels(matriz, models.NivelProbabilidad, prob_defs, delete_stale=False)
+    impact_levels = _sync_matrix_levels(matriz, models.NivelImpacto, impact_defs, delete_stale=False)
+    keep_prob_level_ids = [level.pk for level in prob_levels]
+    keep_impact_level_ids = [level.pk for level in impact_levels]
 
     prob_by_idx = {idx + 1: level for idx, level in enumerate(prob_levels)}
     impact_by_idx = {idx + 1: level for idx, level in enumerate(impact_levels)}
@@ -4283,10 +5422,11 @@ def _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload):
             cell = existing.get((prob_idx, impact_idx)) or models.MatrizRiesgoCelda(matriz=matriz, probabilidad=prob, impacto_nivel=impact)
             result_num = payload.get('resultado_num')
             if result_num is None:
-                try:
-                    result_num = Decimal(str(prob.valor)) * Decimal(str(impact.valor))
-                except (InvalidOperation, ValueError, TypeError):
-                    result_num = Decimal('0')
+                prob_value = _decimal_or_none(prob.valor)
+                impact_value = _decimal_or_none(impact.valor)
+                result_num = ((prob_value or Decimal('0')) * (impact_value or Decimal('0'))).quantize(_MATRIX_DECIMAL_STEP)
+            else:
+                result_num = _quantize_matrix_decimal(result_num) or Decimal('0.00')
             cell.resultado_num = result_num
             cell.clasificacion = str(payload.get('clasificacion') or '')
             cell.color = str(payload.get('color') or '#2a2a3a')
@@ -4295,6 +5435,8 @@ def _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload):
             keep_ids.append(cell.pk)
 
     models.MatrizRiesgoCelda.objects.filter(matriz=matriz).exclude(pk__in=keep_ids).delete()
+    models.NivelProbabilidad.objects.filter(matriz=matriz).exclude(pk__in=keep_prob_level_ids).delete()
+    models.NivelImpacto.objects.filter(matriz=matriz).exclude(pk__in=keep_impact_level_ids).delete()
 
 
 @transaction.atomic
@@ -4303,7 +5445,11 @@ def matriz_builder_new(request):
     display_legend = None
     if request.method == 'POST':
         strategy = request.POST.get('estrategia') or None
-        builder_form = MatrizBuilderForm(request.POST, strategy=strategy)
+        builder_form = MatrizBuilderForm(
+            request.POST,
+            strategy=strategy,
+            initial={'fecha_creado': timezone.localdate()},
+        )
         if builder_form.is_valid():
             action = request.POST.get('action', 'preview')
             cd = builder_form.cleaned_data
@@ -4317,8 +5463,9 @@ def matriz_builder_new(request):
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
+            result_values = _matrix_result_values(prob_defs, impact_defs)
             raw_legend_items = _json_payload(request, 'legend_items_json', []) or []
-            legend_items, legend_error = _validate_legend_items(raw_legend_items, min_value, max_value)
+            legend_items, legend_error = _validate_legend_items(raw_legend_items, min_value, max_value, result_values)
             display_legend = legend_items or _safe_legend_items(raw_legend_items)
             matrix_preview = _matrix_preview_from_defs(selected_axis, prob_defs, impact_defs, cell_payload, cd['estrategia'], None, None, legend_items or display_legend)
             if legend_error:
@@ -4339,7 +5486,10 @@ def matriz_builder_new(request):
                     eje_horizontal=selected_axis,
                     dimension_probabilidad=prob_dim,
                     dimension_impacto=impact_dim,
-                    leyenda_json=json.dumps(legend_items, ensure_ascii=False),
+                    leyenda_json=json.dumps(
+                        _matrix_legend_payload(legend_items, cd.get('modo_resolucion')),
+                        ensure_ascii=False,
+                    ),
                 )
                 _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload)
                 messages.success(request, 'La matriz se creó correctamente y sus dimensiones se asignaron automáticamente.')
@@ -4350,6 +5500,7 @@ def matriz_builder_new(request):
         builder_form = MatrizBuilderForm(initial={
             'fecha_creado': timezone.localdate(),
             'eje_horizontal': 'impacto',
+            'modo_resolucion': models.MatrizRiesgo.RESOLUCION_EXACTA,
             'x_count': 5,
             'y_count': 5,
         })
@@ -4377,7 +5528,11 @@ def matriz_builder_edit(request, pk):
     display_legend = None
     if request.method == 'POST':
         strategy = request.POST.get('estrategia') or matriz.estrategia_id
-        builder_form = MatrizBuilderForm(request.POST, strategy=strategy)
+        builder_form = MatrizBuilderForm(
+            request.POST,
+            strategy=strategy,
+            initial={'fecha_creado': matriz.fecha_creado},
+        )
         if builder_form.is_valid():
             action = request.POST.get('action', 'preview')
             cd = builder_form.cleaned_data
@@ -4391,8 +5546,9 @@ def matriz_builder_edit(request, pk):
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
+            result_values = _matrix_result_values(prob_defs, impact_defs)
             raw_legend_items = _json_payload(request, 'legend_items_json', []) or []
-            legend_items, legend_error = _validate_legend_items(raw_legend_items, min_value, max_value)
+            legend_items, legend_error = _validate_legend_items(raw_legend_items, min_value, max_value, result_values)
             display_legend = legend_items or _safe_legend_items(raw_legend_items)
             matrix_preview = _matrix_preview_from_defs(selected_axis, prob_defs, impact_defs, cell_payload, cd['estrategia'], matriz.dimension_probabilidad, matriz.dimension_impacto, legend_items or display_legend)
             if legend_error:
@@ -4414,7 +5570,10 @@ def matriz_builder_edit(request, pk):
                 matriz.eje_horizontal = selected_axis
                 matriz.dimension_probabilidad = prob_dim
                 matriz.dimension_impacto = impact_dim
-                matriz.leyenda_json = json.dumps(legend_items, ensure_ascii=False)
+                matriz.leyenda_json = json.dumps(
+                    _matrix_legend_payload(legend_items, cd.get('modo_resolucion')),
+                    ensure_ascii=False,
+                )
                 matriz.save()
                 _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload)
                 messages.success(request, 'La matriz se actualizó correctamente y sus dimensiones se ajustaron automáticamente.')
@@ -4448,6 +5607,7 @@ def matriz_builder_edit(request, pk):
             'dimension_probabilidad': matriz.dimension_probabilidad,
             'dimension_impacto': matriz.dimension_impacto,
             'eje_horizontal': matriz.eje_horizontal,
+            'modo_resolucion': _matrix_resolution_mode(matriz),
             'x_count': len(matrix_preview['x_defs']),
             'y_count': len(matrix_preview['rows']),
         }, strategy=matriz.estrategia)
@@ -4459,3 +5619,4 @@ def matriz_builder_edit(request, pk):
         'matrix_preview': matrix_preview,
         'matrix_ui_state': _matrix_ui_payload(matrix_preview, stored_legend=display_legend or []),
     })
+

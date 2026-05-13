@@ -82,7 +82,12 @@
             </div>
             <div><strong>{{ form.creado_por_usuario.label }}</strong></div>
             <div>
-                {{ form.creado_por_usuario }}
+                {% if mode == 'create' and form.creador_usuario %}
+                    <input type="text" class="input-control" value="{{ form.creador_usuario }}" readonly>
+                    <input type="hidden" name="{{ form.creado_por_usuario.html_name }}" value="{{ form.creador_usuario.pk }}">
+                {% else %}
+                    {{ form.creado_por_usuario }}
+                {% endif %}
                 {% if form.creado_por_usuario.help_text %}<small>{{ form.creado_por_usuario.help_text }}</small>{% endif %}
                 {{ form.creado_por_usuario.errors }}
             </div>

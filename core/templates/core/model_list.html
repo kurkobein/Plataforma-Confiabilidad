@@ -31,7 +31,7 @@
 </div>
 
 <div class="table-wrap">
-    <table id="modelTable" class="datatable display">
+    <table id="modelTable" class="display">
         <thead>
             <tr>
                 {% for field in list_fields %}
@@ -44,7 +44,13 @@
             {% for row in rows %}
                 <tr>
                     {% for field in list_fields %}
-                        <td>{{ row|attr:field.name }}</td>
+                        <td>
+                            {% if model_key == 'equipo' and field.name == 'tag_equipo' %}
+                                {{ row.tag_display }}
+                            {% else %}
+                                {{ row|attr:field.name }}
+                            {% endif %}
+                        </td>
                     {% endfor %}
                     <td>
                         <div class="actions">
@@ -89,6 +95,18 @@
     </table>
 </div>
 
-
+{% if page_obj.has_other_pages %}
+<div class="actions" style="margin-top:12px;">
+    {% if page_obj.has_previous %}
+        <a class="btn" href="?page=1{% if search %}&q={{ search|urlencode }}{% endif %}">Primera</a>
+        <a class="btn" href="?page={{ page_obj.previous_page_number }}{% if search %}&q={{ search|urlencode }}{% endif %}">Anterior</a>
+    {% endif %}
+    <span class="muted">Pagina {{ page_obj.number }} de {{ paginator.num_pages }} · {{ page_size }} por pagina</span>
+    {% if page_obj.has_next %}
+        <a class="btn" href="?page={{ page_obj.next_page_number }}{% if search %}&q={{ search|urlencode }}{% endif %}">Siguiente</a>
+        <a class="btn" href="?page={{ paginator.num_pages }}{% if search %}&q={{ search|urlencode }}{% endif %}">Ultima</a>
+    {% endif %}
+</div>
+{% endif %}
 
 {% endblock %}

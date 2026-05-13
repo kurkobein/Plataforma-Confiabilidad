@@ -129,9 +129,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       <div class="form-grid">
         {% for field in builder_form %}
         {% if field.name != 'dimension_probabilidad' and field.name != 'dimension_impacto' %}
-        <div
-          class="form-field {% if field.name == 'estrategia' or field.name == 'nombre' %}full{% endif %}"
-        >
+        <div class="form-field {% if field.name == 'estrategia' or field.name == 'nombre' %}full{% endif %}">
           <label for="{{ field.id_for_label }}">{{ field.label }}</label>
           {{ field }} {% if field.errors %}
           <div style="color: #b91c1c; font-size: 13px">{{ field.errors }}</div>
@@ -226,13 +224,13 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     let probDefs = (state.prob_defs || []).map((item, i) => ({
       idx: i + 1,
       nombre: item.nombre || `P${i + 1}`,
-      valor: parseInt(item.valor ?? i + 1, 10),
+      valor: decimalValue(item.valor ?? i + 1, i + 1),
       descripcion: item.descripcion || "",
     }));
     let impactDefs = (state.impact_defs || []).map((item, i) => ({
       idx: i + 1,
       nombre: item.nombre || `I${i + 1}`,
-      valor: parseInt(item.valor ?? i + 1, 10),
+      valor: decimalValue(item.valor ?? i + 1, i + 1),
       descripcion: item.descripcion || "",
     }));
     let legendItems = (state.legend || []).map((item) => ({
@@ -241,21 +239,34 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       color: item.color || "#6c63ff",
     }));
 
-    function integerValue(value, fallback) {
-      const parsed = parseInt(value, 10);
+    function decimalValue(value, fallback) {
+      const parsed = Number(String(value ?? "").trim().replace(",", "."));
       return Number.isFinite(parsed) ? parsed : fallback;
     }
+    function round2(value) {
+      return Math.round((value + Number.EPSILON) * 100) / 100;
+    }
+    function formatNumber(value) {
+      const parsed = decimalValue(value, 0);
+      if (!Number.isFinite(parsed)) return "";
+      const rounded = round2(parsed);
+      return Number.isInteger(rounded)
+        ? String(rounded)
+        : String(rounded.toFixed(2)).replace(/0+$/, "").replace(/\.$/, "");
+    }
     function ensureDefinitions() {
-      rows = Math.max(2, integerValue(yCountInput.value, rows));
-      cols = Math.max(2, integerValue(xCountInput.value, cols));
-      while (probDefs.length < rows)
+      rows = Math.max(2, parseInt(yCountInput.value, 10) || rows);
+      cols = Math.max(2, parseInt(xCountInput.value, 10) || cols);
+      const probCount = axisSelect.value === "impacto" ? rows : cols;
+      const impactCount = axisSelect.value === "impacto" ? cols : rows;
+      while (probDefs.length < probCount)
         probDefs.push({
           idx: probDefs.length + 1,
           nombre: `P${probDefs.length + 1}`,
           valor: probDefs.length + 1,
           descripcion: "",
         });
-      while (impactDefs.length < cols)
+      while (impactDefs.length < impactCount)
         impactDefs.push({
           idx: impactDefs.length + 1,
           nombre: `I${impactDefs.length + 1}`,
@@ -263,51 +274,51 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
           descripcion: "",
         });
       probDefs = probDefs
-        .slice(0, rows)
+        .slice(0, probCount)
         .map((item, i) => ({
           ...item,
           idx: i + 1,
-          valor: integerValue(item.valor, i + 1),
+          valor: decimalValue(item.valor, i + 1),
         }));
       impactDefs = impactDefs
-        .slice(0, cols)
+        .slice(0, impactCount)
         .map((item, i) => ({
           ...item,
           idx: i + 1,
-          valor: integerValue(item.valor, i + 1),
+          valor: decimalValue(item.valor, i + 1),
         }));
     }
     function parseRange(rangeText) {
       const m = String(rangeText || "")
         .trim()
-        .match(/^(\-?\d+)\s*-\s*(\-?\d+)$/);
+        .match(/^(\-?\d+(?:[\.,]\d+)?)\s*-\s*(\-?\d+(?:[\.,]\d+)?)$/);
       if (!m) return null;
-      const start = Number(m[1]);
-      const end = Number(m[2]);
+      const start = decimalValue(m[1], NaN);
+      const end = decimalValue(m[2], NaN);
       return Number.isFinite(start) && Number.isFinite(end) && end >= start
-        ? { start, end }
+        ? { start: round2(start), end: round2(end) }
         : null;
     }
     function bounds() {
+      const values = matrixValues();
+      return { min: Math.min(...values), max: Math.max(...values) };
+    }
+    function matrixValues() {
       const values = [];
       probDefs.forEach((p) =>
         impactDefs.forEach((i) =>
-          values.push(integerValue(p.valor, 1) * integerValue(i.valor, 1)),
+          values.push(round2(decimalValue(p.valor, 1) * decimalValue(i.valor, 1))),
         ),
       );
-      return { min: Math.min(...values), max: Math.max(...values) };
+      return values;
     }
     function defaultLegend() {
       const b = bounds();
-      const span = Math.max(b.max - b.min + 1, 1);
-      const step = Math.max(Math.floor(span / 4), 1);
-      const cuts = [
-        b.min,
-        b.min + step,
-        b.min + step * 2,
-        b.min + step * 3,
-        b.max + 1,
-      ];
+      if (b.min === b.max || round2(b.max - b.min) < 0.04) {
+        return [{ name: "Bajo", range: `${formatNumber(b.min)}-${formatNumber(b.max)}`, color: "#2ecc71" }];
+      }
+      const span = Math.max(b.max - b.min, 0);
+      const step = span > 0 ? round2(span / 4) : 1;
       const labels = [
         ["Bajo", "#2ecc71"],
         ["Medio", "#f1c40f"],
@@ -316,14 +327,14 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       ];
       let current = b.min;
       return labels.map((item, idx) => {
-        let end = idx < 3 ? cuts[idx + 1] - 1 : b.max;
+        let end = idx < 3 ? round2(b.min + step * (idx + 1)) : b.max;
         end = Math.min(b.max, Math.max(current, end));
         const payload = {
           name: item[0],
-          range: `${current}-${end}`,
+          range: `${formatNumber(current)}-${formatNumber(end)}`,
           color: item[1],
         };
-        current = end + 1;
+        current = round2(end + 0.01);
         return payload;
       });
     }
@@ -342,37 +353,27 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       if (invalid) {
         if (showMessage)
           showLegendError(
-            `El rango "${invalid.range}" no es válido. Usa el formato 1-4.`,
+            `El rango "${invalid.range}" no es valido. Usa el formato 0,1-4,5.`,
           );
         return false;
       }
       parsed.sort((a, b) => a.parsed.start - b.parsed.start);
-      const { min, max } = bounds();
-      let expected = min;
-      if (parsed[0].parsed.start !== min) {
+      const uncovered = matrixValues().filter(
+        (value) =>
+          !parsed.some(
+            (item) => value >= item.parsed.start && value <= item.parsed.end,
+          ),
+      );
+      if (uncovered.length) {
+        const samples = [...new Set(uncovered.map(formatNumber))].slice(0, 5).join(", ");
         if (showMessage)
-          showLegendError(`La leyenda debe comenzar exactamente en ${min}.`);
-        return false;
-      }
-      for (const item of parsed) {
-        if (item.parsed.start !== expected) {
-          if (showMessage)
-            showLegendError(
-              `Los rangos no pueden saltarse valores. Después de ${expected - 1} debe venir ${expected}.`,
-            );
-          return false;
-        }
-        expected = item.parsed.end + 1;
-      }
-      if (expected - 1 !== max) {
-        if (showMessage)
-          showLegendError(`La leyenda debe terminar exactamente en ${max}.`);
+          showLegendError(`La leyenda no cubre los valores calculados: ${samples}. Ajusta los rangos para incluirlos.`);
         return false;
       }
       hideLegendError();
       legendItems = parsed.map((item) => ({
         name: item.name,
-        range: `${item.parsed.start}-${item.parsed.end}`,
+        range: `${formatNumber(item.parsed.start)}-${formatNumber(item.parsed.end)}`,
         color: item.color,
       }));
       return true;
@@ -413,7 +414,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       document.getElementById("axisXLabel").textContent = "Eje X: " + a.x;
       document.getElementById("axisYLabel").textContent = "Eje Y: " + a.y;
       document.getElementById("valueBoundsLabel").textContent =
-        `Valores: ${b.min} a ${b.max}`;
+        `Valores: ${formatNumber(b.min)} a ${formatNumber(b.max)}`;
     }
     function levelForColumn(idx) {
       return axisSelect.value === "impacto" ? impactDefs[idx] : probDefs[idx];
@@ -479,9 +480,10 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
         for (let c = 0; c < cols; c++) {
           const probIdx = axisSelect.value === "impacto" ? r + 1 : c + 1;
           const impactIdx = axisSelect.value === "impacto" ? c + 1 : r + 1;
-          const result =
-            integerValue(probDefs[probIdx - 1]?.valor, probIdx) *
-            integerValue(impactDefs[impactIdx - 1]?.valor, impactIdx);
+          const result = round2(
+            decimalValue(probDefs[probIdx - 1]?.valor, probIdx) *
+              decimalValue(impactDefs[impactIdx - 1]?.valor, impactIdx),
+          );
           const legend = matchLegend(result);
           row.push({
             prob_idx: probIdx,
@@ -511,8 +513,9 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
             >
             <div>
               <input 
-                type="number" 
-                value="${def.valor}" 
+                type="text"
+                inputmode="decimal"
+                value="${formatNumber(def.valor)}"
                 oninput="window.__mb.setColumnValue(${c}, this.value)"
               >
             </div>
@@ -527,8 +530,9 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
             <input value="${rowDef.nombre || ""}" oninput="window.__mb.setRowName(${r}, this.value)">
             <div>
               <input 
-              type="number" 
-              value="${rowDef.valor}" 
+              type="text"
+              inputmode="decimal"
+              value="${formatNumber(rowDef.valor)}"
               oninput="window.__mb.setRowValue(${r}, this.value)"
               >
             </div>
@@ -541,7 +545,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
               data-cell="${r}-${c}" 
               style="background:${cell.color};"
             >
-              <strong>${cell.resultado_num}</strong>
+              <strong>${formatNumber(cell.resultado_num)}</strong>
               <div>${cell.clasificacion || ""}</div>
             </td>`;
         }
@@ -582,7 +586,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
 
           const cell = cells[r][c];
           td.style.background = cell.color;
-          td.querySelector("strong").textContent = cell.resultado_num;
+          td.querySelector("strong").textContent = formatNumber(cell.resultado_num);
           td.querySelector("div").textContent = cell.clasificacion || "";
         }
       }

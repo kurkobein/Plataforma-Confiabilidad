@@ -1,4 +1,4 @@
-from django.urls import path
+﻿from django.urls import path
 from . import views
 
 urlpatterns = [
@@ -11,9 +11,14 @@ urlpatterns = [
     path('servicios/<int:pk>/accesos/', views.service_access_manage, name='service_access_manage'),
     path('servicios/<int:pk>/dimensiones/', views.service_dimensions, name='service_dimensions'),
     path('servicios/<int:pk>/aca/', views.service_aca_list, name='service_aca_list'),
+    path('servicios/<int:pk>/aca/exportar/<str:formato>/', views.service_aca_export, name='service_aca_export'),
     path('servicios/<int:pk>/aca/nuevo/', views.service_aca_new, name='service_aca_new'),
     path('servicios/<int:pk>/rcm/', views.service_rcm_list, name='service_rcm_list'),
+    path('servicios/<int:pk>/rcm/exportar/<str:formato>/', views.service_rcm_export, name='service_rcm_export'),
+    path('servicios/<int:pk>/rcm/tareas/configuracion/', views.service_rcm_task_config, name='service_rcm_task_config'),
     path('servicios/<int:pk>/rcm/nuevo/', views.service_rcm_new, name='service_rcm_new'),
+    path('servicios/<int:service_pk>/rcm/<int:rcm_pk>/editar/', views.service_rcm_edit, name='service_rcm_edit'),
+    path('servicios/<int:service_pk>/rcm/<int:rcm_pk>/eliminar/', views.service_rcm_delete, name='service_rcm_delete'),
     path('servicios/<int:pk>/equipos/niveles/', views.service_equipment_levels, name='service_equipment_levels'),
     path('servicios/<int:pk>/equipos/nodos/', views.service_equipment_nodes, name='service_equipment_nodes'),
     path('servicios/<int:pk>/equipos/buscar/', views.service_equipment_search, name='service_equipment_search'),
@@ -21,6 +26,7 @@ urlpatterns = [
     path('servicios/<int:service_pk>/matrices/<int:matrix_pk>/', views.service_matrix_view, name='service_matrix_view'),
 
     path('aca/nuevo/', views.aca_registro_new, name='aca_registro_new'),
+    path('rcm/', views.rcm_index, name='rcm_index'),
     path('estrategias/<int:pk>/tablas/', views.dimension_tables_editor, name='dimension_tables_editor'),
     path('matrices/nueva/', views.matriz_builder_new, name='matriz_builder_new'),
     path('matrices/<int:pk>/builder/', views.matriz_builder_edit, name='matriz_builder_edit'),
@@ -44,3 +50,4 @@ urlpatterns = [
     path('servicios/<int:service_pk>/aca/<int:crit_pk>/eliminar/', views.service_aca_delete, name='service_aca_delete'),
 
 ]
+

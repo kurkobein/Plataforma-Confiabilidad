@@ -17,17 +17,6 @@
     </div>
 </div>
 
-<div>
-    <strong>Metodologías</strong>
-    <p>
-        {% for metodologia in service.metodologias.all %}
-            {{ metodologia.abreviatura }}{% if not forloop.last %}, {% endif %}
-        {% empty %}
-            Sin metodologías asociadas
-        {% endfor %}
-    </p>
-</div>
-
 <div class="grid-3">
     <div class="stat">
         <small>Empresa</small>
@@ -36,7 +25,7 @@
     </div>
     <div class="stat">
         <small>Registros</small>
-        <strong>{{ aca_count }}</strong>
+        <strong>{{ total_count }}</strong>
         <div class="muted">Dimensiones activas: {{ dimension_count }}</div>
     </div>
     <div class="stat">
@@ -61,7 +50,9 @@
     <div class="card">
         <h3 class="card-title">Módulos del servicio</h3>
         <div style="display:grid; gap:10px;">
-            <div class="stat"><small>ACA</small><strong style="font-size:18px;">Activo</strong>
+            <div class="stat">
+                <small>ACA</small>
+                <strong style="font-size:18px;">{{ aca_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn" href="{% url 'service_aca_list' service.pk %}">
                         Ver registros
@@ -72,9 +63,8 @@
                 </div>
             </div>
             <div class="stat">
-                <small>RCM</small>
+                <small>RCM/FMEA</small>
                 <strong style="font-size:18px;">{{ rcm_count }}</strong>
-                <div class="muted">Registros RCM/FMEA</div>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn" href="{% url 'service_rcm_list' service.pk %}">
                         Ver registros
@@ -85,7 +75,7 @@
                 </div>
             </div>
             <div class="stat">
-                <small>FMECA</small>
+                <small>PAUTAS</small>
                 <strong style="font-size:18px;">
                     Próximamente
                 </strong>
@@ -135,6 +125,7 @@
                     <tr>
                         <th>Orden</th>
                         <th>Dimensión</th>
+                        <th>Uso</th>
                         <th>Tipo funcional</th>
                         <th>Tipo dato</th>
                         <th>Origen</th>
@@ -145,6 +136,7 @@
                         <tr>
                             <td>{{ item.orden }}</td>
                             <td>{{ item.dimension.nombre }}</td>
+                            <td>{{ item.proceso_uso_display }}</td>
                             <td>{{ item.dimension.tipo_funcional }}</td>
                             <td>{{ item.dimension.tipo_dato }}</td>
                             <td>
@@ -205,7 +197,7 @@
 <div class="card">
     <h3 class="card-title">Accesos del servicio</h3>
     <p class="muted" style="margin-top:-4px;">Solo los usuarios agregados en esta sección podrán ver este servicio. Los que tengan permiso "Editar" también podrán registrar y modificar información del servicio.</p>
-    <div class="grid-2">
+    <div class="grid-4">
         <div>
             <form method="post" action="{% url 'service_access_manage' service.pk %}">
                 {% csrf_token %}

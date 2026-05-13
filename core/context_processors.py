@@ -1,4 +1,4 @@
-from collections import OrderedDict
+﻿from collections import OrderedDict
 
 from .access import get_accessible_services, get_profile_for_user
 from .registry import MODEL_REGISTRY
@@ -13,6 +13,8 @@ def navigation_context(request):
         if request.user.is_superuser:
             for key, config in MODEL_REGISTRY.items():
                 if not config.get('show_in_sidebar', True):
+                    continue
+                if not config.get('allow_direct_crud', True):
                     continue
                 groups.setdefault(config['group'], []).append({
                     'key': key,
@@ -35,3 +37,4 @@ def empresa_usuario(request):
         'empresa_usuario': empresa,
         'perfil_usuario': perfil,
     }
+

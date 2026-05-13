@@ -39,6 +39,8 @@
                     {% else %}
                         -
                     {% endif %}
+                {% elif model_key == 'equipo' and field.name == 'tag_equipo' %}
+                    {{ object.tag_display }}
                 {% else %}
                     {{ object|attr:field.name }}
                 {% endif %}

@@ -53,6 +53,67 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     margin-top: 4px;
   }
 
+  .process-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .process-group + .process-group {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .process-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+
+  .process-group-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .process-toggle {
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--muted);
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .process-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .process-group.compact .process-group-body {
+    display: none;
+  }
+
+  .process-group-empty {
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    background: #fff;
+  }
+
   .main-body {
     padding: 16px;
     display: flex;
@@ -163,6 +224,28 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     font-size: 13px;
   }
 
+  .checkbox-select {
+    height: auto;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
+
+  .checkbox-select label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    margin: 0;
+  }
+
+  .checkbox-select input {
+    margin: 0;
+  }
+
   @media (max-width: 1100px) {
 
     .editor-shell,
@@ -265,6 +348,18 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
               {% endfor %}
             </select>
           </div>
+          <div>
+            <label>Uso</label>
+            <div class="input-control checkbox-select" id="fProcesoUso" role="group" aria-label="Uso de la dimensión">
+              {% for value,label in procesos_uso %}
+              {% if value != 'ambos' %}
+              <label><input type="checkbox" value="{{ value }}" data-process-checkbox
+                  onchange="updateProcessUsage()" /> {{ label }}</label>
+              {% endif %}
+              {% endfor %}
+            </div>
+            <small class="muted">Puedes seleccionar ACA, RCM o ambos.</small>
+          </div>
           <div id="calcSourcesBlock">
             <label>Operandos del cálculo</label>
             <div id="calcSourcesWrap" class="input-control" style="
@@ -287,7 +382,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
           <div id="dependencyBlock">
             <label>Depende de resultado</label>
             <select class="input-control" id="fDependencia" onchange="updateDependency(this.value)"></select>
-            <small class="muted">Selecciona la dimensiÃ³n calculada o tabla que resolverÃ¡ automÃ¡ticamente la fila.</small>
+            <small class="muted">Selecciona la dimensión calculada o tabla que resolverá automáticamente la fila.</small>
           </div>
           <div style="display: flex; align-items: end">
             <label><input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
@@ -319,10 +414,80 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 </div>
 {% endblock %} {% block extra_js %}
 <script>
-  const store = { items: {{ editor_payload_json| safe }}, active: null};
+  const store = { items: {{ editor_payload_json| safe }}, active: null, collapsedGroups: {}};
   const columnTypeOptions = [{% for value, label in tipos_columna %}{ value: '{{ value }}', label: '{{ label }}' }, {% endfor %}];
+  const processOptions = [{% for value, label in procesos_uso %}{ value: '{{ value }}', label: '{{ label }}' }, {% endfor %}];
   function current() { return store.items.find(x => String(x.id) === String(store.active)) || null; }
   function slugifyLite(v) { return (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 100); }
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+  }
+  function processLabel(value) { return (processOptions.find(opt => opt.value === (value || 'aca')) || processOptions[0] || { label: 'ACA' }).label; }
+  function processGroupTitle(value) {
+    if (value === 'rcm') return 'Tablas de RCM';
+    if (value === 'ambos') return 'Tablas compartidas ACA y RCM';
+    return 'Tablas de ACA';
+  }
+  function processGroupOrder(value) {
+    if (value === 'aca') return 1;
+    if (value === 'rcm') return 2;
+    if (value === 'ambos') return 3;
+    return 4;
+  }
+  function isGroupCollapsed(value) {
+    return store.collapsedGroups[value || 'aca'] === true;
+  }
+  function setGroupCollapsed(value, collapsed) {
+    store.collapsedGroups[value || 'aca'] = collapsed === true;
+  }
+  function toggleProcessGroup(value) {
+    setGroupCollapsed(value, !isGroupCollapsed(value));
+    renderList();
+  }
+  function expandItemGroup(item) {
+    if (item) setGroupCollapsed(item.proceso_uso || 'aca', false);
+  }
+  function processValues(value) {
+    if (value === 'ambos') return ['aca', 'rcm'];
+    if (value === 'rcm') return ['rcm'];
+    return ['aca'];
+  }
+  function processValueFromSelection(values) {
+    const selected = new Set(values || []);
+    const hasAca = selected.has('aca');
+    const hasRcm = selected.has('rcm');
+    if (hasAca && hasRcm) return 'ambos';
+    if (hasRcm) return 'rcm';
+    return 'aca';
+  }
+  function syncProcessCheckboxes(item) {
+    const selected = processValues(item?.proceso_uso || 'aca');
+    document.querySelectorAll('[data-process-checkbox]').forEach(input => {
+      input.checked = selected.includes(input.value);
+    });
+  }
+  function updateProcessUsage() {
+    const item = current(); if (!item) return;
+    const selected = Array.from(document.querySelectorAll('[data-process-checkbox]:checked')).map(input => input.value);
+    item.proceso_uso = processValueFromSelection(selected);
+    expandItemGroup(item);
+    syncProcessCheckboxes(item);
+    renderList();
+    renderCalculationSources();
+    renderDependencySources();
+  }
+  function processCompatible(target, source) {
+    const targetProcess = target.proceso_uso || 'aca';
+    const sourceProcess = source.proceso_uso || 'aca';
+    if (targetProcess === 'ambos') return sourceProcess === 'ambos';
+    return sourceProcess === targetProcess || sourceProcess === 'ambos';
+  }
   function isCalculated(item) { return !!(item && item.tipo_calculo); }
   function sourceKey(src) {
     if (!src) return '';
@@ -417,9 +582,30 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     const list = document.getElementById('itemsList');
     document.getElementById('itemsCount').textContent = store.items.length;
     if (!store.items.length) { list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin dimensiones todavía.</div>'; return; }
-    list.innerHTML = store.items.map(it => {
-      const dep = dependencyValue(it);
-      return `<div class="item-card ${String(it.id) === String(store.active) ? 'active' : ''}" onclick="selectItem('${it.id}')"><strong>${it.nombre || 'Sin nombre'}</strong><div class="meta">${it.tipo_funcional || '-'} | ${it.tipo_dato || '-'} | ${it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')}${dep ? ' | depende: ' + dep : ''}</div></div>`;
+    const grouped = store.items.reduce((acc, item) => {
+      const key = item.proceso_uso || 'aca';
+      acc[key] = acc[key] || [];
+      acc[key].push(item);
+      return acc;
+    }, {});
+    const groups = Object.keys(grouped).sort((a, b) => processGroupOrder(a) - processGroupOrder(b));
+    list.innerHTML = groups.map(groupKey => {
+      const collapsed = isGroupCollapsed(groupKey);
+      const cards = grouped[groupKey].map(it => {
+        const dep = dependencyValue(it);
+        const activeClass = String(it.id) === String(store.active) ? 'active' : '';
+        const meta = [
+          processLabel(it.proceso_uso),
+          it.tipo_funcional || '-',
+          it.tipo_dato || '-',
+          it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')
+        ];
+        if (dep) meta.push('depende: ' + dep);
+        return `<div class="item-card ${activeClass}" onclick="selectItem('${escapeHtml(it.id)}')"><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong><div class="meta">${escapeHtml(meta.join(' | '))}</div></div>`;
+      }).join('');
+      const toggleLabel = collapsed ? '+' : '-';
+      const toggleTitle = collapsed ? 'Desplegar grupo' : 'Compactar grupo';
+      return `<div class="process-group ${collapsed ? 'compact' : ''}"><div class="process-group-head"><span class="process-group-title"><button class="process-toggle" type="button" title="${toggleTitle}" onclick="toggleProcessGroup('${escapeHtml(groupKey)}')">${toggleLabel}</button><span>${escapeHtml(processGroupTitle(groupKey))}</span></span><span class="pill">${grouped[groupKey].length}</span></div><div class="process-group-body">${cards}</div></div>`;
     }).join('');
   }
   function renderEditor() {
@@ -430,7 +616,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     ensureColumns(item); ensureRows(item);
     document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
     fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
-    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false;
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false;
     const calculated = isCalculated(item);
     catalogTypeBlock.style.display = calculated ? 'none' : '';
     catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
@@ -448,7 +634,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     const item = current(); if (!item) return;
     item.config_calculo = item.config_calculo || {};
     item.config_calculo.operandos = Array.isArray(item.config_calculo.operandos) ? item.config_calculo.operandos : [];
-    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    const sources = store.items.filter(x => String(x.id) !== String(item.id) && processCompatible(item, x));
     if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin cálculo.</span>'; return; }
     if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span>'; return; }
     calcSourcesWrap.innerHTML = sources.map(src => {
@@ -490,7 +676,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function renderCalculationSources() {
     const item = current(); if (!item) return;
     item.config_calculo = item.config_calculo || {};
-    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    const sources = store.items.filter(x => String(x.id) !== String(item.id) && processCompatible(item, x));
     if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin calculo.</span>'; return; }
     const steps = calculationSteps(item);
     fTipoCalculo.value = item.tipo_calculo || '';
@@ -574,7 +760,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function renderDependencySources() {
     const item = current(); if (!item || !dependencyBlock) return;
     const selected = refSelectionKey(dependencyRef(item));
-    const sources = store.items.filter(x => String(x.id) !== String(item.id));
+    const sources = store.items.filter(x => String(x.id) !== String(item.id) && processCompatible(item, x));
     fDependencia.innerHTML = '<option value="">Sin dependencia</option>' + sources.map(src => {
       const key = sourceKey(src);
       return `<option value="${key}" ${key === selected ? 'selected' : ''}>${src.nombre || src.campo || key}</option>`;
@@ -640,16 +826,16 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     const step = col.tipo_dato === 'numero' ? 'step="0.01"' : '';
     return `<input type="${type}" ${step} value="${value}" oninput="updateCell(${rowIdx},'${col.clave_interna}',this.value)">`;
   }
-  function selectItem(id) { store.active = id; renderList(); renderEditor(); }
+  function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
   function newItem() {
     const id = 'new_' + Date.now();
-    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', obligatorio: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
-    store.active = id; renderList(); renderEditor();
+    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.active = id; expandItemGroup(current()); renderList(); renderEditor();
   }
   function duplicateItem() {
     const item = current(); if (!item) return;
     const copy = JSON.parse(JSON.stringify(item)); copy.id = 'new_' + Date.now(); copy.nombre = (copy.nombre || 'Dimensión') + ' copia';
-    store.items.push(copy); store.active = copy.id; renderList(); renderEditor();
+    store.items.push(copy); store.active = copy.id; expandItemGroup(copy); renderList(); renderEditor();
   }
   function deleteItem() {
      if (!current()) return; store.items = store.items.filter(x => String(x.id) !== String(store.active)); store.active = store.items[0]?.id || null; renderList(); renderEditor(); }
@@ -765,6 +951,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       descripcion: item.descripcion || '',
       tipo_funcional: item.tipo_funcional || 'atributo',
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
+      proceso_uso: item.proceso_uso || 'aca',
       tipo_calculo: item.tipo_calculo || '',
       config_calculo: item.tipo_calculo
         ? normalizedCalculationConfig(item)

@@ -202,6 +202,15 @@ def _technical_segment(value):
     return value.strip('-') or 'SIN-CODIGO'
 
 
+def _equipment_tag_from_ut(value):
+    parts = [part for part in str(value or '').strip().split('-') if part]
+    if not parts:
+        return ''
+    tag = parts[-1].strip().upper()
+    normalized = tag.lstrip('0')
+    return normalized or tag
+
+
 class NivelJerarquia(BaseUnmanagedModel):
     empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='niveles_jerarquia')
     nombre = models.CharField(max_length=100)
@@ -273,8 +282,12 @@ class Equipo(BaseUnmanagedModel):
         db_table = 'reliability_equipo'
         ordering = ['tag_equipo', 'nombre_equipo']
 
+    @property
+    def tag_display(self):
+        return _equipment_tag_from_ut(self.ut) or self.tag_equipo
+
     def __str__(self):
-        return f'{self.tag_equipo} - {self.nombre_equipo}'
+        return f'{self.tag_display} - {self.nombre_equipo}'
 
 
 class ComponenteEquipo(BaseUnmanagedModel):
@@ -388,9 +401,19 @@ class Dimension(BaseUnmanagedModel):
 
 
 class EstrategiaDimension(BaseUnmanagedModel):
+    PROCESO_ACA = 'aca'
+    PROCESO_RCM = 'rcm'
+    PROCESO_AMBOS = 'ambos'
+    PROCESO_USO_CHOICES = [
+        (PROCESO_ACA, 'ACA'),
+        (PROCESO_RCM, 'RCM'),
+        (PROCESO_AMBOS, 'ACA y RCM'),
+    ]
+
     orden = models.PositiveIntegerField()
     obligatorio = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
+    proceso_uso = models.CharField(max_length=10, choices=PROCESO_USO_CHOICES, default=PROCESO_ACA)
     dimension = models.ForeignKey(Dimension, on_delete=models.DO_NOTHING, db_column='dimension_id', related_name='estrategias_dimension')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='dimensiones_estrategia')
 
@@ -435,60 +458,22 @@ class RCM(BaseUnmanagedModel):
 
 class FMEA_FMECA(BaseUnmanagedModel):
     rcm = models.OneToOneField(RCM, on_delete=models.DO_NOTHING, db_column='rcm_id', related_name='fmea_fmeca')
-    severidad = models.IntegerField()
-    ocurrencia = models.IntegerField()
-    deteccion = models.IntegerField()
-    npr = models.IntegerField()
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_fmea_fmeca'
-        ordering = ['-npr', 'id']
-        indexes = [
-            models.Index(fields=['severidad'], name='idx_fmea_severidad'),
-            models.Index(fields=['ocurrencia'], name='idx_fmea_ocurrencia'),
-            models.Index(fields=['deteccion'], name='idx_fmea_deteccion'),
-            models.Index(fields=['npr'], name='idx_fmea_npr'),
-        ]
-
-    def recalcular_desde_evaluaciones(self, commit=True):
-        severidades = []
-        ocurrencia = None
-        deteccion = None
-
-        evaluaciones = self.evaluaciones.select_related('estrategia_dimension__dimension')
-        for evaluacion in evaluaciones:
-            dimension = evaluacion.estrategia_dimension.dimension
-            tipo_funcional = (dimension.tipo_funcional or '').strip().lower()
-            nombre = (dimension.nombre or '').strip().lower()
-            valor = evaluacion.valor_numerico
-
-            if tipo_funcional == 'impacto' or 'impacto' in nombre or 'severidad' in nombre:
-                severidades.append(valor)
-            if ocurrencia is None and (tipo_funcional == 'probabilidad' or 'ocurrencia' in nombre or 'probabilidad' in nombre):
-                ocurrencia = valor
-            if deteccion is None and ('deteccion' in nombre or 'detección' in nombre):
-                deteccion = valor
-
-        if severidades:
-            self.severidad = max(severidades)
-        if ocurrencia is not None:
-            self.ocurrencia = ocurrencia
-        if deteccion is not None:
-            self.deteccion = deteccion
-        self.npr = self.severidad * self.ocurrencia * self.deteccion
-
-        if commit:
-            self.save(update_fields=['severidad', 'ocurrencia', 'deteccion', 'npr'])
-        return self.npr
+        ordering = ['id']
 
     def __str__(self):
-        return f'{self.rcm.tipo_analisis} {self.id} - NPR {self.npr}'
+        return f'{self.rcm.tipo_analisis} {self.id}'
 
 
 class EvaluacionFMEA(BaseUnmanagedModel):
     fmea = models.ForeignKey(FMEA_FMECA, on_delete=models.DO_NOTHING, db_column='fmea_id', related_name='evaluaciones')
     estrategia_dimension = models.ForeignKey(EstrategiaDimension, on_delete=models.DO_NOTHING, db_column='estrategia_dimension_id', related_name='evaluaciones_fmea')
-    valor_numerico = models.IntegerField()
+    valor_numerico = models.IntegerField(blank=True, null=True)
+    valor_texto = models.CharField(max_length=255, blank=True)
+    catalogo_fila = models.ForeignKey('DimensionCatalogoFila', on_delete=models.DO_NOTHING, db_column='catalogo_fila_id', blank=True, null=True, related_name='evaluaciones_fmea')
+    escala_valor = models.ForeignKey('EscalaValor', on_delete=models.DO_NOTHING, db_column='escala_valor_id', blank=True, null=True, related_name='evaluaciones_fmea')
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_evaluacionfmea'
@@ -503,6 +488,176 @@ class EvaluacionFMEA(BaseUnmanagedModel):
 
     def __str__(self):
         return f'FMEA {self.fmea_id} / {self.estrategia_dimension}'
+
+    @property
+    def valor_display(self):
+        if self.valor_numerico is not None:
+            return self.valor_numerico
+        return self.valor_texto
+
+
+class TipoTareaEstrategia(BaseUnmanagedModel):
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='tipos_tarea')
+    nombre = models.CharField(max_length=150)
+    codigo = models.SlugField(max_length=80)
+    orden = models.PositiveIntegerField(default=1)
+    activo = models.BooleanField(default=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_tipo_tarea_estrategia'
+        ordering = ['estrategia_id', 'orden', 'nombre']
+        constraints = [
+            models.UniqueConstraint(fields=['estrategia', 'codigo'], name='uniq_tte_estrategia_codigo'),
+        ]
+        indexes = [
+            models.Index(fields=['estrategia'], name='idx_tte_estrategia'),
+            models.Index(fields=['codigo'], name='idx_tte_codigo'),
+            models.Index(fields=['activo'], name='idx_tte_activo'),
+        ]
+
+    def __str__(self):
+        return f'{self.estrategia} / {self.nombre}'
+
+
+class CampoTareaEstrategia(BaseUnmanagedModel):
+    TIPO_TEXTO = 'texto'
+    TIPO_TEXTO_LARGO = 'texto_largo'
+    TIPO_NUMERO = 'numero'
+    TIPO_DECIMAL = 'decimal'
+    TIPO_FECHA = 'fecha'
+    TIPO_BOOLEANO = 'booleano'
+    TIPO_OPCION = 'opcion'
+    TIPO_DATO_CHOICES = [
+        (TIPO_TEXTO, 'Texto'),
+        (TIPO_TEXTO_LARGO, 'Texto largo'),
+        (TIPO_NUMERO, 'Número entero'),
+        (TIPO_DECIMAL, 'Número decimal'),
+        (TIPO_FECHA, 'Fecha'),
+        (TIPO_BOOLEANO, 'Sí/No'),
+        (TIPO_OPCION, 'Opción'),
+    ]
+    tipo_tarea_estrategia = models.ForeignKey(TipoTareaEstrategia, on_delete=models.DO_NOTHING, db_column='tipo_tarea_estrategia_id', related_name='campos')
+    nombre = models.CharField(max_length=150)
+    clave = models.SlugField(max_length=100)
+    tipo_dato = models.CharField(max_length=20, choices=TIPO_DATO_CHOICES, default=TIPO_TEXTO)
+    opciones_json = models.TextField(blank=True)
+    obligatorio = models.BooleanField(default=False)
+    orden = models.PositiveIntegerField(default=1)
+    activo = models.BooleanField(default=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_campo_tarea_estrategia'
+        ordering = ['tipo_tarea_estrategia_id', 'orden', 'nombre']
+        constraints = [
+            models.UniqueConstraint(fields=['tipo_tarea_estrategia', 'clave'], name='uniq_cte_tipo_clave'),
+        ]
+        indexes = [
+            models.Index(fields=['tipo_tarea_estrategia'], name='idx_cte_tipo_tarea'),
+            models.Index(fields=['clave'], name='idx_cte_clave'),
+            models.Index(fields=['activo'], name='idx_cte_activo'),
+        ]
+
+    def __str__(self):
+        return f'{self.tipo_tarea_estrategia} / {self.nombre}'
+
+
+class TareaRCM(BaseUnmanagedModel):
+    ESTADO_ACTIVO = 'activo'
+    ESTADO_INACTIVO = 'inactivo'
+    ESTADO_REEMPLAZADO = 'reemplazado'
+    ESTADO_ELIMINADO = 'eliminado'
+    ESTADO_CHOICES = [
+        (ESTADO_ACTIVO, 'Activo'),
+        (ESTADO_INACTIVO, 'Inactivo'),
+        (ESTADO_REEMPLAZADO, 'Reemplazado'),
+        (ESTADO_ELIMINADO, 'Eliminado'),
+    ]
+
+    fmea = models.ForeignKey(FMEA_FMECA, on_delete=models.DO_NOTHING, db_column='fmea_id', related_name='tareas_rcm')
+    tipo_tarea_estrategia = models.ForeignKey(TipoTareaEstrategia, on_delete=models.DO_NOTHING, db_column='tipo_tarea_estrategia_id', related_name='tareas_rcm')
+    descripcion = models.TextField()
+    tactica = models.CharField(max_length=100, blank=True)
+    limite_aceptable = models.TextField(blank=True)
+    parametros = models.TextField(blank=True)
+    riesgo_material = models.TextField(blank=True)
+    especialidad = models.CharField(max_length=100, blank=True)
+    puesto_trabajo = models.CharField(max_length=100, blank=True)
+    estado_equipo = models.CharField(max_length=100, blank=True)
+    frecuencia_valor = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    frecuencia_unidad = models.CharField(max_length=50, blank=True)
+    frecuencia_texto = models.CharField(max_length=150, blank=True)
+    duracion_min = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    duracion_hr = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    cantidad_personas = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    hh = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    plan_sap = models.CharField(max_length=100, blank=True)
+    descripcion_plan = models.TextField(blank=True)
+    hoja_ruta = models.CharField(max_length=100, blank=True)
+    texto_hoja_ruta = models.TextField(blank=True)
+    operacion_hoja_ruta = models.CharField(max_length=100, blank=True)
+    texto_operacion = models.TextField(blank=True)
+    operacion_pauta = models.CharField(max_length=100, blank=True)
+    pauta = models.CharField(max_length=150, blank=True)
+    titulo_pauta = models.TextField(blank=True)
+    repuesto = models.TextField(blank=True)
+    componente_involucrado = models.TextField(blank=True)
+    numero_parte = models.CharField(max_length=100, blank=True)
+    numero_sap = models.CharField(max_length=100, blank=True)
+    procedimiento_trabajo = models.TextField(blank=True)
+    costo_hh = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    costo_repuestos = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    tarifa_servicios = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    costo_total = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    oportunidad_mejora = models.TextField(blank=True)
+    orden = models.PositiveIntegerField(default=1)
+    estado = models.CharField(max_length=30, choices=ESTADO_CHOICES, default=ESTADO_ACTIVO)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_tarea_rcm'
+        ordering = ['fmea_id', 'orden', 'id']
+        indexes = [
+            models.Index(fields=['fmea'], name='idx_trcm_fmea'),
+            models.Index(fields=['tipo_tarea_estrategia'], name='idx_trcm_tipo_estrat'),
+            models.Index(fields=['estado'], name='idx_trcm_estado'),
+            models.Index(fields=['plan_sap'], name='idx_trcm_plan_sap'),
+            models.Index(fields=['hoja_ruta'], name='idx_trcm_hoja_ruta'),
+        ]
+
+    def __str__(self):
+        return f'{self.fmea} / {self.tipo_tarea_estrategia}: {self.descripcion[:60]}'
+
+
+class ValorCampoTareaRCM(BaseUnmanagedModel):
+    tarea = models.ForeignKey(TareaRCM, on_delete=models.DO_NOTHING, db_column='tarea_id', related_name='valores_campos')
+    campo = models.ForeignKey(CampoTareaEstrategia, on_delete=models.DO_NOTHING, db_column='campo_id', related_name='valores_tarea')
+    valor_texto = models.TextField(blank=True)
+    valor_numero = models.DecimalField(max_digits=18, decimal_places=4, blank=True, null=True)
+    valor_booleano = models.BooleanField(blank=True, null=True)
+    valor_fecha = models.DateField(blank=True, null=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_valor_campo_tarea_rcm'
+        ordering = ['tarea_id', 'campo__orden', 'campo_id']
+        constraints = [
+            models.UniqueConstraint(fields=['tarea', 'campo'], name='uniq_valor_tarea_campo'),
+        ]
+        indexes = [
+            models.Index(fields=['tarea'], name='idx_vctr_tarea'),
+            models.Index(fields=['campo'], name='idx_vctr_campo'),
+        ]
+
+    @property
+    def valor_display(self):
+        if self.valor_fecha is not None:
+            return self.valor_fecha
+        if self.valor_booleano is not None:
+            return 'Sí' if self.valor_booleano else 'No'
+        if self.valor_numero is not None:
+            return self.valor_numero
+        return self.valor_texto
+
+    def __str__(self):
+        return f'{self.tarea_id} / {self.campo}: {self.valor_display}'
 
 
 class DimensionCatalogo(BaseUnmanagedModel):
@@ -656,6 +811,12 @@ class InicioSesion(BaseUnmanagedModel):
 
 
 class MatrizRiesgo(BaseUnmanagedModel):
+    RESOLUCION_EXACTA = 'exacta'
+    RESOLUCION_UMBRAL_RESULTADO = 'umbral_resultado'
+    RESOLUCION_CHOICES = [
+        (RESOLUCION_EXACTA, 'Coincidencia exacta por ejes'),
+        (RESOLUCION_UMBRAL_RESULTADO, 'Umbral inferior por resultado'),
+    ]
     EJE_HORIZONTAL_CHOICES = [
         ('impacto', 'Impacto'),
         ('probabilidad', 'Probabilidad'),

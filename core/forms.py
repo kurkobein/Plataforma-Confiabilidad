@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 import json
+import unicodedata
 
 from django import forms
 from django.contrib.auth import authenticate
@@ -186,7 +187,11 @@ class UsuarioSyncForm(BaseModelForm):
 
 class MatrizBuilderForm(forms.Form):
     nombre = forms.CharField()
-    fecha_creado = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
+    fecha_creado = forms.DateField(
+        widget=forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date', 'readonly': 'readonly'}),
+        initial=timezone.localdate,
+        disabled=True,
+    )
     estrategia = forms.ModelChoiceField(
         queryset=app_models.Estrategia.objects.select_related('empresa').all()
     )
@@ -208,11 +213,18 @@ class MatrizBuilderForm(forms.Form):
         choices=app_models.MatrizRiesgo.EJE_HORIZONTAL_CHOICES,
         initial='impacto',
     )
-    x_count = forms.IntegerField(min_value=2, max_value=12, initial=5)
-    y_count = forms.IntegerField(min_value=2, max_value=12, initial=5)
+    modo_resolucion = forms.ChoiceField(
+        choices=app_models.MatrizRiesgo.RESOLUCION_CHOICES,
+        initial=app_models.MatrizRiesgo.RESOLUCION_EXACTA,
+        label='Resolucion ACA',
+        help_text='Exacta mantiene el comportamiento actual. Umbral inferior usa el resultado calculado y toma la celda mas cercana por debajo.',
+    )
+    x_count = forms.IntegerField(min_value=2, max_value=12, initial=5, label='Columnas (eje X)')
+    y_count = forms.IntegerField(min_value=2, max_value=12, initial=5, label='Filas (eje Y)')
 
     def __init__(self, *args, strategy=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.initial.setdefault('fecha_creado', timezone.localdate())
         strategy_id = getattr(strategy, 'pk', strategy) if strategy is not None else None
         if self.is_bound:
             strategy_id = self.data.get(self.add_prefix('estrategia')) or strategy_id
@@ -221,6 +233,10 @@ class MatrizBuilderForm(forms.Form):
 
         axis_qs = app_models.EstrategiaDimension.objects.filter(
             activo=True,
+            proceso_uso__in=[
+                app_models.EstrategiaDimension.PROCESO_ACA,
+                app_models.EstrategiaDimension.PROCESO_AMBOS,
+            ],
         ).select_related(
             'estrategia',
             'dimension',
@@ -335,7 +351,7 @@ class ACARegistroForm(forms.Form):
             ).select_related('nodo', 'nodo__empresa').distinct().order_by('tag_equipo', 'nombre_equipo')
 
         self.fields['equipo'].queryset = equipos_qs
-        self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_equipo} - {obj.nombre_equipo}"
+        self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_display} - {obj.nombre_equipo}"
 
         if not self.is_bound:
             self.initial.setdefault('fecha_analisis', timezone.localdate())
@@ -435,8 +451,9 @@ class CriticidadDimensionInputForm(forms.Form):
     )
     valor_texto = forms.CharField(required=False, widget=forms.Textarea)
 
-    def __init__(self, *args, estrategia=None, **kwargs):
+    def __init__(self, *args, estrategia=None, proceso=None, **kwargs):
         super().__init__(*args, **kwargs)
+        proceso = proceso or app_models.EstrategiaDimension.PROCESO_ACA
         for name, field in self.fields.items():
             widget = field.widget
             css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
@@ -452,16 +469,28 @@ class CriticidadDimensionInputForm(forms.Form):
             qs_dim = app_models.Dimension.objects.filter(
                 estrategias_dimension__estrategia=estrategia,
                 estrategias_dimension__activo=True,
+                estrategias_dimension__proceso_uso__in=[
+                    proceso,
+                    app_models.EstrategiaDimension.PROCESO_AMBOS,
+                ],
             ).distinct().order_by('estrategias_dimension__orden', 'nombre')
             qs_scale = app_models.EscalaValor.objects.filter(
                 estrategia_dimension__estrategia=estrategia,
                 estrategia_dimension__activo=True,
+                estrategia_dimension__proceso_uso__in=[
+                    proceso,
+                    app_models.EstrategiaDimension.PROCESO_AMBOS,
+                ],
             ).select_related('estrategia_dimension', 'estrategia_dimension__dimension', 'escala_unificada').order_by(
                 'estrategia_dimension__orden', 'nivel_ordinal'
             )
             qs_catalog_rows = app_models.DimensionCatalogoFila.objects.filter(
                 catalogo__estrategia_dimension__estrategia=estrategia,
                 catalogo__estrategia_dimension__activo=True,
+                catalogo__estrategia_dimension__proceso_uso__in=[
+                    proceso,
+                    app_models.EstrategiaDimension.PROCESO_AMBOS,
+                ],
             ).select_related(
                 'catalogo', 'catalogo__estrategia_dimension', 'catalogo__estrategia_dimension__dimension'
             ).prefetch_related('celdas__columna', 'catalogo__columnas').order_by(
@@ -497,7 +526,15 @@ class CriticidadDimensionInputForm(forms.Form):
         self.estrategia_dimension_obj = None
         if dimension_obj:
             try:
-                estrategia_dimension_obj = app_models.EstrategiaDimension.objects.select_related('dimension').filter(estrategia=estrategia, dimension=dimension_obj, activo=True).first()
+                estrategia_dimension_obj = app_models.EstrategiaDimension.objects.select_related('dimension').filter(
+                    estrategia=estrategia,
+                    dimension=dimension_obj,
+                    activo=True,
+                    proceso_uso__in=[
+                        proceso,
+                        app_models.EstrategiaDimension.PROCESO_AMBOS,
+                    ],
+                ).first()
                 self.estrategia_dimension_obj = estrategia_dimension_obj
                 catalogo_obj = getattr(estrategia_dimension_obj, 'catalogo', None) if estrategia_dimension_obj else None
                 self.catalog_type = getattr(catalogo_obj, 'tipo', '') if catalogo_obj else ''
@@ -865,7 +902,7 @@ class HierarchyInsertLevelForm(forms.Form):
         return (self.cleaned_data.get('nodo_nombre') or '').strip()
 
 
-def _rcm_impact_dimension_queryset(service):
+def _rcm_dimension_queryset(service):
     if not service or not service.estrategia_id:
         return app_models.EstrategiaDimension.objects.none()
     consequence_terms = [
@@ -886,8 +923,11 @@ def _rcm_impact_dimension_queryset(service):
         app_models.EstrategiaDimension.objects.filter(
             estrategia=service.estrategia,
             activo=True,
+            proceso_uso__in=[
+                app_models.EstrategiaDimension.PROCESO_RCM,
+                app_models.EstrategiaDimension.PROCESO_AMBOS,
+            ],
         )
-        .filter(query)
         .select_related('dimension')
         .prefetch_related(
             'escalas_valor__escala_unificada',
@@ -897,6 +937,9 @@ def _rcm_impact_dimension_queryset(service):
         .order_by('orden', 'id')
         .distinct()
     )
+
+
+_rcm_impact_dimension_queryset = _rcm_dimension_queryset
 
 
 def _rcm_catalog_row_label(row):
@@ -931,11 +974,290 @@ def _rcm_catalog_option_rows(catalog_rows):
     return headers, rows
 
 
+def _rcm_catalog_row_text_value(row):
+    if row is None:
+        return ''
+    values = row.values_map()
+    for key in ['valor_texto', 'valor', 'valor_numerico', 'indicador', 'codigo', 'etiqueta', 'nombre', 'descripcion']:
+        value = values.get(key)
+        if value not in (None, ''):
+            return str(value)
+    return str(row.etiqueta or '')
+
+
 def _rcm_int_from_decimal(value):
     value = _decimal_or_none(value)
     if value is None:
         return None
     return int(value)
+
+
+def _rcm_normalized_text(value):
+    return unicodedata.normalize('NFD', str(value or '').lower()).encode('ascii', 'ignore').decode('ascii')
+
+
+def _rcm_dimension_match_keys(estrategia_dimension):
+    dimension = getattr(estrategia_dimension, 'dimension', None)
+    text = _rcm_normalized_text(
+        f'{getattr(dimension, "nombre", "")} {getattr(dimension, "tipo_funcional", "")}'
+    )
+    keys = []
+    if getattr(estrategia_dimension, 'dimension_id', None):
+        keys.append(f'dimension:{estrategia_dimension.dimension_id}')
+    categories = {
+        'operacion': ['operacion', 'operativo'],
+        'seguridad': ['seguridad'],
+        'ambiente': ['medio ambiente', 'ambiental', 'ambiente'],
+        'reputacion': ['reputacion', 'entorno'],
+    }
+    for key, terms in categories.items():
+        if any(term in text for term in terms):
+            keys.append(f'categoria:{key}')
+    return keys
+
+
+def _rcm_slug(value):
+    return ''.join(
+        char if char.isalnum() else '_'
+        for char in _rcm_normalized_text(value)
+    ).strip('_')
+
+
+def _rcm_source_key(estrategia_dimension):
+    try:
+        catalogo = getattr(estrategia_dimension, 'catalogo', None)
+        if catalogo and catalogo.campo:
+            return catalogo.campo
+    except Exception:
+        pass
+    return _rcm_slug(estrategia_dimension.dimension.nombre)
+
+
+def _rcm_source_candidates(source_ref):
+    if source_ref in (None, ''):
+        return []
+    if isinstance(source_ref, dict):
+        candidates = []
+        ed_id = source_ref.get('estrategia_dimension_id') or source_ref.get('ed_id')
+        if ed_id not in (None, ''):
+            candidates.extend([f'ed:{ed_id}', f'estrategia_dimension:{ed_id}'])
+        dim_id = source_ref.get('dimension_id')
+        if dim_id not in (None, ''):
+            candidates.extend([str(dim_id), f'dim:{dim_id}'])
+        for key in ['campo', 'nombre', 'source', 'fuente', 'dependencia', 'depende_de']:
+            value = source_ref.get(key)
+            if value not in (None, '') and not isinstance(value, dict):
+                candidates.append(str(value).strip())
+        return [candidate for candidate in candidates if candidate]
+    return [str(source_ref).strip()]
+
+
+def _rcm_remember_source_value(source_values, estrategia_dimension, value):
+    decimal_value = _decimal_or_none(value)
+    if decimal_value is None:
+        return
+    dimension = estrategia_dimension.dimension
+    campo = _rcm_source_key(estrategia_dimension)
+    keys = [
+        f'ed:{estrategia_dimension.id}',
+        f'estrategia_dimension:{estrategia_dimension.id}',
+        str(dimension.id),
+        f'dim:{dimension.id}',
+        dimension.nombre,
+        _rcm_slug(dimension.nombre),
+        campo,
+        _rcm_slug(campo),
+    ]
+    for key in keys:
+        if key:
+            source_values[key] = decimal_value
+
+
+def _rcm_source_value(source_values, source_ref):
+    for candidate in _rcm_source_candidates(source_ref):
+        value = source_values.get(candidate)
+        if value is None:
+            value = source_values.get(_rcm_slug(candidate))
+        decimal_value = _decimal_or_none(value)
+        if decimal_value is not None:
+            return decimal_value
+    return None
+
+
+def _rcm_calculation_steps(tipo_calculo, config_calculo):
+    tipo = (tipo_calculo or '').strip().lower()
+    if not tipo:
+        return []
+    if isinstance(config_calculo, str):
+        try:
+            config_calculo = json.loads(config_calculo or '{}')
+        except Exception:
+            config_calculo = {}
+    if not isinstance(config_calculo, dict):
+        config_calculo = {}
+    raw_steps = config_calculo.get('pasos') or config_calculo.get('steps') or []
+    if isinstance(raw_steps, list) and raw_steps:
+        steps = []
+        for raw_step in raw_steps:
+            if not isinstance(raw_step, dict):
+                continue
+            operation = str(raw_step.get('operacion') or raw_step.get('tipo_calculo') or raw_step.get('operation') or '').strip().lower()
+            operands = raw_step.get('operandos') or raw_step.get('campos') or raw_step.get('sources') or []
+            if operation and isinstance(operands, list):
+                steps.append({'operacion': operation, 'operandos': operands})
+        return steps
+    operands = config_calculo.get('operandos') or config_calculo.get('campos') or config_calculo.get('sources') or []
+    return [{'operacion': tipo, 'operandos': operands if isinstance(operands, list) else []}]
+
+
+def _rcm_operation_result(operation, values):
+    if not values:
+        return None
+    if operation == 'suma':
+        return sum(values, Decimal('0'))
+    if operation == 'resta':
+        result = values[0]
+        for value in values[1:]:
+            result -= value
+        return result
+    if operation == 'multiplicacion':
+        result = Decimal('1')
+        for value in values:
+            result *= value
+        return result
+    if operation == 'division':
+        result = values[0]
+        for value in values[1:]:
+            if value == 0:
+                return None
+            result /= value
+        return result
+    if operation == 'maximo':
+        return max(values)
+    if operation == 'minimo':
+        return min(values)
+    return None
+
+
+def _rcm_operand_value(operand, source_values, previous_result=None):
+    if isinstance(operand, dict) and (operand.get('resultado') is True or operand.get('tipo') == 'resultado'):
+        return previous_result
+    if not isinstance(operand, dict) and str(operand) in {'$resultado', '__resultado__', 'resultado_anterior'}:
+        return previous_result
+    return _rcm_source_value(source_values, operand)
+
+
+def _rcm_evaluate_calculation(tipo_calculo, config_calculo, source_values):
+    result = None
+    for step in _rcm_calculation_steps(tipo_calculo, config_calculo):
+        values = []
+        for operand in step['operandos']:
+            value = _rcm_operand_value(operand, source_values, result)
+            if value is None:
+                return None
+            values.append(value)
+        result = _rcm_operation_result(step['operacion'], values)
+        if result is None:
+            return None
+    return result
+
+
+
+def _rcm_config_dict(raw):
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or '{}')
+        except Exception:
+            raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _rcm_catalog_rows_payload(catalog_rows):
+    payload = []
+    for row in catalog_rows:
+        values = row.values_map()
+        lower = _rcm_catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'])
+        upper = _rcm_catalog_bound(values, ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'])
+        primary = _catalog_primary_numeric_from_values(values)
+        payload.append({
+            'pk': row.pk,
+            'lower': str(lower) if lower is not None else '',
+            'upper': str(upper) if upper is not None else '',
+            'primary': str(primary) if primary is not None else '',
+            'text': _rcm_catalog_row_text_value(row),
+        })
+    return payload
+
+def _rcm_dependency_ref(config):
+    if isinstance(config, str):
+        try:
+            config = json.loads(config or '{}')
+        except Exception:
+            config = {}
+    if not isinstance(config, dict):
+        return ''
+    for key in ['dependencia', 'depende_de', 'source', 'fuente', 'campo_fuente', 'dimension_fuente']:
+        value = config.get(key)
+        if value not in (None, ''):
+            return value if isinstance(value, dict) else str(value).strip()
+    if config.get('estrategia_dimension_id') or config.get('dimension_id'):
+        return config
+    return ''
+
+
+def _rcm_catalog_bound(values, keys):
+    for key in keys:
+        value = values.get(key) if isinstance(values, dict) else None
+        if value not in (None, ''):
+            return _decimal_or_none(value)
+    return None
+
+
+def _rcm_match_range_row(catalogo, source_value):
+    source_value = _decimal_or_none(source_value)
+    if not catalogo or source_value is None:
+        return None
+    rows = list(catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id'))
+    lowers = []
+    row_bounds = []
+    for row in rows:
+        values = row.values_map()
+        lower = _rcm_catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'])
+        upper = _rcm_catalog_bound(values, ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'])
+        row_bounds.append((row, lower, upper))
+        if lower is not None:
+            lowers.append(lower)
+
+    for row, lower, upper in row_bounds:
+        if lower is not None and source_value < lower:
+            continue
+        if upper is not None and source_value > upper:
+            continue
+        if upper is not None and source_value == upper and upper in lowers:
+            continue
+        return row
+    return None
+
+
+def _rcm_match_option_row(catalogo, source_value):
+    source_value = _decimal_or_none(source_value)
+    if not catalogo or source_value is None:
+        return None
+    for row in catalogo.filas.prefetch_related('celdas__columna').order_by('orden', 'id'):
+        row_value = _catalog_primary_numeric_from_values(row.values_map())
+        if row_value is not None and row_value == source_value:
+            return row
+    return None
+
+
+def _rcm_match_dependency_row(catalogo, source_value):
+    if not catalogo:
+        return None
+    if catalogo.tipo == 'rangos':
+        return _rcm_match_range_row(catalogo, source_value)
+    if catalogo.tipo == 'opciones':
+        return _rcm_match_option_row(catalogo, source_value)
+    return None
 
 
 class RCMRegistroForm(forms.Form):
@@ -963,15 +1285,39 @@ class RCMRegistroForm(forms.Form):
     modo_de_falla = forms.CharField(label='Modo de falla', widget=forms.Textarea(attrs={'rows': 3}))
     causa = forms.CharField(label='Causa', widget=forms.Textarea(attrs={'rows': 3}))
     efecto = forms.CharField(label='Efecto', widget=forms.Textarea(attrs={'rows': 3}))
-    severidad = forms.IntegerField(min_value=1, required=False)
-    ocurrencia = forms.IntegerField(min_value=1)
-    deteccion = forms.IntegerField(min_value=1, label='Detección')
 
-    def __init__(self, *args, service=None, **kwargs):
+    def __init__(self, *args, service=None, rcm=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = service
         self.impact_dimensions = []
         self.impact_value_map = {}
+        self.evaluation_dimensions = self.impact_dimensions
+        self.dimension_value_map = self.impact_value_map
+        self.dimension_runtime_payload = []
+        impact_initial_values = {}
+        impact_initial_records = {}
+        impact_initial_by_key = {}
+        if rcm:
+            try:
+                fmea = rcm.fmea_fmeca
+            except app_models.FMEA_FMECA.DoesNotExist:
+                fmea = None
+            if fmea:
+                evaluations = fmea.evaluaciones.select_related('estrategia_dimension__dimension')
+                impact_initial_records = {
+                    evaluation.estrategia_dimension_id: evaluation
+                    for evaluation in evaluations
+                }
+                impact_initial_values = {
+                    evaluation.estrategia_dimension_id: evaluation.valor_numerico
+                    for evaluation in impact_initial_records.values()
+                    if evaluation.valor_numerico is not None
+                }
+                for evaluation in impact_initial_records.values():
+                    for key in _rcm_dimension_match_keys(evaluation.estrategia_dimension):
+                        if evaluation.valor_numerico is not None:
+                            impact_initial_by_key.setdefault(key, evaluation.valor_numerico)
+
         if service:
             self.fields['equipo'].queryset = get_service_equipment(service)
 
@@ -985,10 +1331,14 @@ class RCMRegistroForm(forms.Form):
                 catalog_rows = list(catalogo.filas.all().prefetch_related('celdas__columna').order_by('orden', 'id'))
 
             mode = 'manual'
+            is_calculated = bool((dimension.tipo_calculo or '').strip())
             option_headers = []
             option_rows = []
             value_map = {}
-            if scales:
+            if is_calculated:
+                mode = 'calculado'
+                field = forms.IntegerField(required=False, label=dimension.nombre, disabled=True)
+            elif scales:
                 mode = 'escala'
                 field = forms.ModelChoiceField(
                     queryset=app_models.EscalaValor.objects.filter(pk__in=[item.pk for item in scales]).select_related('escala_unificada').order_by('nivel_ordinal', 'id'),
@@ -1027,19 +1377,63 @@ class RCMRegistroForm(forms.Form):
                 value_map['__manual__'] = True
 
             self.fields[field_name] = field
+            initial_record = impact_initial_records.get(estrategia_dimension.pk)
+            if initial_record:
+                if mode == 'catalogo' and initial_record.catalogo_fila_id:
+                    self.initial[field_name] = initial_record.catalogo_fila_id
+                    initial_value = None
+                elif mode == 'escala' and initial_record.escala_valor_id:
+                    self.initial[field_name] = initial_record.escala_valor_id
+                    initial_value = None
+                else:
+                    initial_value = initial_record.valor_numerico
+            else:
+                initial_value = impact_initial_values.get(estrategia_dimension.pk)
+            if initial_value in (None, ''):
+                for key in _rcm_dimension_match_keys(estrategia_dimension):
+                    if key in impact_initial_by_key:
+                        initial_value = impact_initial_by_key[key]
+                        break
+            if initial_value not in (None, ''):
+                if mode in {'manual', 'calculado'}:
+                    self.initial[field_name] = initial_value
+                else:
+                    for option_value, numeric_value in value_map.items():
+                        if option_value == '__manual__':
+                            continue
+                        if numeric_value == initial_value:
+                            self.initial[field_name] = option_value
+                            break
+
+            config_dict = _rcm_config_dict(dimension.config_calculo)
+            dependency_ref = _rcm_dependency_ref(config_dict)
+            self.dimension_runtime_payload.append({
+                'field_name': field_name,
+                'field_id': self[field_name].id_for_label,
+                'mode': mode,
+                'estrategia_dimension_id': estrategia_dimension.pk,
+                'dimension_id': dimension.pk,
+                'nombre': dimension.nombre,
+                'campo': _rcm_source_key(estrategia_dimension),
+                'tipo_calculo': dimension.tipo_calculo or '',
+                'config_calculo': config_dict,
+                'dependency': dependency_ref,
+                'value_map': {str(key): (str(value) if value is not None else '') for key, value in value_map.items()},
+                'catalog_tipo': getattr(catalogo, 'tipo', '') if catalogo else '',
+                'catalog_rows': _rcm_catalog_rows_payload(catalog_rows),
+            })
+
             self.impact_dimensions.append({
                 'estrategia_dimension': estrategia_dimension,
                 'dimension': dimension,
                 'field_name': field_name,
                 'field': self[field_name],
                 'mode': mode,
+                'is_calculated': is_calculated,
                 'option_headers': option_headers,
                 'option_rows': option_rows,
             })
             self.impact_value_map[field_name] = value_map
-
-        if self.impact_dimensions:
-            self.fields['severidad'].widget = forms.HiddenInput()
 
         for _, field in self.fields.items():
             widget = field.widget
@@ -1051,44 +1445,274 @@ class RCMRegistroForm(forms.Form):
             if not isinstance(widget, forms.HiddenInput):
                 widget.attrs.setdefault('placeholder', field.label)
 
-    def clean(self):
+    def _clean_dynamic_rcm_evaluations(self):
         cleaned = super().clean()
         if self.service and not self.service.estrategia_id:
             raise forms.ValidationError('El servicio debe tener una estrategia asociada para registrar RCM.')
-        self.cleaned_impact_evaluations = []
-        impact_values = []
+
+        self.cleaned_dimension_evaluations = []
+        self.cleaned_impact_evaluations = self.cleaned_dimension_evaluations
+        source_values = {}
+        pending_items = []
+        resolved_dimension_ids = set()
+
+        def remember_evaluation(item, value, text_value='', catalogo_fila=None, escala_valor=None):
+            estrategia_dimension = item['estrategia_dimension']
+            resolved_dimension_ids.add(estrategia_dimension.pk)
+            cleaned[item['field_name']] = value
+            self.cleaned_dimension_evaluations.append({
+                'estrategia_dimension': estrategia_dimension,
+                'valor_numerico': value,
+                'valor_texto': text_value or ('' if value is None else str(value)),
+                'catalogo_fila': catalogo_fila,
+                'escala_valor': escala_valor,
+            })
+            if value is not None:
+                _rcm_remember_source_value(source_values, estrategia_dimension, value)
+
+        def selected_value_payload(item, selected):
+            if item['mode'] == 'escala':
+                return {
+                    'value': _rcm_int_from_decimal(selected.valor_numerico),
+                    'text': selected.codigo or selected.descripcion or str(selected.valor_numerico or ''),
+                    'catalogo_fila': None,
+                    'escala_valor': selected,
+                }
+            if item['mode'] == 'catalogo':
+                return {
+                    'value': _rcm_int_from_decimal(_catalog_primary_numeric_from_values(selected.values_map())),
+                    'text': _rcm_catalog_row_text_value(selected),
+                    'catalogo_fila': selected,
+                    'escala_valor': None,
+                }
+            value = _rcm_int_from_decimal(selected)
+            return {
+                'value': value,
+                'text': '' if value is None else str(value),
+                'catalogo_fila': None,
+                'escala_valor': None,
+            }
 
         for item in self.impact_dimensions:
             field_name = item['field_name']
+            if item.get('is_calculated'):
+                pending_items.append({'item': item, 'kind': 'calculated'})
+                continue
+
             selected = cleaned.get(field_name)
             if selected in (None, ''):
+                dependency = _rcm_dependency_ref(item['dimension'].config_calculo)
+                if dependency:
+                    pending_items.append({'item': item, 'kind': 'dependent', 'dependency': dependency})
+                    continue
+                if item['estrategia_dimension'].obligatorio:
+                    self.add_error(field_name, 'Selecciona un valor para esta dimensión.')
                 continue
 
-            value = None
-            if item['mode'] == 'escala':
-                value = _rcm_int_from_decimal(selected.valor_numerico)
-            elif item['mode'] == 'catalogo':
-                value = _rcm_int_from_decimal(_catalog_primary_numeric_from_values(selected.values_map()))
-            else:
-                value = _rcm_int_from_decimal(selected)
-
-            if value is None:
+            payload = selected_value_payload(item, selected)
+            if payload['value'] is None and not payload['text']:
                 self.add_error(field_name, 'La opción seleccionada no tiene un valor numérico válido.')
                 continue
+            remember_evaluation(
+                item,
+                payload['value'],
+                payload['text'],
+                payload['catalogo_fila'],
+                payload['escala_valor'],
+            )
 
-            impact_values.append(value)
-            self.cleaned_impact_evaluations.append({
-                'estrategia_dimension': item['estrategia_dimension'],
-                'valor_numerico': value,
-            })
+        while pending_items:
+            progressed = False
+            remaining = []
+            for pending in pending_items:
+                item = pending['item']
+                field_name = item['field_name']
+                if item['estrategia_dimension'].pk in resolved_dimension_ids:
+                    progressed = True
+                    continue
 
-        if self.impact_dimensions:
-            if not impact_values:
-                raise forms.ValidationError('Selecciona al menos una consecuencia para calcular la severidad.')
-            cleaned['severidad'] = max(impact_values)
-        elif not cleaned.get('severidad'):
-            self.add_error('severidad', 'Ingresa la severidad.')
+                if pending['kind'] == 'calculated':
+                    value = _rcm_evaluate_calculation(
+                        item['dimension'].tipo_calculo,
+                        item['dimension'].config_calculo,
+                        source_values,
+                    )
+                    value = _rcm_int_from_decimal(value)
+                    if value is None:
+                        remaining.append(pending)
+                        continue
+                    remember_evaluation(item, value)
+                    progressed = True
+                    continue
+
+                source_value = _rcm_source_value(source_values, pending.get('dependency'))
+                if source_value is None:
+                    remaining.append(pending)
+                    continue
+                try:
+                    catalogo = item['estrategia_dimension'].catalogo
+                except app_models.DimensionCatalogo.DoesNotExist:
+                    catalogo = None
+                matched_row = _rcm_match_dependency_row(catalogo, source_value)
+                if not matched_row:
+                    remaining.append(pending)
+                    continue
+                payload = selected_value_payload(item, matched_row)
+                if payload['value'] is None and not payload['text']:
+                    self.add_error(field_name, 'La fila resuelta no tiene un valor numérico ni texto válido.')
+                    progressed = True
+                    continue
+                cleaned[field_name] = matched_row
+                remember_evaluation(
+                    item,
+                    payload['value'],
+                    payload['text'],
+                    payload['catalogo_fila'],
+                    payload['escala_valor'],
+                )
+                progressed = True
+
+            if not progressed:
+                pending_items = remaining
+                break
+            pending_items = remaining
+
+        for pending in pending_items:
+            item = pending['item']
+            if not item['estrategia_dimension'].obligatorio:
+                continue
+            if pending['kind'] == 'calculated':
+                self.add_error(item['field_name'], 'No se pudo calcular esta dimensión con los valores seleccionados.')
+            else:
+                self.add_error(item['field_name'], 'No se pudo resolver esta dimensión con los valores seleccionados.')
+
         return cleaned
+
+    def clean(self):
+        return self._clean_dynamic_rcm_evaluations()
+
+
+class TareaRCMForm(forms.Form):
+    id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    valores_json = forms.CharField(required=False, widget=forms.HiddenInput())
+    tipo_tarea_estrategia = forms.ModelChoiceField(
+        queryset=app_models.TipoTareaEstrategia.objects.none(),
+        required=False,
+        label='Tipo de tarea',
+        empty_label='Selecciona un tipo',
+    )
+    descripcion = forms.CharField(required=False, label='Descripción de tarea', widget=forms.Textarea(attrs={'rows': 2}))
+    tactica = forms.CharField(required=False, label='Táctica', max_length=100)
+    limite_aceptable = forms.CharField(required=False, label='Límite aceptable', widget=forms.Textarea(attrs={'rows': 2}))
+    parametros = forms.CharField(required=False, label='Parámetros', widget=forms.Textarea(attrs={'rows': 2}))
+    riesgo_material = forms.CharField(required=False, label='Riesgo material', widget=forms.Textarea(attrs={'rows': 2}))
+    especialidad = forms.CharField(required=False, label='Especialidad', max_length=100)
+    puesto_trabajo = forms.CharField(required=False, label='Puesto de trabajo', max_length=100)
+    estado_equipo = forms.CharField(required=False, label='Estado equipo', max_length=100)
+    frecuencia_valor = forms.DecimalField(required=False, label='Frecuencia valor', max_digits=10, decimal_places=2)
+    frecuencia_unidad = forms.CharField(required=False, label='Unidad frecuencia', max_length=50)
+    frecuencia_texto = forms.CharField(required=False, label='Frecuencia texto', max_length=150)
+    duracion_min = forms.DecimalField(required=False, label='Duración min', max_digits=10, decimal_places=2)
+    duracion_hr = forms.DecimalField(required=False, label='Duración hr', max_digits=10, decimal_places=2)
+    cantidad_personas = forms.DecimalField(required=False, label='Personas', max_digits=10, decimal_places=2)
+    hh = forms.DecimalField(required=False, label='HH', max_digits=10, decimal_places=2)
+    plan_sap = forms.CharField(required=False, label='Plan SAP', max_length=100)
+    descripcion_plan = forms.CharField(required=False, label='Descripción plan', widget=forms.Textarea(attrs={'rows': 2}))
+    hoja_ruta = forms.CharField(required=False, label='Hoja ruta', max_length=100)
+    texto_hoja_ruta = forms.CharField(required=False, label='Texto hoja ruta', widget=forms.Textarea(attrs={'rows': 2}))
+    operacion_hoja_ruta = forms.CharField(required=False, label='Operación hoja ruta', max_length=100)
+    texto_operacion = forms.CharField(required=False, label='Texto operación', widget=forms.Textarea(attrs={'rows': 2}))
+    operacion_pauta = forms.CharField(required=False, label='Operación pauta', max_length=100)
+    pauta = forms.CharField(required=False, label='Pauta', max_length=150)
+    titulo_pauta = forms.CharField(required=False, label='Título pauta', widget=forms.Textarea(attrs={'rows': 2}))
+    repuesto = forms.CharField(required=False, label='Repuesto', widget=forms.Textarea(attrs={'rows': 2}))
+    componente_involucrado = forms.CharField(required=False, label='Componente involucrado', widget=forms.Textarea(attrs={'rows': 2}))
+    numero_parte = forms.CharField(required=False, label='Número parte', max_length=100)
+    numero_sap = forms.CharField(required=False, label='Número SAP', max_length=100)
+    procedimiento_trabajo = forms.CharField(required=False, label='Procedimiento trabajo', widget=forms.Textarea(attrs={'rows': 2}))
+    costo_hh = forms.DecimalField(required=False, label='Costo HH', max_digits=12, decimal_places=2)
+    costo_repuestos = forms.DecimalField(required=False, label='Costo repuestos', max_digits=12, decimal_places=2)
+    tarifa_servicios = forms.DecimalField(required=False, label='Tarifa servicios', max_digits=12, decimal_places=2)
+    costo_total = forms.DecimalField(required=False, label='Costo total', max_digits=12, decimal_places=2)
+    oportunidad_mejora = forms.CharField(required=False, label='Oportunidad mejora', widget=forms.Textarea(attrs={'rows': 2}))
+    estado = forms.ChoiceField(
+        required=False,
+        label='Estado',
+        choices=app_models.TareaRCM.ESTADO_CHOICES,
+        initial=app_models.TareaRCM.ESTADO_ACTIVO,
+    )
+
+    empty_permitted_fields = {'id', 'DELETE', 'estado', 'valores_json', 'dynamic_values'}
+
+    def __init__(self, *args, estrategia=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.estrategia = estrategia
+        self.empty_task = False
+        tipos_qs = app_models.TipoTareaEstrategia.objects.none()
+        if estrategia:
+            tipos_qs = app_models.TipoTareaEstrategia.objects.filter(
+                estrategia=estrategia,
+                activo=True,
+            ).order_by('orden', 'nombre')
+        self.fields['tipo_tarea_estrategia'].queryset = tipos_qs
+
+        for _, field in self.fields.items():
+            widget = field.widget
+            css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
+            if isinstance(widget, forms.HiddenInput) or isinstance(widget, forms.CheckboxInput):
+                css = ''
+            existing = widget.attrs.get('class', '')
+            widget.attrs['class'] = f'{existing} {css}'.strip()
+            if not isinstance(widget, forms.HiddenInput):
+                widget.attrs.setdefault('placeholder', field.label)
+
+    def _has_task_content(self):
+        data = self.cleaned_data
+        if data.get('dynamic_values'):
+            return True
+        for key, value in data.items():
+            if key in self.empty_permitted_fields:
+                continue
+            if value not in (None, ''):
+                return True
+        return False
+
+    def clean(self):
+        cleaned = super().clean()
+        raw_values = cleaned.get('valores_json') or '{}'
+        try:
+            dynamic_values = json.loads(raw_values)
+        except (TypeError, json.JSONDecodeError):
+            dynamic_values = {}
+        if not isinstance(dynamic_values, dict):
+            dynamic_values = {}
+        dynamic_values = {
+            str(key): value
+            for key, value in dynamic_values.items()
+            if value not in (None, '', [])
+        }
+        cleaned['dynamic_values'] = dynamic_values
+
+        if cleaned.get('DELETE'):
+            return cleaned
+        has_content = self._has_task_content()
+        self.empty_task = not has_content
+        if not has_content:
+            return cleaned
+        if not cleaned.get('tipo_tarea_estrategia'):
+            self.add_error('tipo_tarea_estrategia', 'Selecciona el tipo de tarea.')
+            return cleaned
+
+        configured_fields = cleaned['tipo_tarea_estrategia'].campos.filter(activo=True).order_by('orden', 'nombre')
+        if configured_fields.exists():
+            for field in configured_fields:
+                value = dynamic_values.get(field.clave)
+                if field.obligatorio and value in (None, '', []):
+                    self.add_error(None, f'Completa el campo obligatorio "{field.nombre}".')
+        return cleaned
+
+
+RCMTaskFormSet = formset_factory(TareaRCMForm, extra=0, can_delete=True)
 
 
 class ServicioACARegistroForm(forms.Form):
@@ -1146,7 +1770,7 @@ class ServicioACARegistroForm(forms.Form):
 
         equipos_qs = get_service_equipment(service) if service else app_models.Equipo.objects.none()
         self.fields['equipo'].queryset = equipos_qs
-        self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_equipo} - {obj.nombre_equipo}"
+        self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_display} - {obj.nombre_equipo}"
         self.fields['equipo'].empty_label = 'Selecciona un equipo'
         self.fields['equipo'].required = not allow_incomplete
 
@@ -1310,6 +1934,24 @@ class ServicioForm(BaseModelForm):
         label='Metodologías',
     )
 
+    def __init__(self, *args, creador_usuario=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.creador_usuario = creador_usuario
+        self.fields['creado_en'].input_formats = ['%Y-%m-%dT%H:%M']
+
+        if self.instance and self.instance.pk:
+            self.fields['metodologias'].initial = self.instance.metodologias.all()
+        else:
+            self.fields['creado_en'].initial = timezone.localtime().replace(
+                second=0,
+                microsecond=0,
+            )
+            if creador_usuario:
+                self.fields['creado_por_usuario'].initial = creador_usuario.pk
+                self.initial['creado_por_usuario'] = creador_usuario.pk
+                self.fields['creado_por_usuario'].disabled = True
+                self.fields['creado_por_usuario'].help_text = 'Se asigna automáticamente al usuario de la sesión.'
+
     class Meta:
         model = Servicio
         fields = '__all__'
@@ -1330,20 +1972,9 @@ class ServicioForm(BaseModelForm):
             ),
         }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.fields['creado_en'].input_formats = ['%Y-%m-%dT%H:%M']
-
-        if self.instance and self.instance.pk:
-            self.fields['metodologias'].initial = self.instance.metodologias.all()
-        else:
-            self.fields['creado_en'].initial = timezone.localtime().replace(
-                second=0,
-                microsecond=0,
-            )
-
     def save(self, commit=True):
+        if not self.instance.pk and self.creador_usuario:
+            self.instance.creado_por_usuario = self.creador_usuario
         instance = super().save(commit=commit)
 
         if commit:

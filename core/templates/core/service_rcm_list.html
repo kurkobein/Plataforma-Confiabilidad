@@ -8,7 +8,10 @@
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'service_detail' service.pk %}">Volver al servicio</a>
+        <a class="btn" href="{% url 'service_rcm_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
+        <a class="btn" href="{% url 'service_rcm_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
+            <a class="btn" href="{% url 'service_rcm_task_config' service.pk %}">Configurar tareas</a>
             <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">Registrar</a>
         {% endif %}
     </div>
@@ -37,7 +40,9 @@
                 <th>Falla funcional</th>
                 <th>Modo de falla</th>
                 <th>Criticidad</th>
-                <th>NPR</th>
+                <th>Evaluación</th>
+                <th>Tareas</th>
+                <th>Acciones</th>
             </tr>
         </thead>
         <tbody>
@@ -48,21 +53,53 @@
                     <td>{{ row.registro.get_estado_display }}</td>
                     <td>{{ row.registro.equipo.ut }}</td>
                     <td>{{ row.registro.equipo.nombre_equipo }}</td>
-                    <td>{{ row.registro.equipo.tag_equipo }}</td>
+                    <td>{{ row.registro.equipo.tag_display }}</td>
                     <td>{{ row.registro.falla_funcional|truncatechars:80 }}</td>
                     <td>{{ row.registro.modo_de_falla|truncatechars:80 }}</td>
                     <td>{{ row.registro.criticidad|default:'-' }}</td>
                     <td>
-                        {% if row.fmea %}
-                            {{ row.fmea.npr }}
-                            <div class="muted">S {{ row.fmea.severidad }} · O {{ row.fmea.ocurrencia }} · D {{ row.fmea.deteccion }}</div>
+                        {% if row.evaluations %}
+                            {% for evaluation in row.evaluations|slice:":4" %}
+                                <div>{{ evaluation.estrategia_dimension.dimension.nombre }}: {{ evaluation.valor_display|default:'-' }}</div>
+                            {% endfor %}
+                            {% if row.evaluations|length > 4 %}
+                                <div class="muted">+{{ row.evaluations|length|add:"-4" }} dimensiones</div>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.tasks %}
+                            {% for task in row.tasks|slice:":3" %}
+                                <div>{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion|truncatechars:45 }}</div>
+                            {% endfor %}
+                            {% if row.tasks|length > 3 %}
+                                <div class="muted">+{{ row.tasks|length|add:"-3" }} tareas</div>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if permission.can_edit %}
+                            <div class="actions">
+                                <a class="btn" href="{% url 'service_rcm_edit' service.pk row.registro.pk %}">Editar</a>
+                                <form method="post"
+                                      action="{% url 'service_rcm_delete' service.pk row.registro.pk %}"
+                                      style="display:inline;"
+                                      onsubmit="return confirm('¿Seguro que deseas eliminar este registro RCM?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                                </form>
+                            </div>
                         {% else %}
                             -
                         {% endif %}
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="10" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+                <tr><td colspan="12" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
             {% endfor %}
         </tbody>
     </table>

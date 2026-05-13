@@ -299,6 +299,9 @@
     const matrixImpactDimensionId = '{{ matrix_selector.impact_dimension_id|default:"" }}';
     const matrixProbEstrategiaDimensionId = '{{ matrix_selector.prob_estrategia_dimension_id|default:"" }}';
     const matrixImpactEstrategiaDimensionId = '{{ matrix_selector.impact_estrategia_dimension_id|default:"" }}';
+    const matrixResolutionMode = '{{ matrix_selector.modo_resolucion|default:"exacta" }}';
+    const matrixProbAxisGenerated = '{{ matrix_selector.prob_axis_generated|yesno:"1,0" }}' === '1';
+    const matrixImpactAxisGenerated = '{{ matrix_selector.impact_axis_generated|yesno:"1,0" }}' === '1';
     const equipmentInput = document.getElementById('{{ base_form.equipo.id_for_label }}');
     const equipmentDataNode = document.getElementById('service-equipment-data');
     const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
@@ -815,6 +818,33 @@
         return null;
     }
 
+    function resultFromAxisValues(probValue, impactValue) {
+        if (matrixResolutionMode === 'umbral_resultado') {
+            if (matrixProbAxisGenerated && !matrixImpactAxisGenerated) probValue = null;
+            if (matrixImpactAxisGenerated && !matrixProbAxisGenerated) impactValue = null;
+        }
+        if (probValue !== null && impactValue !== null) return probValue * impactValue;
+        if (impactValue !== null) return impactValue;
+        if (probValue !== null) return probValue;
+        return null;
+    }
+
+    function findFloorMatrixButton(resultValue) {
+        if (resultValue === null) return null;
+        let bestButton = null;
+        let bestValue = null;
+        document.querySelectorAll('.btn-pick-matrix').forEach(function (button) {
+            if (button.disabled || !button.dataset.cellId) return;
+            const cellValue = toNumber(button.dataset.result);
+            if (cellValue === null || cellValue > resultValue) return;
+            if (bestValue === null || cellValue > bestValue) {
+                bestValue = cellValue;
+                bestButton = button;
+            }
+        });
+        return bestButton;
+    }
+
     function updateMatrixFromDimensionValues(sourceValues) {
         if (!probSelect || !impactSelect) return;
         const probValue = sourceNumericValue(sourceValues, [
@@ -831,6 +861,18 @@
             matrixImpactEstrategiaDimensionId ? 'estrategia_dimension:' + matrixImpactEstrategiaDimensionId : '',
             matrixImpactEstrategiaDimensionId,
         ]);
+
+        if (matrixResolutionMode === 'umbral_resultado') {
+            const resultValue = resultFromAxisValues(probValue, impactValue);
+            if (resultValue === null) return;
+            const button = findFloorMatrixButton(resultValue);
+            if (!button) {
+                clearMatrixSelection();
+                return;
+            }
+            selectMatrixCell(button);
+            return;
+        }
 
         if (probValue === null || impactValue === null) return;
 

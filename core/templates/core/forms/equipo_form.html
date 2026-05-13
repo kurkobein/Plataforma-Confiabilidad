@@ -82,11 +82,13 @@
 
 <script type="application/json" id="tech-location-levels-data">{{ tech_location_levels_json|safe }}</script>
 <script type="application/json" id="tech-location-nodes-data">{{ tech_location_nodes_json|safe }}</script>
+<script type="application/json" id="tech-location-nodes-url-template">{{ tech_location_nodes_url_template|safe }}</script>
 
 <script>
 (function () {
     const levels = JSON.parse(document.getElementById('tech-location-levels-data').textContent || '[]');
     const nodes = JSON.parse(document.getElementById('tech-location-nodes-data').textContent || '[]');
+    const nodesUrlTemplate = (document.getElementById('tech-location-nodes-url-template').textContent || '').trim();
     const selectedInitial = '{{ tech_location_selected_id|default:"" }}';
     const selectedEmpresaInitial = '{{ tech_location_empresa_id|default:"" }}';
 
@@ -102,6 +104,8 @@
     if (!empresaSelect || !nodeInput || !fieldsWrap) return;
 
     const nodeById = new Map(nodes.map(node => [String(node.id), node]));
+    const loadedKeys = new Set();
+    let renderToken = 0;
 
     if (!nodeInput.value && selectedInitial) {
         nodeInput.value = selectedInitial;
@@ -139,6 +143,56 @@
         return (value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
     }
 
+    function normalizeNode(node) {
+        return {
+            id: node.id,
+            empresa_id: node.empresa_id || selectedEmpresaId(),
+            parent_id: node.parent_id || null,
+            level_id: node.level_id,
+            level_order: node.level_order,
+            code: node.code,
+            name: node.name,
+            label: node.label || `${node.code} - ${node.name}`,
+            ut: node.ut || '',
+            route: node.route || '',
+        };
+    }
+
+    async function fetchNodes(parentId, levelId) {
+        const empresaId = selectedEmpresaId();
+        if (!empresaId || !nodesUrlTemplate) return [];
+
+        const normalizedParent = parentId || 'root';
+        const cacheKey = `${empresaId}:${normalizedParent}:${levelId || ''}`;
+        if (!loadedKeys.has(cacheKey)) {
+            const url = nodesUrlTemplate.replace('__empresa__', empresaId);
+            const params = new URLSearchParams({
+                parent_id: normalizedParent,
+                limit: '1000',
+            });
+            if (levelId) params.set('level_id', levelId);
+
+            const response = await fetch(`${url}?${params.toString()}`, {
+                headers: {'X-Requested-With': 'XMLHttpRequest'},
+            });
+            if (!response.ok) throw new Error('No se pudieron cargar las ubicaciones.');
+            const data = await response.json();
+            (data.nodes || []).forEach(rawNode => {
+                const node = normalizeNode(rawNode);
+                nodeById.set(String(node.id), node);
+            });
+            loadedKeys.add(cacheKey);
+        }
+
+        return Array.from(nodeById.values())
+            .filter(node =>
+                Number(node.empresa_id) === Number(empresaId) &&
+                Number(node.level_id) === Number(levelId) &&
+                String(node.parent_id || '') === String(parentId || '')
+            )
+            .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+    }
+
     function setFeedback(message, kind) {
         if (!utFeedback) return;
         if (!message) {
@@ -152,7 +206,7 @@
         utFeedback.className = `message ${kind || 'warning'}`;
     }
 
-    function resolveUtString() {
+    async function resolveUtString() {
         if (!utInput || !utInput.value.trim()) return false;
         const empresaId = selectedEmpresaId();
         if (!empresaId) {
@@ -183,12 +237,14 @@
         for (let index = 0; index < companyLevels.length; index += 1) {
             const level = companyLevels[index];
             const code = codes[index];
-            const node = nodes.find(item =>
-                Number(item.empresa_id) === Number(empresaId) &&
-                Number(item.level_id) === Number(level.id) &&
-                (item.parent_id || null) === (parentId || null) &&
-                segment(item.code) === code
-            );
+            let options = [];
+            try {
+                options = await fetchNodes(parentId, level.id);
+            } catch (error) {
+                setFeedback(error.message || 'No se pudieron cargar las ubicaciones.', 'warning');
+                return false;
+            }
+            const node = options.find(item => segment(item.code) === code);
             if (!node) {
                 const parent = parentId ? nodeById.get(String(parentId)) : null;
                 const parentText = parent ? ` bajo ${parent.code} - ${parent.name}` : '';
@@ -209,7 +265,9 @@
         return false;
     }
 
-    function renderPicker() {
+    async function renderPicker() {
+        const token = renderToken + 1;
+        renderToken = token;
         const empresaId = selectedEmpresaId();
         fieldsWrap.innerHTML = '';
 
@@ -232,15 +290,18 @@
         let parentId = null;
         let deepestSelected = null;
 
-        companyLevels.forEach((level, index) => {
+        for (let index = 0; index < companyLevels.length; index += 1) {
+            const level = companyLevels[index];
             const currentPathNode = currentPath[index];
-            const options = nodes
-                .filter(node =>
-                    Number(node.empresa_id) === Number(empresaId) &&
-                    Number(node.level_id) === Number(level.id) &&
-                    (node.parent_id || null) === (parentId || null)
-                )
-                .sort((a, b) => a.code.localeCompare(b.code));
+            let options = [];
+            if (index === 0 || parentId) {
+                try {
+                    options = await fetchNodes(parentId, level.id);
+                } catch (error) {
+                    setFeedback(error.message || 'No se pudieron cargar las ubicaciones.', 'warning');
+                }
+            }
+            if (token !== renderToken) return;
 
             const group = document.createElement('div');
             group.className = 'form-field';
@@ -273,7 +334,7 @@
             group.appendChild(label);
             group.appendChild(select);
             fieldsWrap.appendChild(group);
-        });
+        }
 
         if (deepestSelected) {
             nodeInput.value = deepestSelected.id;
@@ -290,10 +351,14 @@
     });
 
     if (resolveButton) {
-        resolveButton.addEventListener('click', resolveUtString);
+        resolveButton.addEventListener('click', function () {
+            resolveUtString();
+        });
     }
     if (utInput) {
-        utInput.addEventListener('change', resolveUtString);
+        utInput.addEventListener('change', function () {
+            resolveUtString();
+        });
         utInput.addEventListener('input', function () {
             this.value = this.value.toUpperCase();
         });

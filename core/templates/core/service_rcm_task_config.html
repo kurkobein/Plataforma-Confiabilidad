@@ -1,0 +1,726 @@
+{% extends 'core/base.html' %}
+{% block title %}Configuración tareas RCM | {{ service.codigo_servicio }}{% endblock %}
+{% block extra_head %}
+<style>
+  .task-config-shell {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+  }
+
+  .task-type-list,
+  .task-config-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .task-type-head,
+  .task-config-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .task-type-body,
+  .task-config-body {
+    padding: 14px;
+  }
+
+  .task-type-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 72vh;
+    overflow: auto;
+  }
+
+  .task-type-card {
+    border: 1px solid var(--line);
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .task-type-card.active {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  .task-type-card.dragging,
+  .field-row.dragging {
+    opacity: .55;
+  }
+
+  .drag-handle {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    user-select: none;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .field-row {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    background: #fbfdff;
+    margin-bottom: 10px;
+  }
+
+  .field-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .field-row.compact .field-row-body {
+    display: none;
+  }
+
+  .field-row.compact .field-row-head {
+    margin-bottom: 0;
+  }
+
+  .field-row-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .field-row-title strong,
+  .field-row-title .muted {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .option-builder {
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px;
+  }
+
+  .option-builder-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .option-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .option-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .field-compact-toggle {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .field-compact-toggle .btn {
+    position: absolute;
+    inset: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .field-compact-toggle .btn[hidden] {
+    display: none;
+  }
+
+  @media (max-width: 1100px) {
+    .task-config-shell {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Configuración de tareas RCM</h2>
+    <p>{{ service.codigo_servicio }} · {{ service.estrategia }}</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{% url 'service_detail' service.pk %}">Volver al servicio</a>
+    <a class="btn" href="{% url 'service_rcm_list' service.pk %}">Registros RCM</a>
+    <button class="btn btn-primary" type="button" onclick="saveConfig()">Guardar cambios</button>
+  </div>
+</div>
+
+<form id="taskConfigForm" method="post">
+  {% csrf_token %}
+  <input type="hidden" name="payload_json" id="payloadJson">
+</form>
+
+<div class="task-config-shell">
+  <aside class="task-type-list">
+    <div class="task-type-head">
+      <div>
+        <strong>Tipos de tarea</strong>
+        <div class="muted">Actual, primaria, secundaria u otros</div>
+      </div>
+      <button class="btn" type="button" onclick="newTaskType()">+ Tipo</button>
+    </div>
+    <div class="task-type-body" id="taskTypeList"></div>
+  </aside>
+
+  <section class="task-config-panel">
+    <div class="task-config-head">
+      <div>
+        <strong id="editorTitle">Selecciona un tipo</strong>
+        <div class="muted">Campos que aparecerán al registrar una tarea de este tipo</div>
+      </div>
+      <div class="actions">
+        <button class="btn" type="button" onclick="duplicateTaskType()">Duplicar</button>
+        <button class="btn btn-danger" type="button" onclick="removeTaskType()">Eliminar</button>
+      </div>
+    </div>
+    <div class="task-config-body">
+      <div id="emptyState" class="empty-state">Crea o selecciona un tipo de tarea.</div>
+      <div id="editorState" style="display:none;">
+        <div class="form-grid">
+          <div class="form-field">
+            <label>Nombre del tipo</label>
+            <input class="input-control" id="typeName" oninput="updateTypeField('nombre', this.value)">
+          </div>
+          <div class="form-field">
+            <label>Código</label>
+            <input class="input-control" id="typeCode" oninput="updateTypeField('codigo', slugify(this.value))">
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px;">
+          <div>
+            <h3 class="card-title" style="margin:0;">Campos de la tarea</h3>
+            <p class="muted" style="margin:4px 0 0;">Define los campos visibles para este tipo de tarea.</p>
+          </div>
+          <div class="actions">
+            <span class="field-compact-toggle">
+              <button class="btn" id="compactFieldsButton" type="button" onclick="setAllFieldsCompact(true)" title="Compactar campos" aria-label="Compactar campos">
+                <i class="bi bi-chevron-double-down"></i>
+              </button>
+              <button class="btn" id="expandFieldsButton" type="button" onclick="setAllFieldsCompact(false)" title="Desplegar campos" aria-label="Desplegar campos" hidden>
+                <i class="bi bi-chevron-double-right"></i>
+              </button>
+            </span>
+            <button class="btn" type="button" onclick="addField()">+ Campo</button>
+          </div>
+        </div>
+        <div id="fieldsWrap" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const store = { items: {{ task_payload_json|safe }}, active: null };
+  const fieldTypes = [{% for value,label in field_types %}{ value: '{{ value }}', label: '{{ label }}' },{% endfor %}];
+
+  function current() {
+    return store.items.find(item => String(item.id) === String(store.active)) || null;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+  }
+
+  function slugify(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 100);
+  }
+
+  function renderList() {
+    const list = document.getElementById('taskTypeList');
+    if (!store.items.length) {
+      list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin tipos de tarea.</div>';
+      updateFieldCompactToggle();
+      return;
+    }
+    list.innerHTML = store.items.map((item, index) => {
+      const active = String(item.id) === String(store.active) ? 'active' : '';
+      const fields = (item.campos || []).length;
+      return `<div class="task-type-card ${active}" data-type-index="${index}" draggable="true" onclick="selectType('${escapeHtml(item.id)}')">
+        <span class="drag-handle" title="Mover" aria-label="Mover tipo" draggable="true" onmousedown="event.stopPropagation()">&#8942;&#8942;</span>
+        <div>
+          <strong>${escapeHtml(item.nombre || 'Sin nombre')}</strong>
+          <div class="muted">${escapeHtml(item.codigo || '-')} · ${fields} campos</div>
+        </div>
+      </div>`;
+    }).join('');
+    bindTypeDrag();
+  }
+
+  function renderEditor() {
+    const item = current();
+    document.getElementById('emptyState').style.display = item ? 'none' : 'block';
+    document.getElementById('editorState').style.display = item ? 'block' : 'none';
+    if (!item) return;
+    item.campos = Array.isArray(item.campos) ? item.campos : [];
+    document.getElementById('editorTitle').textContent = item.nombre || 'Tipo de tarea';
+    typeName.value = item.nombre || '';
+    typeCode.value = item.codigo || '';
+    typeCode.readOnly = !String(item.id || '').startsWith('new_');
+    renderFields();
+  }
+
+  function selectType(id) {
+    store.active = id;
+    renderList();
+    renderEditor();
+  }
+
+  function updateTypeField(field, value) {
+    const item = current();
+    if (!item) return;
+    if (field === 'nombre') {
+      item.nombre = value;
+      if (String(item.id || '').startsWith('new_') && !item.codigo_manual) {
+        item.codigo = slugify(value);
+        typeCode.value = item.codigo;
+      }
+    } else if (field === 'codigo') {
+      if (String(item.id || '').startsWith('new_')) {
+        item.codigo = slugify(value);
+        item.codigo_manual = true;
+        typeCode.value = item.codigo;
+      }
+    } else {
+      item[field] = value;
+    }
+    renderList();
+  }
+
+  function newTaskType() {
+    const id = 'new_' + Date.now();
+    store.items.push({
+      id,
+      nombre: 'Nuevo tipo de tarea',
+      codigo: 'nuevo_tipo_tarea',
+      codigo_manual: false,
+      orden: store.items.length + 1,
+      activo: true,
+      campos: defaultFields()
+    });
+    store.active = id;
+    renderList();
+    renderEditor();
+  }
+
+  function duplicateTaskType() {
+    const item = current();
+    if (!item) return;
+    const copy = JSON.parse(JSON.stringify(item));
+    copy.id = 'new_' + Date.now();
+    copy.nombre = `${copy.nombre || 'Tipo de tarea'} copia`;
+    copy.codigo = `${slugify(copy.codigo || copy.nombre)}_copia`;
+    copy.codigo_manual = false;
+    copy.campos = (copy.campos || []).map(field => ({ ...field, id: null }));
+    store.items.push(copy);
+    store.active = copy.id;
+    renderList();
+    renderEditor();
+  }
+
+  function removeTaskType() {
+    const item = current();
+    if (!item) return;
+    if (!confirm(`¿Eliminar ${item.nombre || 'este tipo de tarea'}?`)) return;
+    store.items = store.items.filter(entry => String(entry.id) !== String(item.id));
+    store.active = store.items[0]?.id || null;
+    renderList();
+    renderEditor();
+  }
+
+  function defaultFields() {
+    return [
+      { id: null, nombre: 'Descripción de tarea', clave: 'descripcion', tipo_dato: 'texto_largo', opciones: [], obligatorio: true, orden: 1, activo: true },
+      { id: null, nombre: 'Frecuencia', clave: 'frecuencia_texto', tipo_dato: 'texto', opciones: [], obligatorio: false, orden: 2, activo: true },
+      { id: null, nombre: 'HH', clave: 'hh', tipo_dato: 'decimal', opciones: [], obligatorio: false, orden: 3, activo: true }
+    ];
+  }
+
+  function addField() {
+    const item = current();
+    if (!item) return;
+    item.campos.push({
+      id: null,
+      nombre: 'Nuevo campo',
+      clave: `campo_${item.campos.length + 1}`,
+      tipo_dato: 'texto',
+      opciones: [],
+      obligatorio: false,
+      orden: item.campos.length + 1,
+      activo: true,
+      compactado: false
+    });
+    renderFields();
+    renderList();
+  }
+
+  function removeField(index) {
+    const item = current();
+    if (!item) return;
+    item.campos.splice(index, 1);
+    item.campos.forEach((field, idx) => field.orden = idx + 1);
+    renderFields();
+    renderList();
+  }
+
+  function moveArrayItem(items, fromIndex, toIndex) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const [item] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, item);
+    items.forEach((entry, idx) => entry.orden = idx + 1);
+  }
+
+  function bindTypeDrag() {
+    document.querySelectorAll('.task-type-card').forEach(card => {
+      const handle = card.querySelector('.drag-handle');
+      if (handle) {
+        handle.addEventListener('pointerdown', () => {
+          card.dataset.dragReady = 'true';
+        });
+        handle.addEventListener('keydown', event => {
+          if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+          }
+        });
+      }
+      card.addEventListener('dragstart', event => {
+        if (card.dataset.dragReady !== 'true') {
+          event.preventDefault();
+          return;
+        }
+        card.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', card.dataset.typeIndex || '');
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        delete card.dataset.dragReady;
+      });
+      card.addEventListener('dragover', event => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      });
+      card.addEventListener('drop', event => {
+        event.preventDefault();
+        const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+        const toIndex = Number(card.dataset.typeIndex);
+        if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
+        moveArrayItem(store.items, fromIndex, toIndex);
+        renderList();
+        renderEditor();
+      });
+    });
+  }
+
+  function bindFieldDrag() {
+    document.querySelectorAll('.field-row').forEach(row => {
+      const handle = row.querySelector('.drag-handle');
+      if (handle) {
+        handle.addEventListener('pointerdown', () => {
+          row.dataset.dragReady = 'true';
+        });
+      }
+      row.addEventListener('dragstart', event => {
+        if (row.dataset.dragReady !== 'true') {
+          event.preventDefault();
+          return;
+        }
+        row.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', row.dataset.fieldIndex || '');
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        delete row.dataset.dragReady;
+      });
+      row.addEventListener('dragover', event => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      });
+      row.addEventListener('drop', event => {
+        event.preventDefault();
+        const item = current();
+        if (!item) return;
+        const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+        const toIndex = Number(row.dataset.fieldIndex);
+        if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
+        moveArrayItem(item.campos, fromIndex, toIndex);
+        renderFields();
+        renderList();
+      });
+    });
+  }
+
+  function toggleFieldCompact(index) {
+    const item = current();
+    if (!item || !item.campos[index]) return;
+    item.campos[index].compactado = !item.campos[index].compactado;
+    renderFields();
+  }
+
+  function updateFieldCompactToggle() {
+    const compactButton = document.getElementById('compactFieldsButton');
+    const expandButton = document.getElementById('expandFieldsButton');
+    const item = current();
+    if (!compactButton || !expandButton) return;
+    const fields = item?.campos || [];
+    const allCompact = fields.length > 0 && fields.every(field => field.compactado === true);
+    compactButton.hidden = allCompact;
+    expandButton.hidden = !allCompact;
+  }
+
+  function setAllFieldsCompact(compact) {
+    const item = current();
+    if (!item) return;
+    item.campos.forEach(field => field.compactado = compact === true);
+    renderFields();
+    updateFieldCompactToggle();
+  }
+
+  function updateField(index, key, value) {
+    const item = current();
+    if (!item || !item.campos[index]) return;
+    const field = item.campos[index];
+    if (key === 'nombre') {
+      field.nombre = value;
+      if (!field.clave) field.clave = slugify(value);
+    } else if (key === 'clave') {
+      field.clave = slugify(value);
+    } else if (key === 'obligatorio') {
+      field.obligatorio = value === true;
+    } else if (key === 'orden') {
+      field.orden = Number(value || index + 1);
+    } else if (key === 'tipo_dato') {
+      field.tipo_dato = value;
+      if (value !== 'opcion') field.opciones = [];
+      renderFields();
+    } else if (key === 'opciones') {
+      field.opciones = String(value || '').split(/\n|,|;/).map(item => item.trim()).filter(Boolean);
+    } else {
+      field[key] = value;
+    }
+  }
+
+  function addOption(fieldIndex) {
+    const item = current();
+    if (!item || !item.campos[fieldIndex]) return;
+    const field = item.campos[fieldIndex];
+    field.opciones = Array.isArray(field.opciones) ? field.opciones : [];
+    field.opciones.push(`Opción ${field.opciones.length + 1}`);
+    renderFields();
+  }
+
+  function updateOption(fieldIndex, optionIndex, value) {
+    const item = current();
+    if (!item || !item.campos[fieldIndex]) return;
+    const field = item.campos[fieldIndex];
+    field.opciones = Array.isArray(field.opciones) ? field.opciones : [];
+    field.opciones[optionIndex] = value;
+  }
+
+  function removeOption(fieldIndex, optionIndex) {
+    const item = current();
+    if (!item || !item.campos[fieldIndex]) return;
+    const field = item.campos[fieldIndex];
+    field.opciones = Array.isArray(field.opciones) ? field.opciones : [];
+    field.opciones.splice(optionIndex, 1);
+    renderFields();
+  }
+
+  function pasteOptions(event, fieldIndex, optionIndex) {
+    const text = event.clipboardData?.getData('text/plain') || '';
+    if (!text.includes('\n') && !text.includes('\t')) return;
+
+    const item = current();
+    if (!item || !item.campos[fieldIndex]) return;
+    const field = item.campos[fieldIndex];
+    field.opciones = Array.isArray(field.opciones) ? field.opciones : [];
+
+    const values = text
+      .split(/\r?\n/)
+      .flatMap(row => row.split('\t'))
+      .map(value => value.trim())
+      .filter(Boolean);
+
+    if (!values.length) return;
+
+    event.preventDefault();
+    values.forEach((value, offset) => {
+      field.opciones[optionIndex + offset] = value;
+    });
+    renderFields();
+  }
+
+  function optionList(options, selected) {
+    return options.map(opt => `<option value="${escapeHtml(opt.value)}" ${String(opt.value) === String(selected || '') ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+  }
+
+  function optionsEditor(field, index) {
+    if (field.tipo_dato !== 'opcion') return '';
+    const options = Array.isArray(field.opciones) ? field.opciones : [];
+    const rows = options.length
+      ? options.map((option, optionIndex) => `
+          <div class="option-item">
+            <input class="input-control" value="${escapeHtml(option)}" oninput="updateOption(${index}, ${optionIndex}, this.value)" onpaste="pasteOptions(event, ${index}, ${optionIndex})">
+            <button class="btn btn-danger" type="button" onclick="removeOption(${index}, ${optionIndex})">Eliminar</button>
+          </div>
+        `).join('')
+      : '<div class="empty-state" style="padding:10px;">Todavía no hay opciones.</div>';
+    return `
+      <div class="form-field full">
+        <div class="option-builder">
+          <div class="option-builder-head">
+            <div>
+              <strong>Opciones del campo</strong>
+              <div class="muted">Estas opciones aparecerán como lista desplegable al registrar RCM.</div>
+            </div>
+            <button class="btn" type="button" onclick="addOption(${index})">+ Opción</button>
+          </div>
+          <div class="option-list">${rows}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderFields() {
+    const item = current();
+    const wrap = document.getElementById('fieldsWrap');
+    if (!item || !item.campos.length) {
+      wrap.innerHTML = '<div class="empty-state">Este tipo todavía no tiene campos.</div>';
+      updateFieldCompactToggle();
+      return;
+    }
+    wrap.innerHTML = item.campos.map((field, index) => `
+      <div class="field-row ${field.compactado ? 'compact' : ''}" data-field-index="${index}" draggable="true">
+        <div class="field-row-head">
+          <div>
+            <span class="drag-handle" title="Mover" aria-label="Mover campo" draggable="true">&#8942;&#8942;</span>
+            <div class="field-row-title">
+              <strong>${escapeHtml(field.nombre || `Campo ${index + 1}`)}</strong>
+              <span class="muted">${escapeHtml(field.clave || '-')} · ${escapeHtml((fieldTypes.find(type => type.value === field.tipo_dato) || {}).label || field.tipo_dato || 'Texto')}${field.obligatorio ? ' · Obligatorio' : ''}</span>
+            </div>
+          </div>
+          
+          <div class="actions">
+            <button class="btn" type="button" onclick="toggleFieldCompact(${index})">${field.compactado ? '<i class="bi bi-chevron-right"></i>' : '<i class="bi bi-chevron-down"></i>'}</button>
+            <button class="btn btn-danger" type="button" onclick="removeField(${index})">Eliminar</button>
+          </div>
+        </div>
+        <div class="form-grid field-row-body">
+          <div class="form-field">
+            <label>Nombre visible</label>
+            <input class="input-control" value="${escapeHtml(field.nombre || '')}" oninput="updateField(${index}, 'nombre', this.value)">
+          </div>
+          <div class="form-field">
+            <label>Clave interna</label>
+            <input class="input-control" value="${escapeHtml(field.clave || '')}" oninput="updateField(${index}, 'clave', this.value)">
+          </div>
+          <div class="form-field">
+            <label>Tipo dato</label>
+            <select class="input-control" onchange="updateField(${index}, 'tipo_dato', this.value)">${optionList(fieldTypes, field.tipo_dato)}</select>
+          </div>
+          <div class="form-field" style="display:flex;align-items:end;">
+            <label><input type="checkbox" ${field.obligatorio ? 'checked' : ''} onchange="updateField(${index}, 'obligatorio', this.checked)"> Obligatorio</label>
+          </div>
+          ${optionsEditor(field, index)}
+          <div class="form-field full" style="display:none;">
+            <label>Opciones</label>
+            <textarea class="input-textarea" rows="2" placeholder="Solo para tipo Opción. Una por línea." oninput="updateField(${index}, 'opciones', this.value)">${escapeHtml((field.opciones || []).join('\n'))}</textarea>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    bindFieldDrag();
+    updateFieldCompactToggle();
+  }
+
+  function normalize() {
+    return store.items.map((item, idx) => ({
+      id: String(item.id || '').startsWith('new_') ? null : item.id,
+      nombre: item.nombre || `Tipo ${idx + 1}`,
+      codigo: slugify(item.codigo || item.nombre || `tipo_${idx + 1}`),
+      orden: idx + 1,
+      activo: item.activo !== false,
+      campos: (item.campos || []).map((field, fieldIdx) => ({
+        id: field.id || null,
+        nombre: field.nombre || `Campo ${fieldIdx + 1}`,
+        clave: slugify(field.clave || field.nombre || `campo_${fieldIdx + 1}`),
+        tipo_dato: field.tipo_dato || 'texto',
+        opciones: field.opciones || [],
+        obligatorio: field.obligatorio === true,
+        orden: fieldIdx + 1,
+        activo: field.activo !== false
+      }))
+    }));
+  }
+
+  function saveConfig() {
+    document.getElementById('payloadJson').value = JSON.stringify(normalize());
+    document.getElementById('taskConfigForm').submit();
+  }
+
+  (function init() {
+    if (store.items.length) {
+      store.active = store.items[0].id;
+    }
+    renderList();
+    renderEditor();
+  })();
+</script>
+{% endblock %}

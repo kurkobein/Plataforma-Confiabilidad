@@ -249,6 +249,12 @@ a:hover {
     padding-bottom: 25px;
 }
 
+.grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(600px, 1fr));
+    gap: 16px;
+}
+
 .stat {
     border: 1px solid var(--line);
     border-radius: 10px;
