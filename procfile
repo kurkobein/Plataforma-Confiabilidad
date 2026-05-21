@@ -1,0 +1,1 @@
+web: gunicorn mindco_minimal.wsgi

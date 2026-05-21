@@ -3,9 +3,9 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'mindco-minimal-dev-secret-key')
-DEBUG = os.getenv('DJANGO_DEBUG', '1') == '1'
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',')
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+DEBUG = os.getenv('DJANGO_DEBUG', '0') == '1'
+ALLOWED_HOSTS = ['*']
 
 SESSION_COOKIE_NAME = "sessionid_mindco_c"
 CSRF_COOKIE_NAME = "csrftoken_mindco_c"
@@ -57,24 +57,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mindco_minimal.wsgi.application'
 
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    ".trycloudflare.com",
-]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.trycloudflare.com",
+    "https://*.up.railway.app",
 ]
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'Mindcodbk',
-        'USER': 'root',
-        'PASSWORD': 'FelipeS@002',
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
+        'NAME': os.getenv('MYSQLDATABASE'),
+        'USER': os.getenv('MYSQLUSER'),
+        'PASSWORD': os.getenv('MYSQLPASSWORD'),
+        'HOST': os.getenv('MYSQLHOST'),
+        'PORT': os.getenv('MYSQLPORT'),
         'OPTIONS': {
             'charset': 'utf8mb4',
         },
@@ -89,6 +85,10 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+
 STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
