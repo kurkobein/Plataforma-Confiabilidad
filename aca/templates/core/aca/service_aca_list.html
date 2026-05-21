@@ -1,0 +1,77 @@
+{% extends 'core/base.html' %}
+{% load core_extras %}
+{% block title %}ACA | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Registros ACA</h2>
+        <p>{{ service.codigo_servicio }} · vista horizontal con equipo, dimensiones y criticidad.</p>
+    </div>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
+        <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
+        {% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>{% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Resumen</h3>
+    <div class="grid-3">
+        <div class="stat"><small>Servicio</small><strong style="font-size:20px;">{{ service.codigo_servicio }}</strong></div>
+
+        <div class="stat"><small>Registros</small><strong>{{ aca_count }}</strong></div>
+        <div class="stat"><small>Completos</small><strong>{{ complete_count }}</strong></div>
+        <div class="stat"><small>Incompletos</small><strong>{{ incomplete_count }}</strong></div>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="datatable display">
+        <thead>
+            <tr>
+                {% for key, label in columns %}<th>{{ label }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    {% for key, label in columns %}
+                        <td>
+                            {% if key == 'acciones' %}
+                                <div class="actions">
+                                    {% if permission.can_edit %}
+                                        <a class="btn" href="{% url 'service_aca_edit' service.pk row.id %}">Editar</a>
+
+                                        <form method="post"
+                                            action="{% url 'service_aca_delete' service.pk row.id %}"
+                                            style="display:inline;"
+                                            onsubmit="return confirm('¿Seguro que deseas eliminar este registro ACA?');">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-danger">Eliminar</button>
+                                        </form>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </div>
+                            {% elif key == 'status' %}
+                                <span class="{% if row.status == 'Incompleto' %}pill-warning{% else %}pill-success{% endif %}">{{ row.status }}</span>
+                            {% else %}
+                                {{ row|get_item:key }}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="{{ columns|length }}" class="muted">
+                        No hay registros ACA asociados a este servicio.
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

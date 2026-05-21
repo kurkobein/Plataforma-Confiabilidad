@@ -271,6 +271,30 @@ class NodoJerarquia(BaseUnmanagedModel):
         return ' > '.join(f'{node.nivel.nombre}: {node.codigo} - {node.nombre}' for node in self.path_nodes())
 
 
+class ValorNivelJerarquia(BaseUnmanagedModel):
+    empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='valores_nivel_jerarquia')
+    nivel = models.ForeignKey(NivelJerarquia, on_delete=models.DO_NOTHING, db_column='nivel_id', related_name='valores_simples')
+    codigo = models.CharField(max_length=50)
+    nombre = models.CharField(max_length=200)
+    orden = models.PositiveIntegerField(default=0)
+    activo = models.BooleanField(default=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_valorniveljerarquia'
+        ordering = ['empresa__nombre', 'nivel__orden', 'orden', 'codigo', 'nombre']
+        unique_together = (
+            ('empresa', 'nivel', 'codigo'),
+        )
+        indexes = [
+            models.Index(fields=['empresa', 'nivel', 'activo']),
+            models.Index(fields=['codigo']),
+            models.Index(fields=['nombre']),
+        ]
+
+    def __str__(self):
+        return f'{self.empresa.sigla} / {self.nivel.nombre}: {self.codigo} - {self.nombre}'
+
+
 class Equipo(BaseUnmanagedModel):
     tag_equipo = models.CharField(max_length=100)
     nombre_equipo = models.CharField(max_length=200)
@@ -433,9 +457,10 @@ class RCM(BaseUnmanagedModel):
     criticidad = models.IntegerField(blank=True, null=True)
     fecha_analisis = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=Carga.STATUS_INCOMPLETO)
+    componente = models.CharField('Componente', max_length=255, blank=True, null=True)
     falla_funcional = models.TextField()
     modo_de_falla = models.TextField()
-    causa = models.TextField()
+    causa = models.TextField(blank=True, null=True)
     efecto = models.TextField()
 
     class Meta(BaseUnmanagedModel.Meta):
@@ -658,6 +683,168 @@ class ValorCampoTareaRCM(BaseUnmanagedModel):
 
     def __str__(self):
         return f'{self.tarea_id} / {self.campo}: {self.valor_display}'
+
+
+class PlantillaPauta(BaseUnmanagedModel):
+    empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', blank=True, null=True, related_name='plantillas_pauta')
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', blank=True, null=True, related_name='plantillas_pauta')
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='plantillas_pauta')
+    nombre = models.CharField(max_length=200)
+    archivo = models.FileField(upload_to='plantillas_pautas/')
+    activa = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_plantillapauta'
+        ordering = ['-activa', 'nombre']
+        indexes = [
+            models.Index(fields=['empresa'], name='idx_ppauta_empresa'),
+            models.Index(fields=['servicio'], name='idx_ppauta_servicio'),
+            models.Index(fields=['estrategia'], name='idx_ppauta_estrategia'),
+            models.Index(fields=['activa'], name='idx_ppauta_activa'),
+        ]
+
+    def __str__(self):
+        return self.nombre
+
+
+class MapeoPlantillaPauta(BaseUnmanagedModel):
+    plantilla = models.OneToOneField(PlantillaPauta, on_delete=models.DO_NOTHING, db_column='plantilla_id', related_name='mapeo')
+    hoja_principal = models.CharField(max_length=120, blank=True)
+    config = models.JSONField(default=dict, blank=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_mapeoplantillapauta'
+        ordering = ['plantilla__nombre']
+
+    def __str__(self):
+        return f'Mapeo {self.plantilla}'
+
+
+class Pauta(BaseUnmanagedModel):
+    ORIGEN_RCM = 'rcm'
+    ORIGEN_FMEA = 'fmea'
+    ORIGEN_MANUAL = 'manual'
+    ORIGEN_CHOICES = [
+        (ORIGEN_RCM, 'RCM'),
+        (ORIGEN_FMEA, 'FMEA'),
+        (ORIGEN_MANUAL, 'Manual'),
+    ]
+    ESTADO_BORRADOR = 'borrador'
+    ESTADO_GENERADA = 'generada'
+    ESTADO_REVISADA = 'revisada'
+    ESTADO_APROBADA = 'aprobada'
+    ESTADO_CHOICES = [
+        (ESTADO_BORRADOR, 'Borrador'),
+        (ESTADO_GENERADA, 'Generada'),
+        (ESTADO_REVISADA, 'Revisada'),
+        (ESTADO_APROBADA, 'Aprobada'),
+    ]
+
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='pautas')
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='pautas')
+    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', blank=True, null=True, related_name='pautas')
+    plantilla = models.ForeignKey(PlantillaPauta, on_delete=models.DO_NOTHING, db_column='plantilla_id', blank=True, null=True, related_name='pautas')
+    codigo = models.CharField(max_length=80)
+    nombre = models.CharField(max_length=200)
+    area = models.CharField(max_length=150, blank=True)
+    ubicacion_tecnica = models.CharField(max_length=200, blank=True)
+    frecuencia = models.CharField(max_length=150, blank=True)
+    especialidad = models.CharField(max_length=100, blank=True)
+    estado_equipo = models.CharField(max_length=100, blank=True)
+    estrategia_mantenimiento = models.CharField(max_length=150, blank=True)
+    cantidad_personas = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    duracion_horas = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    hh_total = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    origen = models.CharField(max_length=20, choices=ORIGEN_CHOICES, default=ORIGEN_RCM)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=ESTADO_BORRADOR)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_pauta'
+        ordering = ['-creado_en', 'codigo']
+        constraints = [
+            models.UniqueConstraint(fields=['servicio', 'codigo'], name='uniq_pauta_servicio_codigo'),
+        ]
+        indexes = [
+            models.Index(fields=['servicio'], name='idx_pauta_servicio'),
+            models.Index(fields=['estrategia'], name='idx_pauta_estrategia'),
+            models.Index(fields=['equipo'], name='idx_pauta_equipo'),
+            models.Index(fields=['estado'], name='idx_pauta_estado'),
+            models.Index(fields=['origen'], name='idx_pauta_origen'),
+        ]
+
+    def __str__(self):
+        return f'{self.codigo} - {self.nombre}'
+
+
+class PautaTarea(BaseUnmanagedModel):
+    TIPO_PRIMARIA = 'primaria'
+    TIPO_SECUNDARIA = 'secundaria'
+    TIPO_MANUAL = 'manual'
+    TIPO_TAREA_CHOICES = [
+        (TIPO_PRIMARIA, 'Primaria'),
+        (TIPO_SECUNDARIA, 'Secundaria'),
+        (TIPO_MANUAL, 'Manual'),
+    ]
+
+    pauta = models.ForeignKey(Pauta, on_delete=models.DO_NOTHING, db_column='pauta_id', related_name='tareas')
+    orden = models.PositiveIntegerField(default=1)
+    componente = models.CharField(max_length=200, blank=True)
+    actividad = models.TextField()
+    limite_aceptable = models.TextField(blank=True)
+    observacion = models.TextField(blank=True)
+    tipo_tarea = models.CharField(max_length=20, choices=TIPO_TAREA_CHOICES, default=TIPO_PRIMARIA)
+    origen_modelo = models.CharField(max_length=80, blank=True)
+    origen_id = models.PositiveIntegerField(blank=True, null=True)
+    frecuencia = models.CharField(max_length=150, blank=True)
+    pto_trabajo = models.CharField(max_length=100, blank=True)
+    cantidad_personas = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    duracion_horas = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    hh = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    estado_equipo = models.CharField(max_length=100, blank=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_pautatarea'
+        ordering = ['pauta_id', 'orden', 'id']
+        indexes = [
+            models.Index(fields=['pauta'], name='idx_ptarea_pauta'),
+            models.Index(fields=['tipo_tarea'], name='idx_ptarea_tipo'),
+            models.Index(fields=['origen_modelo', 'origen_id'], name='idx_ptarea_origen'),
+        ]
+
+    def __str__(self):
+        return f'{self.pauta.codigo} / {self.orden}. {self.actividad[:60]}'
+
+
+class ReglaGeneracionPauta(BaseUnmanagedModel):
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='reglas_pauta')
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', blank=True, null=True, related_name='reglas_pauta')
+    nombre = models.CharField(max_length=150)
+    agrupar_por_equipo = models.BooleanField(default=True)
+    agrupar_por_ubicacion = models.BooleanField(default=True)
+    agrupar_por_frecuencia = models.BooleanField(default=True)
+    agrupar_por_especialidad = models.BooleanField(default=True)
+    agrupar_por_estado_equipo = models.BooleanField(default=True)
+    incluir_tareas_primarias = models.BooleanField(default=True)
+    incluir_tareas_secundarias = models.BooleanField(default=False)
+    activa = models.BooleanField(default=True)
+    config = models.JSONField(default=dict, blank=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_reglageneracionpauta'
+        ordering = ['servicio_id', 'estrategia_id', 'nombre']
+        indexes = [
+            models.Index(fields=['estrategia'], name='idx_rgpa_estrategia'),
+            models.Index(fields=['servicio'], name='idx_rgpa_servicio'),
+            models.Index(fields=['activa'], name='idx_rgpa_activa'),
+        ]
+
+    def __str__(self):
+        return self.nombre
 
 
 class DimensionCatalogo(BaseUnmanagedModel):

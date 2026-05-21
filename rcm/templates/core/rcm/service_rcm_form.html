@@ -1,0 +1,1007 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ form_title|default:'Nuevo registro RCM' }} | {{ service.codigo_servicio }}{% endblock %}
+{% block extra_head %}
+<style>
+    .task-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .task-card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fbfdff;
+        padding: 14px;
+    }
+
+    .task-card.is-deleted {
+        display: none;
+    }
+
+    .task-card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .task-card-head strong {
+        font-size: 15px;
+    }
+
+    .task-delete-field {
+        display: none;
+    }
+
+    .task-details {
+        margin-top: 12px;
+    }
+
+    .task-details summary {
+        cursor: pointer;
+        color: var(--primary);
+        font-weight: 600;
+        margin-bottom: 12px;
+    }
+
+    .legacy-task-field,
+    .legacy-task-details {
+        display: none;
+    }
+
+    .dynamic-task-fields {
+        margin-top: 12px;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_rcm_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>{{ form_title|default:'Nuevo registro RCM' }}</h2>
+        <p>{{ service.codigo_servicio }} · FMEA/FMECA</p>
+    </div>
+    </div>
+</div>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.equipo }}
+    {{ form.fecha_analisis.as_hidden }}
+
+    <div style="grid-template-columns: repeat(3, minmax(49.5%, 1fr));" class="form-grid">
+        <div class="card">
+            <h3 class="card-title">Equipo</h3>
+            <div class="form-field full">
+                <label for="rcm-equipment-search">Buscar equipo por U.T.</label>
+                <div class="form-grid" id="rcm-equipment-level-filters"></div>
+                <div class="form-grid" style="margin-top:12px;">
+                    <div class="form-field">
+                        <label for="rcm-equipment-search">Buscar</label>
+                        <input id="rcm-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+                    </div>
+                    <div class="form-field">
+                        <label for="rcm-equipment-results">Equipo</label>
+                        <select id="rcm-equipment-results" class="input-control">
+                            <option value="">Selecciona un equipo</option>
+                        </select>
+                        <small class="muted" id="rcm-equipment-count"></small>
+                    </div>
+                </div>
+                {% if form.equipo.errors %}<div class="form-error">{{ form.equipo.errors }}</div>{% endif %}
+            </div>
+            <div class="form-grid" style="margin-top:12px;">
+                <div class="form-field">
+                    <label>Ubicación Técnica</label>
+                    <input id="rcm-equipment-ut" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+                </div>
+                <div class="form-field">
+                    <label>Descripción U.Técnica</label>
+                    <input id="rcm-equipment-description" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+                </div>
+                <div class="form-field">
+                    <label>Equipo</label>
+                    <input id="rcm-equipment-name" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+                </div>
+                <div class="form-field">
+                    <label>TAG</label>
+                    <input id="rcm-equipment-tag" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 class="card-title">Análisis RCM</h3>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="{{ form.estado.id_for_label }}">{{ form.estado.label }}</label>
+                    {{ form.estado }}
+                    {% if form.estado.errors %}<div class="form-error">{{ form.estado.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field">
+                    <label for="{{ form.criticidad.id_for_label }}">{{ form.criticidad.label }}</label>
+                    {{ form.criticidad }}
+                    {% if form.criticidad.help_text %}<small class="muted">{{ form.criticidad.help_text }}</small>{% endif %}
+                    {% if form.criticidad.errors %}<div class="form-error">{{ form.criticidad.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field">
+                    <label for="{{ form.componente.id_for_label }}">{{ form.componente.label }}</label>
+                    {{ form.componente }}
+                    {% if form.componente.errors %}<div class="form-error">{{ form.componente.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field full">
+                    <label for="{{ form.falla_funcional.id_for_label }}">{{ form.falla_funcional.label }}</label>
+                    {{ form.falla_funcional }}
+                    {% if form.falla_funcional.errors %}<div class="form-error">{{ form.falla_funcional.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field full">
+                    <label for="{{ form.modo_de_falla.id_for_label }}">{{ form.modo_de_falla.label }}</label>
+                    {{ form.modo_de_falla }}
+                    {% if form.modo_de_falla.errors %}<div class="form-error">{{ form.modo_de_falla.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field full">
+                    <label for="{{ form.causa.id_for_label }}">{{ form.causa.label }}</label>
+                    {{ form.causa }}
+                    {% if form.causa.errors %}<div class="form-error">{{ form.causa.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field full">
+                    <label for="{{ form.efecto.id_for_label }}">{{ form.efecto.label }}</label>
+                    {{ form.efecto }}
+                    {% if form.efecto.errors %}<div class="form-error">{{ form.efecto.errors }}</div>{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">FMEA/FMECA</h3>
+        {% if form.impact_dimensions %}
+            <div class="form-field full">
+                <label>Dimensiones RCM</label>
+                <div class="dimension-grid">
+                    {% for item in form.impact_dimensions %}
+                        <div class="dimension-card">
+                            <div class="dimension-card-header">
+                                <div>
+                                    <strong>{{ item.dimension.nombre }}</strong>
+                                    <div class="muted dimension-meta">{{ item.dimension.tipo_funcional }} · {{ item.dimension.tipo_dato }}</div>
+                                </div>
+                                {% if item.mode == 'escala' %}<span class="pill">Escala</span>{% elif item.mode == 'catalogo' %}<span class="pill">Tabla</span>{% elif item.mode == 'calculado' %}<span class="pill">Calculado</span>{% else %}<span class="pill-soft">Valor manual</span>{% endif %}
+                            </div>
+                            <div class="option-compact-row">
+                                <div class="form-field">
+                                    <label for="{{ item.field.id_for_label }}">{{ item.field.label }}</label>
+                                    {{ item.field }}
+                                    {% if item.field.errors %}<div class="form-error">{{ item.field.errors }}</div>{% endif %}
+                                </div>
+                                {% if item.option_rows %}
+                                    <button type="button"
+                                            class="btn btn-toggle-option"
+                                            data-option-toggle
+                                            data-panel-id="rcm-impact-panel-{{ forloop.counter0 }}"
+                                            aria-expanded="false">
+                                        Ver tabla
+                                    </button>
+                                {% endif %}
+                            </div>
+                            {% if item.option_rows %}
+                                <div id="rcm-impact-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
+                                    <div class="table-wrap">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    {% for header in item.option_headers %}<th>{{ header }}</th>{% endfor %}
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for row in item.option_rows %}
+                                                    <tr>
+                                                        {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+                                                        <td>
+                                                            <button type="button"
+                                                                    class="btn"
+                                                                    data-rcm-pick-option
+                                                                    data-target="{{ item.field.id_for_label }}"
+                                                                    data-value="{{ row.pk }}"
+                                                                    data-numeric="{{ row.value_numeric }}">
+                                                                Elegir
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <p class="muted">No hay dimensiones marcadas para RCM en la estrategia del servicio.</p>
+        {% endif %}
+        {% if form.non_field_errors %}<div class="form-error form-error-block">{{ form.non_field_errors }}</div>{% endif %}
+    </div>
+
+    <div class="card">
+        <div class="section-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+            <div>
+                <h3 class="card-title">Tareas RCM</h3>
+                <p class="muted">Registra tareas actuales, recomendadas, secundarias o equivalentes según la estrategia.</p>
+            </div>
+            <button class="btn" type="button" id="add-rcm-task" {% if not task_types_available %}disabled{% endif %}>+ Tarea</button>
+        </div>
+        {{ task_formset.management_form }}
+        {% if task_formset.non_form_errors %}<div class="form-error form-error-block">{{ task_formset.non_form_errors }}</div>{% endif %}
+        {% if not task_types_available %}
+            <div class="empty-state" style="margin-top:12px;">
+                Esta estrategia aún no tiene tipos de tarea configurados. Crea tipos como Actual, Primaria, Secundaria o Tarea RCM desde el admin antes de registrar tareas.
+            </div>
+        {% endif %}
+        <div class="task-list" id="rcm-task-list" style="margin-top:12px;">
+            {% for task_form in task_formset.forms %}
+                <div class="task-card" data-task-form>
+                    {{ task_form.id }}
+                    {{ task_form.valores_json }}
+                    <div class="task-delete-field">{{ task_form.DELETE }}</div>
+                    <div class="task-card-head">
+                        <strong>Tarea {{ forloop.counter }}</strong>
+                        <button class="btn btn-danger" type="button" data-remove-task>Eliminar</button>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label for="{{ task_form.tipo_tarea_estrategia.id_for_label }}">{{ task_form.tipo_tarea_estrategia.label }}</label>
+                            {{ task_form.tipo_tarea_estrategia }}
+                            {% if task_form.tipo_tarea_estrategia.errors %}<div class="form-error">{{ task_form.tipo_tarea_estrategia.errors }}</div>{% endif %}
+                        </div>
+                        <div class="form-field">
+                            <label for="{{ task_form.estado.id_for_label }}">{{ task_form.estado.label }}</label>
+                            {{ task_form.estado }}
+                            {% if task_form.estado.errors %}<div class="form-error">{{ task_form.estado.errors }}</div>{% endif %}
+                        </div>
+                        <div class="form-field legacy-task-field">
+                            <label for="{{ task_form.tactica.id_for_label }}">{{ task_form.tactica.label }}</label>
+                            {{ task_form.tactica }}
+                            {% if task_form.tactica.errors %}<div class="form-error">{{ task_form.tactica.errors }}</div>{% endif %}
+                        </div>
+                        <div class="form-field full legacy-task-field">
+                            <label for="{{ task_form.descripcion.id_for_label }}">{{ task_form.descripcion.label }}</label>
+                            {{ task_form.descripcion }}
+                            {% if task_form.descripcion.errors %}<div class="form-error">{{ task_form.descripcion.errors }}</div>{% endif %}
+                        </div>
+                    </div>
+                    <div class="dynamic-task-fields" data-task-dynamic-fields></div>
+                    <details class="task-details legacy-task-details">
+                        <summary>Campos técnicos, SAP, frecuencia y costos</summary>
+                        <div class="form-grid">
+                            <div class="form-field full"><label for="{{ task_form.limite_aceptable.id_for_label }}">{{ task_form.limite_aceptable.label }}</label>{{ task_form.limite_aceptable }}</div>
+                            <div class="form-field full"><label for="{{ task_form.parametros.id_for_label }}">{{ task_form.parametros.label }}</label>{{ task_form.parametros }}</div>
+                            <div class="form-field full"><label for="{{ task_form.riesgo_material.id_for_label }}">{{ task_form.riesgo_material.label }}</label>{{ task_form.riesgo_material }}</div>
+                            <div class="form-field"><label for="{{ task_form.especialidad.id_for_label }}">{{ task_form.especialidad.label }}</label>{{ task_form.especialidad }}</div>
+                            <div class="form-field"><label for="{{ task_form.puesto_trabajo.id_for_label }}">{{ task_form.puesto_trabajo.label }}</label>{{ task_form.puesto_trabajo }}</div>
+                            <div class="form-field"><label for="{{ task_form.estado_equipo.id_for_label }}">{{ task_form.estado_equipo.label }}</label>{{ task_form.estado_equipo }}</div>
+                            <div class="form-field"><label for="{{ task_form.frecuencia_valor.id_for_label }}">{{ task_form.frecuencia_valor.label }}</label>{{ task_form.frecuencia_valor }}</div>
+                            <div class="form-field"><label for="{{ task_form.frecuencia_unidad.id_for_label }}">{{ task_form.frecuencia_unidad.label }}</label>{{ task_form.frecuencia_unidad }}</div>
+                            <div class="form-field"><label for="{{ task_form.frecuencia_texto.id_for_label }}">{{ task_form.frecuencia_texto.label }}</label>{{ task_form.frecuencia_texto }}</div>
+                            <div class="form-field"><label for="{{ task_form.duracion_min.id_for_label }}">{{ task_form.duracion_min.label }}</label>{{ task_form.duracion_min }}</div>
+                            <div class="form-field"><label for="{{ task_form.duracion_hr.id_for_label }}">{{ task_form.duracion_hr.label }}</label>{{ task_form.duracion_hr }}</div>
+                            <div class="form-field"><label for="{{ task_form.cantidad_personas.id_for_label }}">{{ task_form.cantidad_personas.label }}</label>{{ task_form.cantidad_personas }}</div>
+                            <div class="form-field"><label for="{{ task_form.hh.id_for_label }}">{{ task_form.hh.label }}</label>{{ task_form.hh }}</div>
+                            <div class="form-field"><label for="{{ task_form.plan_sap.id_for_label }}">{{ task_form.plan_sap.label }}</label>{{ task_form.plan_sap }}</div>
+                            <div class="form-field full"><label for="{{ task_form.descripcion_plan.id_for_label }}">{{ task_form.descripcion_plan.label }}</label>{{ task_form.descripcion_plan }}</div>
+                            <div class="form-field"><label for="{{ task_form.hoja_ruta.id_for_label }}">{{ task_form.hoja_ruta.label }}</label>{{ task_form.hoja_ruta }}</div>
+                            <div class="form-field full"><label for="{{ task_form.texto_hoja_ruta.id_for_label }}">{{ task_form.texto_hoja_ruta.label }}</label>{{ task_form.texto_hoja_ruta }}</div>
+                            <div class="form-field"><label for="{{ task_form.operacion_hoja_ruta.id_for_label }}">{{ task_form.operacion_hoja_ruta.label }}</label>{{ task_form.operacion_hoja_ruta }}</div>
+                            <div class="form-field full"><label for="{{ task_form.texto_operacion.id_for_label }}">{{ task_form.texto_operacion.label }}</label>{{ task_form.texto_operacion }}</div>
+                            <div class="form-field"><label for="{{ task_form.operacion_pauta.id_for_label }}">{{ task_form.operacion_pauta.label }}</label>{{ task_form.operacion_pauta }}</div>
+                            <div class="form-field"><label for="{{ task_form.pauta.id_for_label }}">{{ task_form.pauta.label }}</label>{{ task_form.pauta }}</div>
+                            <div class="form-field full"><label for="{{ task_form.titulo_pauta.id_for_label }}">{{ task_form.titulo_pauta.label }}</label>{{ task_form.titulo_pauta }}</div>
+                            <div class="form-field full"><label for="{{ task_form.repuesto.id_for_label }}">{{ task_form.repuesto.label }}</label>{{ task_form.repuesto }}</div>
+                            <div class="form-field full"><label for="{{ task_form.componente_involucrado.id_for_label }}">{{ task_form.componente_involucrado.label }}</label>{{ task_form.componente_involucrado }}</div>
+                            <div class="form-field"><label for="{{ task_form.numero_parte.id_for_label }}">{{ task_form.numero_parte.label }}</label>{{ task_form.numero_parte }}</div>
+                            <div class="form-field"><label for="{{ task_form.numero_sap.id_for_label }}">{{ task_form.numero_sap.label }}</label>{{ task_form.numero_sap }}</div>
+                            <div class="form-field full"><label for="{{ task_form.procedimiento_trabajo.id_for_label }}">{{ task_form.procedimiento_trabajo.label }}</label>{{ task_form.procedimiento_trabajo }}</div>
+                            <div class="form-field"><label for="{{ task_form.costo_hh.id_for_label }}">{{ task_form.costo_hh.label }}</label>{{ task_form.costo_hh }}</div>
+                            <div class="form-field"><label for="{{ task_form.costo_repuestos.id_for_label }}">{{ task_form.costo_repuestos.label }}</label>{{ task_form.costo_repuestos }}</div>
+                            <div class="form-field"><label for="{{ task_form.tarifa_servicios.id_for_label }}">{{ task_form.tarifa_servicios.label }}</label>{{ task_form.tarifa_servicios }}</div>
+                            <div class="form-field"><label for="{{ task_form.costo_total.id_for_label }}">{{ task_form.costo_total.label }}</label>{{ task_form.costo_total }}</div>
+                            <div class="form-field full"><label for="{{ task_form.oportunidad_mejora.id_for_label }}">{{ task_form.oportunidad_mejora.label }}</label>{{ task_form.oportunidad_mejora }}</div>
+                        </div>
+                    </details>
+                    {% if task_form.errors %}<div class="form-error form-error-block">{{ task_form.errors }}</div>{% endif %}
+                    {% if task_form.non_field_errors %}<div class="form-error form-error-block">{{ task_form.non_field_errors }}</div>{% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        <template id="rcm-task-empty-template">
+            <div class="task-card" data-task-form>
+                {{ task_formset.empty_form.id }}
+                {{ task_formset.empty_form.valores_json }}
+                <div class="task-delete-field">{{ task_formset.empty_form.DELETE }}</div>
+                <div class="task-card-head">
+                    <strong>Nueva tarea</strong>
+                    <button class="btn btn-danger" type="button" data-remove-task>Eliminar</button>
+                </div>
+                <div class="form-grid">
+                    <div class="form-field"><label>{{ task_formset.empty_form.tipo_tarea_estrategia.label }}</label>{{ task_formset.empty_form.tipo_tarea_estrategia }}</div>
+                    <div class="form-field"><label>{{ task_formset.empty_form.estado.label }}</label>{{ task_formset.empty_form.estado }}</div>
+                    <div class="form-field legacy-task-field"><label>{{ task_formset.empty_form.tactica.label }}</label>{{ task_formset.empty_form.tactica }}</div>
+                    <div class="form-field full legacy-task-field"><label>{{ task_formset.empty_form.descripcion.label }}</label>{{ task_formset.empty_form.descripcion }}</div>
+                </div>
+                <div class="dynamic-task-fields" data-task-dynamic-fields></div>
+                <details class="task-details legacy-task-details">
+                    <summary>Campos técnicos, SAP, frecuencia y costos</summary>
+                    <div class="form-grid">
+                        <div class="form-field full"><label>{{ task_formset.empty_form.limite_aceptable.label }}</label>{{ task_formset.empty_form.limite_aceptable }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.parametros.label }}</label>{{ task_formset.empty_form.parametros }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.riesgo_material.label }}</label>{{ task_formset.empty_form.riesgo_material }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.especialidad.label }}</label>{{ task_formset.empty_form.especialidad }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.puesto_trabajo.label }}</label>{{ task_formset.empty_form.puesto_trabajo }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.estado_equipo.label }}</label>{{ task_formset.empty_form.estado_equipo }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.frecuencia_valor.label }}</label>{{ task_formset.empty_form.frecuencia_valor }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.frecuencia_unidad.label }}</label>{{ task_formset.empty_form.frecuencia_unidad }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.frecuencia_texto.label }}</label>{{ task_formset.empty_form.frecuencia_texto }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.duracion_min.label }}</label>{{ task_formset.empty_form.duracion_min }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.duracion_hr.label }}</label>{{ task_formset.empty_form.duracion_hr }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.cantidad_personas.label }}</label>{{ task_formset.empty_form.cantidad_personas }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.hh.label }}</label>{{ task_formset.empty_form.hh }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.plan_sap.label }}</label>{{ task_formset.empty_form.plan_sap }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.descripcion_plan.label }}</label>{{ task_formset.empty_form.descripcion_plan }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.hoja_ruta.label }}</label>{{ task_formset.empty_form.hoja_ruta }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.texto_hoja_ruta.label }}</label>{{ task_formset.empty_form.texto_hoja_ruta }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.operacion_hoja_ruta.label }}</label>{{ task_formset.empty_form.operacion_hoja_ruta }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.texto_operacion.label }}</label>{{ task_formset.empty_form.texto_operacion }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.operacion_pauta.label }}</label>{{ task_formset.empty_form.operacion_pauta }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.pauta.label }}</label>{{ task_formset.empty_form.pauta }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.titulo_pauta.label }}</label>{{ task_formset.empty_form.titulo_pauta }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.repuesto.label }}</label>{{ task_formset.empty_form.repuesto }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.componente_involucrado.label }}</label>{{ task_formset.empty_form.componente_involucrado }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.numero_parte.label }}</label>{{ task_formset.empty_form.numero_parte }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.numero_sap.label }}</label>{{ task_formset.empty_form.numero_sap }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.procedimiento_trabajo.label }}</label>{{ task_formset.empty_form.procedimiento_trabajo }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.costo_hh.label }}</label>{{ task_formset.empty_form.costo_hh }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.costo_repuestos.label }}</label>{{ task_formset.empty_form.costo_repuestos }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.tarifa_servicios.label }}</label>{{ task_formset.empty_form.tarifa_servicios }}</div>
+                        <div class="form-field"><label>{{ task_formset.empty_form.costo_total.label }}</label>{{ task_formset.empty_form.costo_total }}</div>
+                        <div class="form-field full"><label>{{ task_formset.empty_form.oportunidad_mejora.label }}</label>{{ task_formset.empty_form.oportunidad_mejora }}</div>
+                    </div>
+                </details>
+            </div>
+        </template>
+    </div>
+    <div class="actions" style="margin-top:12px;">
+            <button class="btn btn-primary" type="submit">{{ submit_label|default:'Guardar registro RCM' }}</button>
+        </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+{{ service_equipment_payload|json_script:"rcm-equipment-data" }}
+{{ service_equipment_endpoints|json_script:"rcm-equipment-endpoints" }}
+{{ form.dimension_runtime_payload|json_script:"rcm-dimension-runtime" }}
+<script id="rcm-task-config" type="application/json">{{ task_field_config_payload|safe }}</script>
+<script>
+(function () {
+    const dataNode = document.getElementById('rcm-equipment-data');
+    const endpointsNode = document.getElementById('rcm-equipment-endpoints');
+    const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+    const endpoints = endpointsNode ? JSON.parse(endpointsNode.textContent || '{}') : {};
+    const levels = payload.levels || [];
+    const levelWrap = document.getElementById('rcm-equipment-level-filters');
+    const searchInput = document.getElementById('rcm-equipment-search');
+    const resultSelect = document.getElementById('rcm-equipment-results');
+    const countText = document.getElementById('rcm-equipment-count');
+    const hiddenEquipment = document.getElementById('{{ form.equipo.id_for_label }}');
+    const selected = {
+        ut: document.getElementById('rcm-equipment-ut'),
+        description: document.getElementById('rcm-equipment-description'),
+        name: document.getElementById('rcm-equipment-name'),
+        tag: document.getElementById('rcm-equipment-tag'),
+    };
+    const resultMap = new Map();
+    const selectors = [];
+    let searchTimer = null;
+
+    function setEquipment(item) {
+        hiddenEquipment.value = item ? item.id : '';
+        selected.ut.value = item ? (item.ut || '') : '';
+        selected.description.value = item ? (item.descripcion_ut || '') : '';
+        selected.name.value = item ? (item.equipo || '') : '';
+        selected.tag.value = item ? (item.tag || '') : '';
+    }
+
+    function clearResults(message) {
+        resultSelect.innerHTML = '<option value="">Selecciona un equipo</option>';
+        countText.textContent = message || '';
+        resultMap.clear();
+    }
+
+    function selectedNodeId() {
+        for (let index = selectors.length - 1; index >= 0; index -= 1) {
+            if (selectors[index].value) {
+                return selectors[index].value;
+            }
+        }
+        return '';
+    }
+
+    function loadNodes(levelIndex, parentId) {
+        if (!endpoints.nodes || !selectors[levelIndex]) {
+            return;
+        }
+        const select = selectors[levelIndex];
+        select.disabled = true;
+        select.innerHTML = '<option value="">Cargando...</option>';
+        const url = new URL(endpoints.nodes, window.location.origin);
+        if (parentId) {
+            url.searchParams.set('parent_id', parentId);
+        }
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const level = levels[levelIndex];
+                const nodes = (data.nodes || []).filter(node => Number(node.level_id) === Number(level.id));
+                select.innerHTML = '<option value="">Todos</option>';
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = node.label;
+                    select.appendChild(option);
+                });
+                select.disabled = nodes.length === 0;
+            })
+            .catch(() => {
+                select.innerHTML = '<option value="">Sin datos</option>';
+                select.disabled = true;
+            });
+    }
+
+    function resetLowerLevels(startIndex) {
+        for (let index = startIndex; index < selectors.length; index += 1) {
+            selectors[index].innerHTML = '<option value="">Todos</option>';
+            selectors[index].disabled = true;
+        }
+    }
+
+    function searchEquipment() {
+        if (!endpoints.search) {
+            return;
+        }
+        const query = (searchInput.value || '').trim();
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            clearResults('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.');
+            return;
+        }
+        const url = new URL(endpoints.search, window.location.origin);
+        if (query) {
+            url.searchParams.set('q', query);
+        }
+        if (nodeId) {
+            url.searchParams.set('node_id', nodeId);
+        }
+        url.searchParams.set('limit', '50');
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const items = data.items || [];
+                clearResults(items.length ? '' : 'Sin resultados.');
+                items.forEach(item => {
+                    resultMap.set(String(item.id), item);
+                    const option = document.createElement('option');
+                    option.value = item.id;
+                    option.textContent = [item.ut, item.tag, item.equipo].filter(Boolean).join(' | ');
+                    resultSelect.appendChild(option);
+                });
+                countText.textContent = data.truncated ? `${data.count} resultados, mostrando ${data.limit}.` : `${data.count || 0} resultados.`;
+            })
+            .catch(() => {
+                clearResults('No se pudo buscar equipos.');
+            });
+    }
+
+    if (levelWrap && levels.length) {
+        levels.forEach((level, index) => {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            const label = document.createElement('label');
+            label.textContent = level.name;
+            const select = document.createElement('select');
+            select.className = 'input-control';
+            select.innerHTML = '<option value="">Todos</option>';
+            select.disabled = index > 0;
+            select.addEventListener('change', function () {
+                resetLowerLevels(index + 1);
+                if (selectors[index + 1]) {
+                    loadNodes(index + 1, select.value);
+                }
+                searchEquipment();
+            });
+            field.appendChild(label);
+            field.appendChild(select);
+            levelWrap.appendChild(field);
+            selectors.push(select);
+        });
+        loadNodes(0, '');
+    }
+
+    searchInput.addEventListener('input', function () {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(searchEquipment, 250);
+    });
+    resultSelect.addEventListener('change', function () {
+        setEquipment(resultMap.get(String(resultSelect.value)) || null);
+    });
+
+    const initialId = hiddenEquipment.value;
+    if (initialId && endpoints.detail_template) {
+        fetch(endpoints.detail_template.replace('__id__', initialId))
+            .then(response => response.json())
+            .then(data => {
+                if (data.item) {
+                    setEquipment(data.item);
+                    resultMap.set(String(data.item.id), data.item);
+                    resultSelect.innerHTML = `<option value="${data.item.id}">${[data.item.ut, data.item.tag, data.item.equipo].filter(Boolean).join(' | ')}</option>`;
+                }
+            });
+    }
+
+    document.querySelectorAll('[data-option-toggle]').forEach(button => {
+        button.addEventListener('click', function () {
+            const panel = document.getElementById(button.dataset.panelId || '');
+            if (!panel) {
+                return;
+            }
+            const expanded = button.getAttribute('aria-expanded') === 'true';
+            panel.hidden = expanded;
+            button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        });
+    });
+
+    document.querySelectorAll('[data-rcm-pick-option]').forEach(button => {
+        button.addEventListener('click', function () {
+            const target = document.getElementById(button.dataset.target || '');
+            if (!target) {
+                return;
+            }
+            target.value = button.dataset.value || '';
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    });
+
+    const runtimeNode = document.getElementById('rcm-dimension-runtime');
+    const dimensions = runtimeNode ? JSON.parse(runtimeNode.textContent || '[]') : [];
+    const dimensionByField = new Map(dimensions.map(item => [item.field_id, item]));
+
+    function slug(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+    }
+
+    function numberOrNull(value) {
+        if (value === null || value === undefined || value === '') {
+            return null;
+        }
+        const parsed = Number(String(value).replace(',', '.'));
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function refKeys(ref) {
+        if (!ref) {
+            return [];
+        }
+        if (typeof ref === 'object') {
+            const keys = [];
+            if (ref.estrategia_dimension_id) {
+                keys.push(`ed:${ref.estrategia_dimension_id}`, `estrategia_dimension:${ref.estrategia_dimension_id}`);
+            }
+            if (ref.dimension_id) {
+                keys.push(String(ref.dimension_id), `dim:${ref.dimension_id}`);
+            }
+            ['campo', 'nombre', 'source', 'fuente', 'dependencia', 'depende_de'].forEach(key => {
+                if (ref[key]) {
+                    keys.push(String(ref[key]), slug(ref[key]));
+                }
+            });
+            return keys.filter(Boolean);
+        }
+        const raw = String(ref).trim();
+        return [raw, slug(raw), raw.replace(/^campo:/, ''), raw.replace(/^ed:/, 'ed:'), raw.replace(/^estrategia_dimension:/, 'ed:')].filter(Boolean);
+    }
+
+    function sourceKeys(meta) {
+        const keys = [];
+        if (meta.estrategia_dimension_id) {
+            keys.push(`ed:${meta.estrategia_dimension_id}`, `estrategia_dimension:${meta.estrategia_dimension_id}`);
+        }
+        if (meta.dimension_id) {
+            keys.push(String(meta.dimension_id), `dim:${meta.dimension_id}`);
+        }
+        [meta.nombre, meta.campo, slug(meta.nombre), slug(meta.campo)].forEach(value => {
+            if (value) {
+                keys.push(String(value));
+            }
+        });
+        return keys;
+    }
+
+    function remember(values, meta, value) {
+        const numeric = numberOrNull(value);
+        if (numeric === null) {
+            return;
+        }
+        sourceKeys(meta).forEach(key => values.set(key, numeric));
+    }
+
+    function readManualValue(meta) {
+        const el = document.getElementById(meta.field_id);
+        if (!el || el.disabled || meta.mode === 'calculado') {
+            return null;
+        }
+        if (meta.mode === 'escala' || meta.mode === 'catalogo') {
+            return numberOrNull((meta.value_map || {})[String(el.value)]);
+        }
+        return numberOrNull(el.value);
+    }
+
+    function operandValue(values, operand, previousResult) {
+        if (operand === '$resultado' || operand === '__resultado__' || operand === 'resultado_anterior') {
+            return previousResult;
+        }
+        if (operand && typeof operand === 'object' && (operand.resultado === true || operand.tipo === 'resultado')) {
+            return previousResult;
+        }
+        for (const key of refKeys(operand)) {
+            if (values.has(key)) {
+                return values.get(key);
+            }
+            const slugKey = slug(key);
+            if (values.has(slugKey)) {
+                return values.get(slugKey);
+            }
+        }
+        return null;
+    }
+
+    function calculationSteps(meta) {
+        const config = meta.config_calculo || {};
+        const rawSteps = Array.isArray(config.pasos) ? config.pasos : (Array.isArray(config.steps) ? config.steps : []);
+        if (rawSteps.length) {
+            return rawSteps.map(step => ({
+                operacion: step.operacion || step.tipo_calculo || step.operation || meta.tipo_calculo,
+                operandos: Array.isArray(step.operandos) ? step.operandos : (Array.isArray(step.campos) ? step.campos : (Array.isArray(step.sources) ? step.sources : []))
+            })).filter(step => step.operacion && step.operandos.length);
+        }
+        const operandos = Array.isArray(config.operandos) ? config.operandos : (Array.isArray(config.campos) ? config.campos : (Array.isArray(config.sources) ? config.sources : []));
+        return [{ operacion: meta.tipo_calculo, operandos }].filter(step => step.operacion && step.operandos.length);
+    }
+
+    function operationResult(operation, values) {
+        if (!values.length) {
+            return null;
+        }
+        if (operation === 'suma') {
+            return values.reduce((acc, value) => acc + value, 0);
+        }
+        if (operation === 'resta') {
+            return values.slice(1).reduce((acc, value) => acc - value, values[0]);
+        }
+        if (operation === 'multiplicacion') {
+            return values.reduce((acc, value) => acc * value, 1);
+        }
+        if (operation === 'division') {
+            return values.slice(1).reduce((acc, value) => value === 0 ? null : (acc === null ? null : acc / value), values[0]);
+        }
+        if (operation === 'maximo') {
+            return Math.max(...values);
+        }
+        if (operation === 'minimo') {
+            return Math.min(...values);
+        }
+        return null;
+    }
+
+    function evaluateCalculation(meta, values) {
+        let result = null;
+        for (const step of calculationSteps(meta)) {
+            const operands = step.operandos.map(operand => operandValue(values, operand, result));
+            if (operands.some(value => value === null || value === undefined)) {
+                return null;
+            }
+            result = operationResult(step.operacion, operands);
+            if (result === null || result === undefined || Number.isNaN(result)) {
+                return null;
+            }
+        }
+        return result;
+    }
+
+    function matchDependencyRow(meta, sourceValue) {
+        const rows = meta.catalog_rows || [];
+        if (sourceValue === null || sourceValue === undefined) {
+            return null;
+        }
+        if (meta.catalog_tipo === 'rangos') {
+            const lowers = rows.map(row => numberOrNull(row.lower)).filter(value => value !== null);
+            return rows.find(row => {
+                const lower = numberOrNull(row.lower);
+                const upper = numberOrNull(row.upper);
+                if (lower !== null && sourceValue < lower) return false;
+                if (upper !== null && sourceValue > upper) return false;
+                if (upper !== null && sourceValue === upper && lowers.includes(upper)) return false;
+                return true;
+            }) || null;
+        }
+        return rows.find(row => numberOrNull(row.primary) === sourceValue) || null;
+    }
+
+    function dependencyValue(meta, values) {
+        for (const key of refKeys(meta.dependency)) {
+            if (values.has(key)) {
+                return values.get(key);
+            }
+            const slugKey = slug(key);
+            if (values.has(slugKey)) {
+                return values.get(slugKey);
+            }
+        }
+        return null;
+    }
+
+    function recalcRcmDimensions() {
+        const values = new Map();
+        dimensions.forEach(meta => {
+            const value = readManualValue(meta);
+            if (value !== null) {
+                remember(values, meta, value);
+            }
+        });
+
+        let changed = true;
+        let guard = 0;
+        while (changed && guard < 20) {
+            changed = false;
+            guard += 1;
+            dimensions.forEach(meta => {
+                const el = document.getElementById(meta.field_id);
+                if (!el) return;
+                if (meta.mode === 'calculado') {
+                    const value = evaluateCalculation(meta, values);
+                    if (value !== null) {
+                        const display = Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+                        if (el.value !== display) {
+                            el.value = display;
+                            changed = true;
+                        }
+                        remember(values, meta, value);
+                    }
+                    return;
+                }
+                if ((meta.mode === 'catalogo' || meta.mode === 'escala') && meta.dependency && !el.value) {
+                    const source = dependencyValue(meta, values);
+                    const row = matchDependencyRow(meta, source);
+                    if (row && row.pk) {
+                        el.value = String(row.pk);
+                        changed = true;
+                        const primary = numberOrNull(row.primary);
+                        if (primary !== null) {
+                            remember(values, meta, primary);
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    dimensions.forEach(meta => {
+        const el = document.getElementById(meta.field_id);
+        if (!el) return;
+        el.addEventListener('change', recalcRcmDimensions);
+        el.addEventListener('input', recalcRcmDimensions);
+    });
+    recalcRcmDimensions();
+
+    const taskList = document.getElementById('rcm-task-list');
+    const taskTemplate = document.getElementById('rcm-task-empty-template');
+    const addTaskButton = document.getElementById('add-rcm-task');
+    const totalTaskForms = document.getElementById('id_tasks-TOTAL_FORMS');
+    const taskConfigNode = document.getElementById('rcm-task-config');
+    const taskConfig = taskConfigNode ? JSON.parse(taskConfigNode.textContent || '[]') : [];
+    const taskConfigByType = new Map(taskConfig.map(item => [String(item.id), item]));
+
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[char]);
+    }
+
+    function parseTaskValues(card) {
+        const hidden = card.querySelector('input[name$="-valores_json"]');
+        if (!hidden || !hidden.value) {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(hidden.value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function writeTaskValues(card) {
+        const hidden = card.querySelector('input[name$="-valores_json"]');
+        if (!hidden) return;
+        const values = {};
+        card.querySelectorAll('[data-task-dynamic-input]').forEach(input => {
+            const key = input.dataset.fieldKey;
+            if (!key) return;
+            if (input.type === 'checkbox') {
+                values[key] = input.checked ? 'true' : '';
+                return;
+            }
+            if (input.value !== '') {
+                values[key] = input.value;
+            }
+        });
+        hidden.value = JSON.stringify(values);
+    }
+
+    function dynamicFieldHtml(field, value) {
+        const required = field.obligatorio ? 'required' : '';
+        const fieldKey = escapeHtml(field.clave || '');
+        const valueText = escapeHtml(value || '');
+        const commonAttrs = `class="input-control" data-task-dynamic-input data-field-key="${fieldKey}" ${required}`;
+        if (field.tipo_dato === 'texto_largo') {
+            return `<textarea ${commonAttrs} rows="2">${valueText}</textarea>`;
+        }
+        if (field.tipo_dato === 'decimal') {
+            return `<input ${commonAttrs} type="number" step="0.01" value="${valueText}">`;
+        }
+        if (field.tipo_dato === 'numero') {
+            return `<input ${commonAttrs} type="number" step="1" value="${valueText}">`;
+        }
+        if (field.tipo_dato === 'fecha') {
+            return `<input ${commonAttrs} type="date" value="${valueText}">`;
+        }
+        if (field.tipo_dato === 'booleano') {
+            const checked = String(value || '').toLowerCase() === 'true' ? 'checked' : '';
+            return `<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" data-task-dynamic-input data-field-key="${fieldKey}" ${checked}> Sí</label>`;
+        }
+        if (field.tipo_dato === 'opcion') {
+            const options = (field.opciones || []).map(option => {
+                const selected = String(value || '') === String(option) ? 'selected' : '';
+                return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
+            }).join('');
+            return `<select ${commonAttrs}><option value="">Selecciona</option>${options}</select>`;
+        }
+        return `<input ${commonAttrs} type="text" value="${valueText}">`;
+    }
+
+    function renderTaskDynamicFields(card) {
+        const typeSelect = card.querySelector('select[name$="-tipo_tarea_estrategia"]');
+        const wrap = card.querySelector('[data-task-dynamic-fields]');
+        if (!typeSelect || !wrap) return;
+
+        const config = taskConfigByType.get(String(typeSelect.value || ''));
+        const values = parseTaskValues(card);
+        if (!typeSelect.value) {
+            wrap.innerHTML = '<div class="empty-state" style="padding:1rem;">Selecciona un tipo de tarea para ver sus campos.</div>';
+            return;
+        }
+        if (!config || !(config.campos || []).length) {
+            wrap.innerHTML = '<div class="empty-state" style="padding:1rem;">Este tipo de tarea no tiene campos configurados.</div>';
+            return;
+        }
+
+        wrap.innerHTML = `<div class="form-grid">${(config.campos || []).map(field => `
+            <div class="form-field ${field.tipo_dato === 'texto_largo' ? 'full' : ''}">
+                <label>${escapeHtml(field.nombre)}${field.obligatorio ? ' *' : ''}</label>
+                ${dynamicFieldHtml(field, values[field.clave])}
+            </div>
+        `).join('')}</div>`;
+
+        wrap.querySelectorAll('[data-task-dynamic-input]').forEach(input => {
+            input.addEventListener('input', () => writeTaskValues(card));
+            input.addEventListener('change', () => writeTaskValues(card));
+        });
+        writeTaskValues(card);
+    }
+
+    function visibleTaskCards() {
+        return Array.from(taskList?.querySelectorAll('[data-task-form]:not(.is-deleted)') || []);
+    }
+
+    function taskTypeRank(card) {
+        const typeSelect = card.querySelector('select[name$="-tipo_tarea_estrategia"]');
+        const config = taskConfigByType.get(String(typeSelect?.value || ''));
+        return Number(config?.orden || 999999);
+    }
+
+    function updateTaskTitles() {
+        visibleTaskCards().forEach((card, index) => {
+            const title = card.querySelector('.task-card-head strong');
+            if (title) {
+                title.textContent = `Tarea ${index + 1}`;
+            }
+        });
+    }
+
+    function sortTaskCardsByType() {
+        visibleTaskCards()
+            .map((card, index) => ({ card, index, rank: taskTypeRank(card) }))
+            .sort((a, b) => (a.rank - b.rank) || (a.index - b.index))
+            .forEach(item => taskList.appendChild(item.card));
+        updateTaskTitles();
+    }
+
+    function wireTaskCard(card) {
+        const removeButton = card.querySelector('[data-remove-task]');
+        const deleteInput = card.querySelector('input[name$="-DELETE"]');
+        const typeSelect = card.querySelector('select[name$="-tipo_tarea_estrategia"]');
+        if (typeSelect) {
+            typeSelect.addEventListener('change', function () {
+                const hidden = card.querySelector('input[name$="-valores_json"]');
+                if (hidden) hidden.value = '{}';
+                renderTaskDynamicFields(card);
+                sortTaskCardsByType();
+            });
+        }
+        if (removeButton) {
+            removeButton.addEventListener('click', function () {
+                if (deleteInput) {
+                    deleteInput.checked = true;
+                    card.classList.add('is-deleted');
+                } else {
+                    card.remove();
+                }
+                updateTaskTitles();
+            });
+        }
+        renderTaskDynamicFields(card);
+        sortTaskCardsByType();
+    }
+
+    document.querySelectorAll('[data-task-form]').forEach(wireTaskCard);
+
+    if (addTaskButton && taskTemplate && taskList && totalTaskForms) {
+        addTaskButton.addEventListener('click', function () {
+            const index = Number(totalTaskForms.value || 0);
+            const html = taskTemplate.innerHTML.replace(/__prefix__/g, String(index));
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = html.trim();
+            const card = wrapper.firstElementChild;
+            taskList.appendChild(card);
+            totalTaskForms.value = String(index + 1);
+            wireTaskCard(card);
+            sortTaskCardsByType();
+            const firstField = card.querySelector('select, textarea, input:not([type="hidden"])');
+            if (firstField) {
+                firstField.focus();
+            }
+        });
+    }
+
+    const rcmForm = taskList?.closest('form');
+    if (rcmForm) {
+        rcmForm.addEventListener('submit', function () {
+            sortTaskCardsByType();
+            visibleTaskCards().forEach(card => writeTaskValues(card));
+        });
+    }
+
+})();
+</script>
+{% endblock %}

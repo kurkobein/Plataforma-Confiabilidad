@@ -12,6 +12,9 @@
             <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}">Nueva matriz visual</a>
         {% elif model_key == 'criticidad' %}
             <a class="btn btn-primary" href="{% url 'aca_registro_new' %}">Nuevo registro ACA</a>
+        {% elif model_key == 'equipo' %}
+            <a class="btn" href="{% url 'equipment_bulk_upload' %}">Carga masiva</a>
+            <a class="btn btn-primary" href="{% url 'model_create' model_key %}">Nuevo registro</a>
         {% else %}
             <a class="btn btn-primary" href="{% url 'model_create' model_key %}">Nuevo registro</a>
         {% endif %}
@@ -20,8 +23,21 @@
 
 <form method="get" class="search-bar">
     <input class="input-control" type="text" name="q" value="{{ search }}" placeholder="Buscar">
+    {% if model_key == 'equipo' and equipment_filter_enabled %}
+        <input type="hidden" name="node_id" id="equipment-node-filter" value="{{ equipment_selected_node_id }}">
+        <select class="input-control" name="empresa" id="equipment-company-filter" style="max-width:260px;">
+            <option value="">Todas las empresas</option>
+            {% for empresa in equipment_companies %}
+                <option value="{{ empresa.pk }}" {% if equipment_selected_empresa_id == empresa.pk|stringformat:'s' %}selected{% endif %}>
+                    {{ empresa.sigla }} - {{ empresa.nombre }}
+                </option>
+            {% endfor %}
+        </select>
+        <div id="equipment-hierarchy-filters" class="form-grid" style="flex:1 1 100%; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));"></div>
+        <p class="muted" id="equipment-filter-empty" style="display:none; margin:0;">Selecciona una empresa para filtrar por los niveles de la ubicación técnica.</p>
+    {% endif %}
     <button class="btn" type="submit">Buscar</button>
-    {% if search %}
+    {% if search or equipment_selected_empresa_id or equipment_selected_node_id %}
         <a class="btn" href="{% url 'model_list' model_key %}">Limpiar</a>
     {% endif %}
 </form>
@@ -30,13 +46,18 @@
     Total registros: {{ total_count }}
 </div>
 
-<div class="table-wrap">
-    <table id="modelTable" class="display">
+<div class="table-wrap2">
+    <table id="modelTable" class="datatable display">
         <thead>
             <tr>
                 {% for field in list_fields %}
                     <th>{{ field|field_label }}</th>
                 {% endfor %}
+                {% if model_key == 'equipo' and equipment_levels %}
+                    {% for level in equipment_levels %}
+                        <th>{{ level.nombre }}</th>
+                    {% endfor %}
+                {% endif %}
                 <th>Acciones</th>
             </tr>
         </thead>
@@ -52,6 +73,13 @@
                             {% endif %}
                         </td>
                     {% endfor %}
+                    {% if model_key == 'equipo' and equipment_levels %}
+                        {% with parts=equipment_hierarchy_values|get_item:row.pk %}
+                            {% for level in equipment_levels %}
+                                <td>{{ parts|get_item:level.id|default:'-' }}</td>
+                            {% endfor %}
+                        {% endwith %}
+                    {% endif %}
                     <td>
                         <div class="actions">
                             {% if model_key == 'servicio' %}
@@ -98,15 +126,159 @@
 {% if page_obj.has_other_pages %}
 <div class="actions" style="margin-top:12px;">
     {% if page_obj.has_previous %}
-        <a class="btn" href="?page=1{% if search %}&q={{ search|urlencode }}{% endif %}">Primera</a>
-        <a class="btn" href="?page={{ page_obj.previous_page_number }}{% if search %}&q={{ search|urlencode }}{% endif %}">Anterior</a>
+        <a class="btn" href="?page=1{% if list_query_string %}&{{ list_query_string }}{% endif %}">Primera</a>
+        <a class="btn" href="?page={{ page_obj.previous_page_number }}{% if list_query_string %}&{{ list_query_string }}{% endif %}">Anterior</a>
     {% endif %}
     <span class="muted">Pagina {{ page_obj.number }} de {{ paginator.num_pages }} · {{ page_size }} por pagina</span>
     {% if page_obj.has_next %}
-        <a class="btn" href="?page={{ page_obj.next_page_number }}{% if search %}&q={{ search|urlencode }}{% endif %}">Siguiente</a>
-        <a class="btn" href="?page={{ paginator.num_pages }}{% if search %}&q={{ search|urlencode }}{% endif %}">Ultima</a>
+        <a class="btn" href="?page={{ page_obj.next_page_number }}{% if list_query_string %}&{{ list_query_string }}{% endif %}">Siguiente</a>
+        <a class="btn" href="?page={{ paginator.num_pages }}{% if list_query_string %}&{{ list_query_string }}{% endif %}">Ultima</a>
     {% endif %}
 </div>
+{% endif %}
+
+{% if model_key == 'equipo' and equipment_filter_enabled %}
+<script type="application/json" id="equipment-levels-data">{{ equipment_levels_json|safe }}</script>
+<script type="application/json" id="equipment-nodes-data">{{ equipment_nodes_json|safe }}</script>
+<script type="application/json" id="equipment-nodes-url-template">{{ equipment_nodes_url_template|safe }}</script>
+<script>
+(function () {
+    const companySelect = document.getElementById('equipment-company-filter');
+    const nodeInput = document.getElementById('equipment-node-filter');
+    const fieldsWrap = document.getElementById('equipment-hierarchy-filters');
+    const emptyState = document.getElementById('equipment-filter-empty');
+    if (!companySelect || !nodeInput || !fieldsWrap) return;
+
+    const levels = JSON.parse(document.getElementById('equipment-levels-data').textContent || '[]');
+    const initialNodes = JSON.parse(document.getElementById('equipment-nodes-data').textContent || '[]');
+    const nodesUrlTemplate = (document.getElementById('equipment-nodes-url-template').textContent || '').trim();
+    const nodeById = new Map(initialNodes.map(node => [String(node.id), node]));
+    const loadedKeys = new Set();
+    let renderToken = 0;
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[char]));
+    }
+
+    function normalizeNode(node) {
+        return {
+            id: node.id,
+            parent_id: node.parent_id || null,
+            level_id: node.level_id,
+            level_order: node.level_order,
+            code: node.code,
+            name: node.name,
+            label: node.label || `${node.code} - ${node.name}`,
+        };
+    }
+
+    async function fetchNodes(parentId, levelId) {
+        const empresaId = companySelect.value;
+        if (!empresaId || !nodesUrlTemplate) return [];
+        const normalizedParent = parentId || 'root';
+        const cacheKey = `${empresaId}:${normalizedParent}:${levelId || ''}`;
+        if (!loadedKeys.has(cacheKey)) {
+            const url = nodesUrlTemplate.replace('__empresa__', empresaId);
+            const params = new URLSearchParams({
+                parent_id: normalizedParent,
+                limit: '1000',
+            });
+            if (levelId) params.set('level_id', levelId);
+            const response = await fetch(`${url}?${params.toString()}`, {
+                headers: {'X-Requested-With': 'XMLHttpRequest'},
+            });
+            if (!response.ok) return [];
+            const data = await response.json();
+            (data.nodes || []).forEach(rawNode => {
+                const node = normalizeNode(rawNode);
+                nodeById.set(String(node.id), node);
+            });
+            loadedKeys.add(cacheKey);
+        }
+        return Array.from(nodeById.values())
+            .filter(node =>
+                Number(node.level_id) === Number(levelId) &&
+                String(node.parent_id || '') === String(parentId || '')
+            )
+            .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+    }
+
+    function pathForNode(nodeId) {
+        const path = [];
+        let current = nodeById.get(String(nodeId));
+        const seen = new Set();
+        while (current && !seen.has(String(current.id))) {
+            seen.add(String(current.id));
+            path.push(current);
+            current = current.parent_id ? nodeById.get(String(current.parent_id)) : null;
+        }
+        return path.reverse();
+    }
+
+    async function renderFilters() {
+        const token = renderToken + 1;
+        renderToken = token;
+        fieldsWrap.innerHTML = '';
+        if (!companySelect.value || !levels.length) {
+            if (emptyState) emptyState.style.display = '';
+            return;
+        }
+        if (emptyState) emptyState.style.display = 'none';
+        const currentPath = pathForNode(nodeInput.value);
+        let parentId = null;
+
+        for (let index = 0; index < levels.length; index += 1) {
+            const level = levels[index];
+            const currentPathNode = currentPath[index];
+            const options = index === 0 || parentId ? await fetchNodes(parentId, level.id) : [];
+            if (token !== renderToken) return;
+
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            const label = document.createElement('label');
+            label.textContent = `${level.order}. ${level.name}`;
+            const select = document.createElement('select');
+            select.className = 'input-control';
+            select.innerHTML = '<option value="">Todos</option>' + options
+                .map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.code)} - ${escapeHtml(node.name)}</option>`)
+                .join('');
+
+            if (currentPathNode && options.some(node => String(node.id) === String(currentPathNode.id))) {
+                select.value = currentPathNode.id;
+                parentId = currentPathNode.id;
+            } else {
+                parentId = null;
+            }
+
+            select.addEventListener('change', function () {
+                nodeInput.value = this.value;
+                renderFilters();
+            });
+
+            field.appendChild(label);
+            field.appendChild(select);
+            fieldsWrap.appendChild(field);
+        }
+    }
+
+    companySelect.addEventListener('change', function () {
+        nodeInput.value = '';
+        if (companySelect.value) {
+            companySelect.form.submit();
+        } else {
+            renderFilters();
+        }
+    });
+
+    renderFilters();
+})();
+</script>
 {% endif %}
 
 {% endblock %}

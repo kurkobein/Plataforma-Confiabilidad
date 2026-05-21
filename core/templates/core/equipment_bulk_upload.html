@@ -1,0 +1,92 @@
+{% extends 'core/base.html' %}
+{% block title %}Carga masiva de equipos | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Carga masiva de equipos</h2>
+        <p>Importa equipos desde Excel validando la ubicacion tecnica contra la jerarquia registrada.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'equipo' %}">Volver</a>
+    </div>
+</div>
+
+<div class="hierarchy-layout">
+    <div class="card">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>{{ form.empresa.label }}</label>
+                    {{ form.empresa }}
+                    {{ form.empresa.errors }}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.archivo.label }}</label>
+                    {{ form.archivo }}
+                    {% if form.archivo.help_text %}<small class="muted">{{ form.archivo.help_text }}</small>{% endif %}
+                    {{ form.archivo.errors }}
+                </div>
+            </div>
+            <div class="actions" style="margin-top:16px;">
+                <button class="btn btn-primary" type="submit">Cargar equipos</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card hierarchy-side-card">
+        <h3 class="card-title">Estructura esperada</h3>
+        <p class="muted">La primera hoja debe incluir estas columnas. Pueden tener nombres similares.</p>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Columna</th>
+                        <th>Obligatoria</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>TAG</td><td>Si</td></tr>
+                    <tr><td>Nombre</td><td>Si</td></tr>
+                    <tr><td>UT</td><td>Si</td></tr>
+                    <tr><td>Descripcion</td><td>No</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="muted">Si una UT no existe en la jerarquia, o aparece repetida, esa fila se omite y la carga continua.</p>
+    </div>
+</div>
+
+{% if report %}
+<div class="card" style="margin-top:16px;">
+    <h3 class="card-title">Resultado de la carga</h3>
+    <div class="stats-grid">
+        <div class="stat"><small>Filas leidas</small><strong>{{ report.rows_read }}</strong></div>
+        <div class="stat"><small>Equipos creados</small><strong>{{ report.created }}</strong></div>
+        <div class="stat"><small>Filas omitidas</small><strong>{{ report.skipped }}</strong></div>
+        <div class="stat"><small>Valores relacionados</small><strong>{{ report.materialized_nodes }}</strong></div>
+        <div class="stat"><small>UT invalidas</small><strong>{{ report.invalid_ut }}</strong></div>
+        <div class="stat"><small>UT repetidas archivo</small><strong>{{ report.duplicate_ut_file }}</strong></div>
+        <div class="stat"><small>UT ya existentes</small><strong>{{ report.duplicate_ut_db }}</strong></div>
+        <div class="stat"><small>TAG ya existentes</small><strong>{{ report.duplicate_tag_db }}</strong></div>
+    </div>
+
+    {% if report.warnings %}
+        <h4>Observaciones</h4>
+        <div class="table-wrap">
+            <table class="datatable display" data-page-length="25">
+                <thead>
+                    <tr><th>Detalle</th></tr>
+                </thead>
+                <tbody>
+                    {% for warning in report.warnings %}
+                        <tr><td>{{ warning }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

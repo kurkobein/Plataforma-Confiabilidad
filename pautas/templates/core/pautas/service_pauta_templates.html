@@ -1,0 +1,65 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Plantillas de pauta | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_pautas_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>Plantillas de pauta</h2>
+        <p>{{ service.codigo_servicio }} · archivos Excel base para exportar pautas.</p>
+    </div>
+    </div>
+</div>
+
+<div class="grid-22">
+    <div class="card">
+        <h3 class="card-title">Subir plantilla</h3>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="{{ form.nombre.id_for_label }}">{{ form.nombre.label }}</label>
+                    {{ form.nombre }}
+                    {{ form.nombre.errors }}
+                </div>
+                <div class="form-field">
+                    <label for="{{ form.archivo.id_for_label }}">{{ form.archivo.label }}</label>
+                    {{ form.archivo }}
+                    {{ form.archivo.errors }}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.activa }} Activa</label>
+                    {{ form.activa.errors }}
+                </div>
+            </div>
+            <div class="actions" style="margin-top:14px;">
+                <button class="btn btn-primary" type="submit">Subir plantilla</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Plantillas disponibles</h3>
+        <div class="table-wrap">
+            <table class="datatable display">
+                <thead><tr><th>Nombre</th><th>Alcance</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <tbody>
+                    {% for item in templates %}
+                        <tr>
+                            <td>{{ item.nombre }}</td>
+                            <td>{% if item.servicio_id %}Servicio{% elif item.estrategia_id %}Estrategia{% elif item.empresa_id %}Empresa{% else %}Global{% endif %}</td>
+                            <td>{% if item.activa %}Activa{% else %}Inactiva{% endif %}</td>
+                            <td><a class="btn" href="{% url 'service_pauta_template_mapping' service.pk item.pk %}">Configurar mapeo</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4" class="muted">No hay plantillas configuradas.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

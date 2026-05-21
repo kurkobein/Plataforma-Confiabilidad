@@ -1,0 +1,136 @@
+{% extends 'core/base.html' %}
+{% block title %}RCM | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Registros RCM</h2>
+        <p>{{ service.codigo_servicio }} · FMEA/FMECA asociados al servicio.</p>
+    </div>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'service_rcm_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
+        <a class="btn" href="{% url 'service_rcm_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
+        {% if permission.can_edit %}
+            <a class="btn" href="{% url 'service_rcm_task_config' service.pk %}">Configurar tareas</a>
+            <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">Registrar</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">Resumen</h3>
+    <div class="grid-3">
+        <div class="stat"><small>Servicio</small><strong style="font-size:20px;">{{ service.codigo_servicio }}</strong></div>
+        <div class="stat"><small>Registros</small><strong>{{ rcm_count }}</strong></div>
+        <div class="stat"><small>FMEA</small><strong>{{ fmea_count }}</strong></div>
+        <div class="stat"><small>FMECA</small><strong>{{ fmeca_count }}</strong></div>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Fechas</th>
+                <th>Tipo</th>
+                <th>Estado</th>
+                <th>U.T.</th>
+                <th>Equipo</th>
+                <th>TAG</th>
+                <th>Componente</th>
+                <th>Falla funcional</th>
+                <th>Modo de falla</th>
+                <th>Valores tarea principal</th>
+                <th>NPR</th>
+                <th>Tareas</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>
+                        <div><small class="muted">Creación</small><br>{{ row.registro.carga.creado_en|date:"d/m/Y H:i" }}</div>
+                        <div style="margin-top:6px;"><small class="muted">Modificación</small><br>{{ row.registro.carga.actualizado|date:"d/m/Y H:i" }}</div>
+                    </td>
+                    <td>{{ row.registro.tipo_analisis }}</td>
+                    <td>{{ row.registro.get_estado_display }}</td>
+                    <td style="width: 100px;">{{ row.registro.equipo.ut }}</td>
+                    <td style="width: 100px;">{{ row.registro.equipo.nombre_equipo }}</td>
+                    <td>{{ row.registro.equipo.tag_display }}</td>
+                    <td style="width: 70px;">{{ row.registro.componente|default:'' }}</td>
+                    <td style="width: 250px;">{{ row.registro.falla_funcional|truncatechars:150 }}</td>
+                    <td style="width: 200px;">{{ row.registro.modo_de_falla|truncatechars:80 }}</td>
+                    <td style="width: 150px;">
+                        {% for task in row.tasks %}
+                            {% if task.tipo_tarea_estrategia.codigo == 'tarea_primaria' %}
+                                <div>
+                                    <small class="muted">Frecuencia</small><br>
+                                    {{ task.frecuencia_texto|default:'-' }}
+
+                                    <br>
+
+                                    <small class="muted">Especialidad</small><br>
+                                    {{ task.especialidad|default:task.puesto_trabajo|default:'-' }}
+
+                                    <br>
+
+                                    <small class="muted">Estado equipo</small><br>
+                                    {{ task.estado_equipo|default:'-' }}
+                                </div>
+                            {% endif %}
+                        {% empty %}
+                            -
+                        {% endfor %}
+                    </td>
+                    <td>
+                        {% if row.evaluations %}
+                            {% for evaluation in row.evaluations %}
+                                {% if evaluation.estrategia_dimension.dimension.nombre == 'NPR' %}
+                                    {{ evaluation.valor_display|default:'-' }}
+                                {% endif %}
+                            {% empty %}
+                                -
+                            {% endfor %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.tasks %}
+                            {% for task in row.tasks|slice:":3" %}
+                                <div>{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion|truncatechars:80 }}</div>
+                            {% endfor %}
+                            {% if row.tasks|length > 3 %}
+                                <div class="muted">+{{ row.tasks|length|add:"-3" }} tareas</div>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="width: 100px;">
+                        {% if permission.can_edit %}
+                            <div class="actions">
+                                <a class="btn" href="{% url 'service_rcm_edit' service.pk row.registro.pk %}">Editar</a>
+                                <form method="post"
+                                      action="{% url 'service_rcm_delete' service.pk row.registro.pk %}"
+                                      style="display:inline;"
+                                      onsubmit="return confirm('¿Seguro que deseas eliminar este registro RCM?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                                </form>
+                            </div>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="13" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

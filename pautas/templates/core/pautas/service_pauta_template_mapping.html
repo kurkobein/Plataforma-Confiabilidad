@@ -1,0 +1,551 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Mapeo visual de plantilla | Mindco{% endblock %}
+
+{% block content %}
+<style>
+    .excel-mapper {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 330px;
+        gap: 14px;
+        align-items: start;
+    }
+    .excel-toolbar {
+        display: flex;
+        gap: 10px;
+        align-items: end;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+    .excel-sheet {
+        overflow: auto;
+        max-height: 68vh;
+        border: 1px solid #d8dee8;
+        background: #fff;
+    }
+    .excel-sheet table {
+        border-collapse: collapse;
+        table-layout: fixed;
+        min-width: max-content;
+        font-size: 12px;
+    }
+    .excel-sheet th,
+    .excel-sheet td {
+        border: 1px solid #e3e7ee;
+        padding: 3px 6px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+    .excel-sheet th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f1f4f8;
+        color: #475569;
+        text-align: center;
+        font-weight: 600;
+    }
+    .excel-sheet .row-head {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 46px;
+        max-width: 46px;
+        background: #f1f4f8;
+        text-align: center;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .excel-cell {
+        cursor: pointer;
+        background: #fff;
+        min-width: 42px;
+    }
+    .excel-cell:hover {
+        outline: 2px solid #6aa6ff;
+        outline-offset: -2px;
+    }
+    .excel-cell.selected {
+        outline: 3px solid #2563eb;
+        outline-offset: -3px;
+        background: #eff6ff !important;
+    }
+    .excel-cell.mapped {
+        box-shadow: inset 0 0 0 2px #16a34a;
+        background-image: linear-gradient(135deg, rgba(22, 163, 74, .13), rgba(255, 255, 255, 0));
+    }
+    .mapper-panel {
+        position: sticky;
+        top: 12px;
+    }
+    .mapper-panel .selected-cell {
+        font-size: 24px;
+        font-weight: 700;
+        margin: 4px 0 12px;
+    }
+    .compact-map-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    .map-chip {
+        display: grid;
+        grid-template-columns: 70px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        padding: 8px;
+        background: #f8fafc;
+    }
+    .map-chip strong {
+        font-size: 13px;
+    }
+    @media (max-width: 1100px) {
+        .excel-mapper {
+            grid-template-columns: 1fr;
+        }
+        .mapper-panel {
+            position: static;
+        }
+    }
+</style>
+
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_pauta_templates' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>Mapeo visual de plantilla</h2>
+        <p>{{ plantilla.nombre }} · {{ service.codigo_servicio }}</p>
+    </div>
+    </div>
+</div>
+
+<form method="post" id="mapping-form">
+    {% csrf_token %}
+    {{ form.config_json }}
+
+    <div class="excel-mapper">
+        <div class="card">
+            <div class="excel-toolbar">
+                <div class="form-grid" style="flex:1;">
+                    <div class="form-field">
+                        <label for="hoja-preview">Hoja visible</label>
+                        <select id="hoja-preview" name="hoja" class="input-control" form="sheet-switch-form">
+                            {% for sheet in sheets %}
+                                <option value="{{ sheet }}" {% if sheet == selected_sheet %}selected{% endif %}>{{ sheet }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="{{ form.hoja_principal.id_for_label }}">{{ form.hoja_principal.label }}</label>
+                        {{ form.hoja_principal }}
+                        {{ form.hoja_principal.errors }}
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn" type="submit" form="sheet-switch-form">Cambiar hoja</button>
+                    <button class="btn btn-primary" type="submit">Guardar mapeo</button>
+                </div>
+            </div>
+
+            <div class="excel-sheet" aria-label="Vista de plantilla Excel">
+                <table>
+                    <colgroup>
+                        <col style="width:46px;">
+                        {% for col in sheet_grid.columns %}
+                            <col style="width:{{ col.width }}px;">
+                        {% endfor %}
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th class="row-head"></th>
+                            {% for col in sheet_grid.columns %}
+                                <th>{{ col.letter }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in sheet_grid.rows %}
+                            <tr style="height:{{ row.height }}px;">
+                                <th class="row-head">{{ row.index }}</th>
+                                {% for cell in row.cells %}
+                                    <td
+                                        class="excel-cell"
+                                        data-cell="{{ cell.coord }}"
+                                        data-master-cell="{{ cell.master_cell }}"
+                                        data-merge-range="{{ cell.merge_range }}"
+                                        title="{{ cell.coord }} · {{ cell.value }}"
+                                        colspan="{{ cell.colspan }}"
+                                        rowspan="{{ cell.rowspan }}"
+                                        style="{{ cell.style }}"
+                                    >{{ cell.value }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% empty %}
+                            <tr><td class="muted">No se pudo leer la hoja seleccionada.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if sheet_grid.truncated_rows or sheet_grid.truncated_cols %}
+                <p class="muted" style="margin-top:10px;">
+                    Vista limitada para mantener el editor liviano. La hoja completa se respeta al exportar.
+                </p>
+            {% endif %}
+        </div>
+
+        <div class="card mapper-panel">
+            <h3 class="card-title">Celda seleccionada</h3>
+            <div class="selected-cell" id="selected-cell-label">Selecciona una celda</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>Campo / fuente</label>
+                    <select class="input-control" id="cell-source"></select>
+                </div>
+                <div class="form-field" id="fixed-value-field" style="display:none;">
+                    <label>Valor fijo</label>
+                    <input class="input-control" id="cell-fixed-value" type="text">
+                </div>
+                <div class="form-field">
+                    <label>Formato</label>
+                    <input class="input-control" id="cell-format" type="text" value="texto">
+                </div>
+            </div>
+            <div class="actions" style="margin-top:12px;">
+                <button class="btn btn-primary" type="button" id="save-cell-map">Asignar celda</button>
+                <button class="btn btn-danger" type="button" id="remove-cell-map">Quitar</button>
+            </div>
+            <p class="muted" style="margin-top:10px;">
+                Haz clic sobre la hoja para elegir dónde escribir el campo.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid-22" style="margin-top:14px;">
+        <div class="card">
+            <h3 class="card-title">Celdas mapeadas</h3>
+            <div id="cell-map-list" class="compact-map-list"></div>
+        </div>
+
+        <div class="card">
+            <h3 class="card-title">Tabla dinámica de tareas</h3>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>Nombre</label>
+                    <input class="input-control" id="table-name" type="text" value="tareas">
+                </div>
+                <div class="form-field">
+                    <label>Hoja</label>
+                    <input class="input-control" id="table-sheet" type="text" value="{{ selected_sheet }}">
+                </div>
+                <div class="form-field">
+                    <label>Fila inicio</label>
+                    <input class="input-control" id="table-start" type="number" min="1" value="25">
+                </div>
+                <div class="form-field">
+                    <label>Fila template</label>
+                    <input class="input-control" id="table-template" type="number" min="1" value="25">
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Columna</th><th>Campo / fuente</th><th></th></tr></thead>
+                    <tbody id="table-column-body"></tbody>
+                </table>
+            </div>
+            <div class="actions" style="margin-top:8px;">
+                <button class="btn" type="button" id="add-column-row">Agregar columna</button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<form method="get" id="sheet-switch-form"></form>
+
+<script type="application/json" id="mapping-config-data">{{ config_json|safe }}</script>
+<script type="application/json" id="header-field-options-data">{{ header_field_options_json|safe }}</script>
+<script type="application/json" id="task-field-options-data">{{ task_field_options_json|safe }}</script>
+<script>
+(function () {
+    const configInput = document.getElementById('id_config_json');
+    const form = document.getElementById('mapping-form');
+    const columnBody = document.getElementById('table-column-body');
+    const mapList = document.getElementById('cell-map-list');
+    const selectedLabel = document.getElementById('selected-cell-label');
+    const sourceSelect = document.getElementById('cell-source');
+    const formatInput = document.getElementById('cell-format');
+    const fixedWrap = document.getElementById('fixed-value-field');
+    const fixedInput = document.getElementById('cell-fixed-value');
+    const sheetSelect = document.getElementById('hoja-preview');
+    const mainSheetInput = document.getElementById('id_hoja_principal');
+    const currentSheet = sheetSelect ? sheetSelect.value : '';
+    const sheets = [{% for sheet in sheets %}'{{ sheet|escapejs }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+    const headerFieldGroups = JSON.parse(document.getElementById('header-field-options-data').textContent || '[]');
+    const taskFieldGroups = JSON.parse(document.getElementById('task-field-options-data').textContent || '[]');
+    let selectedCell = '';
+    let selectedVisualCell = '';
+    let selectedMergeRange = '';
+    let config = {};
+    try {
+        config = JSON.parse(document.getElementById('mapping-config-data').textContent || '{}');
+    } catch (error) {
+        config = {};
+    }
+    config.celdas = Array.isArray(config.celdas) ? config.celdas : [];
+    config.tablas = Array.isArray(config.tablas) ? config.tablas : [];
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[char]));
+    }
+
+    function sourcePathForItem(item) {
+        if (!item) return '';
+        if (item.source_path) return item.source_path;
+        if (item.origen && item.campo) return `${item.origen}.${item.campo}`;
+        return '';
+    }
+
+    function legacyParts(sourcePath) {
+        if (!sourcePath) return {origen: '', campo: ''};
+        if (sourcePath.startsWith('evaluacion:')) {
+            return {origen: 'evaluacion', campo: sourcePath.split(':')[1] || ''};
+        }
+        if (sourcePath.startsWith('tarea_campo:')) {
+            return {origen: 'tarea_campo', campo: sourcePath.split(':')[1] || ''};
+        }
+        if (sourcePath.startsWith('equipo_ut:')) {
+            return {origen: 'equipo_ut', campo: sourcePath.split(':').slice(1).join(':')};
+        }
+        const parts = sourcePath.split('.');
+        return {
+            origen: parts[0] || '',
+            campo: parts.slice(1).join('.') || '',
+        };
+    }
+
+    function renderGroupedOptions(groups, selected) {
+        return (groups || []).map(group => {
+            const options = (group.fields || []).map(field => `
+                <option value="${escapeHtml(field.value)}" ${field.value === selected ? 'selected' : ''}>${escapeHtml(field.label || field.value)}</option>
+            `).join('');
+            return options ? `<optgroup label="${escapeHtml(group.group)}">${options}</optgroup>` : '';
+        }).join('');
+    }
+
+    function refreshCellSource(selected) {
+        const current = selected || sourceSelect.value || 'pauta.nombre';
+        sourceSelect.innerHTML = renderGroupedOptions(headerFieldGroups, current);
+        if (!sourceSelect.value && sourceSelect.options.length) {
+            sourceSelect.selectedIndex = 0;
+        }
+        refreshFixedVisibility();
+    }
+
+    function refreshFixedVisibility() {
+        fixedWrap.style.display = sourceSelect.value === 'fijo.valor' ? '' : 'none';
+    }
+
+    function refreshTableSource(row, selected) {
+        const field = row.querySelector('[data-role="source"]');
+        const current = selected || field.value || 'tarea.actividad';
+        field.innerHTML = renderGroupedOptions(taskFieldGroups, current);
+        if (!field.value && field.options.length) {
+            field.selectedIndex = 0;
+        }
+    }
+
+    function cellKey(sheet, cell) {
+        return `${sheet}!${cell}`;
+    }
+
+    function findCellMap(sheet, cell) {
+        return config.celdas.find(item => cellKey(item.hoja || '', item.celda || '') === cellKey(sheet, cell));
+    }
+
+    function markMappedCells() {
+        document.querySelectorAll('.excel-cell').forEach(cell => {
+            const master = cell.dataset.masterCell || cell.dataset.cell;
+            cell.classList.toggle('mapped', Boolean(findCellMap(currentSheet, master)));
+            cell.classList.toggle('selected', master === selectedCell);
+        });
+    }
+
+    function selectCellFromElement(cellElement) {
+        const visual = cellElement ? cellElement.dataset.cell : '';
+        const master = cellElement ? (cellElement.dataset.masterCell || visual) : '';
+        const mergeRange = cellElement ? (cellElement.dataset.mergeRange || '') : '';
+        selectCell(master, visual, mergeRange);
+    }
+
+    function selectCell(master, visual, mergeRange) {
+        selectedCell = master || '';
+        selectedVisualCell = visual || master || '';
+        selectedMergeRange = mergeRange || '';
+        if (!selectedCell) {
+            selectedLabel.textContent = 'Selecciona una celda';
+        } else if (selectedMergeRange && selectedVisualCell !== selectedCell) {
+            selectedLabel.textContent = `${selectedVisualCell} -> ${selectedCell} (${selectedMergeRange})`;
+        } else if (selectedMergeRange) {
+            selectedLabel.textContent = `${selectedCell} (${selectedMergeRange})`;
+        } else {
+            selectedLabel.textContent = selectedCell;
+        }
+        const existing = selectedCell ? findCellMap(currentSheet, selectedCell) : null;
+        refreshCellSource(existing ? sourcePathForItem(existing) : '');
+        formatInput.value = existing ? (existing.formato || 'texto') : 'texto';
+        fixedInput.value = existing ? (existing.valor || '') : '';
+        markMappedCells();
+    }
+
+    function saveCellMap() {
+        if (!selectedCell) return;
+        const sourcePath = sourceSelect.value;
+        const legacy = legacyParts(sourcePath);
+        const item = {
+            hoja: currentSheet,
+            celda: selectedCell,
+            celda_visual: selectedVisualCell || selectedCell,
+            merge_range: selectedMergeRange || '',
+            source_path: sourcePath,
+            origen: legacy.origen,
+            campo: legacy.campo,
+            formato: formatInput.value || 'texto',
+        };
+        if (sourcePath === 'fijo.valor') {
+            item.valor = fixedInput.value || '';
+        }
+        const existingIndex = config.celdas.findIndex(row => cellKey(row.hoja || '', row.celda || '') === cellKey(currentSheet, selectedCell));
+        if (existingIndex >= 0) {
+            config.celdas[existingIndex] = item;
+        } else {
+            config.celdas.push(item);
+        }
+        renderCellMapList();
+        markMappedCells();
+    }
+
+    function removeCellMap(sheet, cell) {
+        const targetSheet = sheet || currentSheet;
+        const targetCell = cell || selectedCell;
+        config.celdas = config.celdas.filter(item => cellKey(item.hoja || '', item.celda || '') !== cellKey(targetSheet, targetCell));
+        if (targetCell === selectedCell) {
+            selectCell(selectedCell, selectedVisualCell, selectedMergeRange);
+        }
+        renderCellMapList();
+        markMappedCells();
+    }
+
+    function renderCellMapList() {
+        if (!config.celdas.length) {
+            mapList.innerHTML = '<p class="muted">No hay celdas mapeadas todavía.</p>';
+            return;
+        }
+        mapList.innerHTML = config.celdas
+            .slice()
+            .sort((a, b) => `${a.hoja}!${a.celda}`.localeCompare(`${b.hoja}!${b.celda}`))
+            .map(item => `
+                <div class="map-chip">
+                    <strong>${escapeHtml(item.celda)}</strong>
+                    <span>${escapeHtml(item.hoja)} · ${escapeHtml(sourcePathForItem(item))}${item.valor ? ` = ${escapeHtml(item.valor)}` : ''}</span>
+                    <button class="btn btn-danger" type="button" data-remove-cell="${escapeHtml(item.celda)}" data-remove-sheet="${escapeHtml(item.hoja)}">Quitar</button>
+                </div>
+            `).join('');
+        mapList.querySelectorAll('[data-remove-cell]').forEach(button => {
+            button.addEventListener('click', () => removeCellMap(button.dataset.removeSheet, button.dataset.removeCell));
+        });
+    }
+
+    function addColumnRow(item) {
+        item = item || {};
+        const tr = document.createElement('tr');
+        const sourcePath = sourcePathForItem(item);
+        tr.innerHTML = `
+            <td><input class="input-control" data-role="column" type="text" value="${escapeHtml(item.columna || '')}" placeholder="B"></td>
+            <td><select class="input-control" data-role="source"></select></td>
+            <td><button class="btn btn-danger" type="button" data-role="remove">Quitar</button></td>
+        `;
+        columnBody.appendChild(tr);
+        refreshTableSource(tr, sourcePath);
+        tr.querySelector('[data-role="remove"]').addEventListener('click', () => tr.remove());
+    }
+
+    function loadTableMapping() {
+        const table = (config.tablas || [])[0] || {};
+        document.getElementById('table-name').value = table.nombre || 'tareas';
+        document.getElementById('table-sheet').value = table.hoja || mainSheetInput.value || currentSheet || sheets[0] || '';
+        document.getElementById('table-start').value = table.fila_inicio || 25;
+        document.getElementById('table-template').value = table.fila_template || table.fila_inicio || 25;
+        (table.columnas || []).forEach(addColumnRow);
+        if (!columnBody.children.length) {
+            addColumnRow({columna: 'B', source_path: 'sistema.correlativo'});
+            addColumnRow({columna: 'C', source_path: 'tarea.componente'});
+            addColumnRow({columna: 'E', source_path: 'tarea.actividad'});
+        }
+    }
+
+    function collectConfig() {
+        const columnas = Array.from(columnBody.querySelectorAll('tr')).map(row => {
+            const sourcePath = row.querySelector('[data-role="source"]').value;
+            const legacy = legacyParts(sourcePath);
+            return {
+                columna: row.querySelector('[data-role="column"]').value.trim().toUpperCase(),
+                source_path: sourcePath,
+                origen: legacy.origen,
+                campo: legacy.campo,
+            };
+        }).filter(item => item.columna && item.source_path);
+
+        const celdas = config.celdas
+            .filter(item => item.hoja && item.celda && sourcePathForItem(item))
+            .map(item => {
+                const sourcePath = sourcePathForItem(item);
+                const legacy = legacyParts(sourcePath);
+                return {
+                    ...item,
+                    source_path: sourcePath,
+                    origen: legacy.origen,
+                    campo: legacy.campo,
+                };
+            });
+
+        return {
+            celdas,
+            tablas: [{
+                nombre: document.getElementById('table-name').value || 'tareas',
+                hoja: document.getElementById('table-sheet').value || mainSheetInput.value || currentSheet || sheets[0] || '',
+                fila_inicio: Number(document.getElementById('table-start').value || 1),
+                fila_template: Number(document.getElementById('table-template').value || document.getElementById('table-start').value || 1),
+                columnas,
+            }],
+        };
+    }
+
+    document.querySelectorAll('.excel-cell').forEach(cell => {
+        cell.addEventListener('click', () => selectCellFromElement(cell));
+    });
+    sourceSelect.addEventListener('change', refreshFixedVisibility);
+    document.getElementById('save-cell-map').addEventListener('click', saveCellMap);
+    document.getElementById('remove-cell-map').addEventListener('click', () => removeCellMap());
+    document.getElementById('add-column-row').addEventListener('click', () => addColumnRow({}));
+    form.addEventListener('submit', function () {
+        configInput.value = JSON.stringify(collectConfig());
+    });
+    if (!mainSheetInput.value && currentSheet) {
+        mainSheetInput.value = currentSheet;
+    }
+    refreshCellSource();
+    renderCellMapList();
+    loadTableMapping();
+    markMappedCells();
+})();
+</script>
+{% endblock %}

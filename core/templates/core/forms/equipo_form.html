@@ -95,7 +95,6 @@
     const empresaSelect = document.getElementById('id_empresa');
     const nodeInput = document.getElementById('id_nodo');
     const utInput = document.getElementById('id_ut');
-    const descriptionInput = document.getElementById('id_descripcion_ut');
     const fieldsWrap = document.getElementById('technical-location-fields');
     const emptyState = document.getElementById('technical-location-empty');
     const resolveButton = document.getElementById('resolve-ut-button');
@@ -135,7 +134,6 @@
     function updateUnifiedFields(node) {
         if (!node) return;
         if (utInput) utInput.value = node.ut || '';
-        if (descriptionInput) descriptionInput.value = node.route || '';
         setFeedback('', '');
     }
 
@@ -154,7 +152,6 @@
             name: node.name,
             label: node.label || `${node.code} - ${node.name}`,
             ut: node.ut || '',
-            route: node.route || '',
         };
     }
 
@@ -345,7 +342,6 @@
     empresaSelect.addEventListener('change', function () {
         nodeInput.value = '';
         if (utInput) utInput.value = '';
-        if (descriptionInput) descriptionInput.value = '';
         setFeedback('', '');
         renderPicker();
     });

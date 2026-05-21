@@ -1,0 +1,13 @@
+from django.urls import path
+
+from . import views
+
+
+urlpatterns = [
+    path('aca/nuevo/', views.aca_registro_new, name='aca_registro_new'),
+    path('servicios/<int:pk>/aca/', views.service_aca_list, name='service_aca_list'),
+    path('servicios/<int:pk>/aca/exportar/<str:formato>/', views.service_aca_export, name='service_aca_export'),
+    path('servicios/<int:pk>/aca/nuevo/', views.service_aca_new, name='service_aca_new'),
+    path('servicios/<int:service_pk>/aca/<int:crit_pk>/editar/', views.service_aca_edit, name='service_aca_edit'),
+    path('servicios/<int:service_pk>/aca/<int:crit_pk>/eliminar/', views.service_aca_delete, name='service_aca_delete'),
+]

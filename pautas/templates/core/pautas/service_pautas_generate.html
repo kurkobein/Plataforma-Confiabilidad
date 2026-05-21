@@ -1,0 +1,239 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Generar pautas | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_pautas_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>Generar pautas desde RCM/FMEA</h2>
+        <p>{{ service.codigo_servicio }} · agrupación automática de tareas de mantenimiento.</p>
+    </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" id="pauta-generate-form">
+        {% csrf_token %}
+        <input type="hidden" name="selected_groups_payload" id="selected-groups-payload" value="">
+        <input type="hidden" name="selected_tasks_payload" id="selected-tasks-payload" value="">
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-field">
+                    {% if field.field.widget.input_type == 'checkbox' %}
+                        <label>{{ field }} {{ field.label }}</label>
+                    {% else %}
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                    {% endif %}
+                    {{ field.errors }}
+                </div>
+            {% endfor %}
+        </div>
+        <div class="actions" style="margin-top:14px;">
+            <button class="btn" type="submit" name="action" value="preview">Previsualizar</button>
+
+        </div>
+    </form>
+</div>
+
+{% if preview is not None %}
+<div class="card">
+    <h3 class="card-title">Previsualización</h3>
+    {% if preview %}
+        <p class="muted">Selecciona las pautas que quieres crear. Por defecto se marcan todas las {{ preview|length }} pautas detectadas.</p>
+        <div class="table-wrap">
+            <table class="datatable display">
+                <thead>
+                    <tr>
+                        <th style="width:46px;text-align:center;">
+                            <input type="checkbox" id="select-all-pautas" checked aria-label="Seleccionar todas las pautas">
+                        </th>
+                        <th>Equipo</th>
+                        <th>Ubicación Técnica</th>
+                        <th>Frecuencia</th>
+                        <th>Especialidad</th>
+                        <th>Estado equipo</th>
+                        <th>Tareas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in preview %}
+                        <tr>
+                            <td style="text-align:center;">
+                                <input
+                                    type="checkbox"
+                                    name="selected_groups"
+                                    value="{{ row.group_id }}"
+                                    form="pauta-generate-form"
+                                    class="pauta-preview-check"
+                                    {% if row.selected %}checked{% endif %}
+                                    aria-label="Crear pauta {{ forloop.counter }}">
+                            </td>
+                            <td>{{ row.equipo|default:'-' }}</td>
+                            <td>{{ row.ubicacion_tecnica|default:'-' }}</td>
+                            <td>{{ row.frecuencia|default:'-' }}</td>
+                            <td>{{ row.especialidad|default:'-' }}</td>
+                            <td>{{ row.estado_equipo|default:'-' }}</td>
+                            <td>
+                                <details>
+                                    <summary>{{ row.tareas_count }} tarea{{ row.tareas_count|pluralize }}</summary>
+                                    <div style="display:grid; gap:8px; margin-top:8px; min-width:320px;">
+                                        {% for task in row.tasks %}
+                                            <label style="display:flex; gap:8px; align-items:flex-start;">
+                                                <input
+                                                    type="checkbox"
+                                                    name="selected_tasks"
+                                                    value="{{ task.id }}"
+                                                    form="pauta-generate-form"
+                                                    class="pauta-task-check"
+                                                    data-group-id="{{ row.group_id }}"
+                                                    {% if task.selected %}checked{% endif %}
+                                                    aria-label="Crear tarea {{ forloop.counter }} de pauta {{ forloop.parentloop.counter }}">
+                                                <span>
+                                                    <strong>{{ task.tipo|default:'Tarea' }}</strong>
+                                                    {% if task.componente %}<span class="muted"> · {{ task.componente }}</span>{% endif %}
+                                                    <br>
+                                                    {{ task.actividad|default:'Sin actividad' }}
+                                                    <br>
+                                                    <small class="muted">
+                                                        Frecuencia: {{ task.frecuencia|default:'-' }} · Especialidad: {{ task.especialidad|default:'-' }} · Estado: {{ task.estado_equipo|default:'-' }}
+                                                    </small>
+                                                </span>
+                                            </label>
+                                        {% endfor %}
+                                    </div>
+                                </details>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="actions" style="margin-top:14px;">
+            <button class="btn btn-primary" type="submit" name="action" value="confirm" form="pauta-generate-form">Crear pautas seleccionadas</button>
+        </div>
+    {% else %}
+        <p class="muted">No se encontraron tareas RCM primarias con los filtros seleccionados.</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{{ preview_group_ids|json_script:"pauta-group-ids" }}
+{{ preview_task_ids|json_script:"pauta-task-ids" }}
+{{ group_task_map|json_script:"pauta-group-task-map" }}
+{{ selected_group_ids_for_template|json_script:"pauta-selected-group-ids" }}
+{{ selected_task_ids_for_template|json_script:"pauta-selected-task-ids" }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const selectAll = document.getElementById('select-all-pautas');
+    if (!selectAll) return;
+    const groupPayloadInput = document.getElementById('selected-groups-payload');
+    const taskPayloadInput = document.getElementById('selected-tasks-payload');
+    const allIdsNode = document.getElementById('pauta-group-ids');
+    const allTaskIdsNode = document.getElementById('pauta-task-ids');
+    const groupTaskMapNode = document.getElementById('pauta-group-task-map');
+    const selectedIdsNode = document.getElementById('pauta-selected-group-ids');
+    const selectedTaskIdsNode = document.getElementById('pauta-selected-task-ids');
+    const allIds = allIdsNode ? JSON.parse(allIdsNode.textContent || '[]') : [];
+    const allTaskIds = allTaskIdsNode ? JSON.parse(allTaskIdsNode.textContent || '[]') : [];
+    const groupTaskMap = groupTaskMapNode ? JSON.parse(groupTaskMapNode.textContent || '{}') : {};
+    const selectedIds = new Set(selectedIdsNode ? JSON.parse(selectedIdsNode.textContent || '[]') : []);
+    const selectedTaskIds = new Set(selectedTaskIdsNode ? JSON.parse(selectedTaskIdsNode.textContent || '[]') : []);
+
+    const getChecks = () => Array.from(document.querySelectorAll('.pauta-preview-check'));
+    const getTaskChecks = () => Array.from(document.querySelectorAll('.pauta-task-check'));
+    const taskIdsForGroup = (groupId) => groupTaskMap[groupId] || [];
+
+    function updatePayload() {
+        if (groupPayloadInput) {
+            groupPayloadInput.value = JSON.stringify(Array.from(selectedIds));
+        }
+        if (taskPayloadInput) {
+            taskPayloadInput.value = JSON.stringify(Array.from(selectedTaskIds));
+        }
+    }
+
+    function syncGroupFromTasks(groupId) {
+        const groupTaskIds = taskIdsForGroup(groupId);
+        const hasSelectedTask = groupTaskIds.some((taskId) => selectedTaskIds.has(String(taskId)));
+        if (hasSelectedTask) {
+            selectedIds.add(groupId);
+        } else {
+            selectedIds.delete(groupId);
+        }
+    }
+
+    function syncAllGroupsFromTasks() {
+        allIds.forEach(syncGroupFromTasks);
+    }
+
+    function refreshSelectAllState() {
+        syncAllGroupsFromTasks();
+        selectAll.checked = allIds.length > 0 && selectedIds.size === allIds.length;
+        selectAll.indeterminate = selectedIds.size > 0 && selectedIds.size < allIds.length;
+        updatePayload();
+    }
+
+    function syncVisibleChecks() {
+        getChecks().forEach((check) => {
+            check.checked = selectedIds.has(check.value);
+        });
+        getTaskChecks().forEach((check) => {
+            check.checked = selectedTaskIds.has(check.value);
+        });
+        refreshSelectAllState();
+    }
+
+    selectAll.addEventListener('change', function () {
+        selectedIds.clear();
+        selectedTaskIds.clear();
+        if (selectAll.checked) {
+            allIds.forEach((id) => selectedIds.add(id));
+            allTaskIds.forEach((id) => selectedTaskIds.add(id));
+        }
+        syncVisibleChecks();
+        refreshSelectAllState();
+    });
+
+    document.addEventListener('change', function (event) {
+        if (event.target.classList && event.target.classList.contains('pauta-preview-check')) {
+            if (event.target.checked) {
+                selectedIds.add(event.target.value);
+                taskIdsForGroup(event.target.value).forEach((taskId) => selectedTaskIds.add(String(taskId)));
+            } else {
+                selectedIds.delete(event.target.value);
+                taskIdsForGroup(event.target.value).forEach((taskId) => selectedTaskIds.delete(String(taskId)));
+            }
+            refreshSelectAllState();
+            syncVisibleChecks();
+        }
+        if (event.target.classList && event.target.classList.contains('pauta-task-check')) {
+            const groupId = event.target.dataset.groupId;
+            if (event.target.checked) {
+                selectedTaskIds.add(event.target.value);
+            } else {
+                selectedTaskIds.delete(event.target.value);
+            }
+            syncGroupFromTasks(groupId);
+            refreshSelectAllState();
+            syncVisibleChecks();
+        }
+    });
+
+    if (window.jQuery) {
+        window.jQuery(document).on('draw.dt', function (_event, settings) {
+            if (settings && settings.nTable && settings.nTable.querySelector('.pauta-preview-check')) {
+                syncVisibleChecks();
+            }
+        });
+    }
+
+    syncVisibleChecks();
+});
+</script>
+{% endblock %}

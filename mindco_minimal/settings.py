@@ -18,6 +18,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'core.apps.CoreConfig',
+    'service_management.apps.ServiceManagementConfig',
+    'aca.apps.AcaConfig',
+    'rcm.apps.RcmConfig',
+    'pautas.apps.PautasConfig',
+    'technical_locations.apps.TechnicalLocationsConfig',
+    'evaluation_tables.apps.EvaluationTablesConfig',
 ]
 
 MIDDLEWARE = [
@@ -51,10 +57,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mindco_minimal.wsgi.application'
 
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    ".trycloudflare.com",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.trycloudflare.com",
+]
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'Mindcodb2',
+        'NAME': 'Mindcodbk',
         'USER': 'root',
         'PASSWORD': 'FelipeS@002',
         'HOST': '127.0.0.1',
@@ -74,6 +90,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_URL = 'login'

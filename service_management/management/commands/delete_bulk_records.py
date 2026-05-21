@@ -1,0 +1,1 @@
+from service_management.delete_bulk_records import Command
