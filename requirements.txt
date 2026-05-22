@@ -1,8 +1,6 @@
 Django
 gunicorn
+whitenoise
 mysqlclient
-openpyxl
-python-dotenv
-whitenoise
 PyMySQL
-whitenoise
+openpyxl
