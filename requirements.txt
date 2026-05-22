@@ -4,3 +4,4 @@ mysqlclient
 openpyxl
 python-dotenv
 whitenoise
+PyMySQL
