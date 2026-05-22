@@ -963,7 +963,6 @@ def _service_aca_table_data(servicio, include_actions=False):
         columns.append((f'dim_{ed.dimension_id}', ed.dimension.nombre))
     columns.extend([
         ('valor_cons_total', 'Valor Consecuencia Total'),
-        ('indicador_criticidad', 'Indicador de Criticidad'),
         ('valor_criticidad_equipo', 'Valor Criticidad Equipo'),
         ('criticidad_final', 'Criticidad Final'),
     ])
