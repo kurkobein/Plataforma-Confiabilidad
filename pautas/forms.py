@@ -25,6 +25,11 @@ class PlantillaPautaForm(PautaBaseModelForm):
             'archivo': forms.FileInput(attrs={'accept': '.xlsx,.xlsm'}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['archivo'].required = False
+
     def clean_archivo(self):
         archivo = self.cleaned_data.get('archivo')
         if not archivo:
@@ -94,6 +99,11 @@ class GenerarPautasForm(forms.Form):
         required=False,
         initial=False,
         label='Incluir tareas secundarias',
+    )
+    generar_una_pauta = forms.BooleanField(
+        required=False,
+        initial=False,
+        label='Crear una unica pauta con los registros seleccionados',
     )
     equipo = forms.CharField(required=False, label='Equipo / UT / TAG')
     frecuencia = forms.CharField(required=False, label='Frecuencia')

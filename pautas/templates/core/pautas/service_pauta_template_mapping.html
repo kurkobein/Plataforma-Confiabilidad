@@ -103,6 +103,30 @@
     .map-chip strong {
         font-size: 13px;
     }
+    .map-chip.pending-delete,
+    .delete-confirm-box {
+        border-color: #fecaca;
+        background: #fff1f2;
+    }
+    .map-chip .delete-confirm-actions,
+    .delete-confirm-box {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .delete-confirm-box {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        color: #991b1b;
+    }
+    .table-delete-confirm td {
+        background: #fff1f2;
+        border-top: 1px solid #fecaca;
+        border-bottom: 1px solid #fecaca;
+    }
     @media (max-width: 1100px) {
         .excel-mapper {
             grid-template-columns: 1fr;
@@ -218,6 +242,11 @@
                 <button class="btn btn-primary" type="button" id="save-cell-map">Asignar celda</button>
                 <button class="btn btn-danger" type="button" id="remove-cell-map">Quitar</button>
             </div>
+            <div class="delete-confirm-box" id="selected-delete-confirm" style="display:none;">
+                <span>Confirma la eliminación de este mapeo.</span>
+                <button class="btn btn-danger" type="button" id="confirm-remove-cell-map">Eliminar mapeo</button>
+                <button class="btn" type="button" id="cancel-remove-cell-map">Cancelar</button>
+            </div>
             <p class="muted" style="margin-top:10px;">
                 Haz clic sobre la hoja para elegir dónde escribir el campo.
             </p>
@@ -279,6 +308,7 @@
     const formatInput = document.getElementById('cell-format');
     const fixedWrap = document.getElementById('fixed-value-field');
     const fixedInput = document.getElementById('cell-fixed-value');
+    const selectedDeleteConfirm = document.getElementById('selected-delete-confirm');
     const sheetSelect = document.getElementById('hoja-preview');
     const mainSheetInput = document.getElementById('id_hoja_principal');
     const currentSheet = sheetSelect ? sheetSelect.value : '';
@@ -288,6 +318,7 @@
     let selectedCell = '';
     let selectedVisualCell = '';
     let selectedMergeRange = '';
+    let pendingSelectedRemoval = null;
     let config = {};
     try {
         config = JSON.parse(document.getElementById('mapping-config-data').textContent || '{}');
@@ -342,7 +373,7 @@
     }
 
     function refreshCellSource(selected) {
-        const current = selected || sourceSelect.value || 'pauta.nombre';
+        const current = selected || sourceSelect.value || '';
         sourceSelect.innerHTML = renderGroupedOptions(headerFieldGroups, current);
         if (!sourceSelect.value && sourceSelect.options.length) {
             sourceSelect.selectedIndex = 0;
@@ -356,7 +387,7 @@
 
     function refreshTableSource(row, selected) {
         const field = row.querySelector('[data-role="source"]');
-        const current = selected || field.value || 'tarea.actividad';
+        const current = selected || field.value || '';
         field.innerHTML = renderGroupedOptions(taskFieldGroups, current);
         if (!field.value && field.options.length) {
             field.selectedIndex = 0;
@@ -390,6 +421,7 @@
         selectedCell = master || '';
         selectedVisualCell = visual || master || '';
         selectedMergeRange = mergeRange || '';
+        clearSelectedRemoval();
         if (!selectedCell) {
             selectedLabel.textContent = 'Selecciona una celda';
         } else if (selectedMergeRange && selectedVisualCell !== selectedCell) {
@@ -404,6 +436,11 @@
         formatInput.value = existing ? (existing.formato || 'texto') : 'texto';
         fixedInput.value = existing ? (existing.valor || '') : '';
         markMappedCells();
+    }
+
+    function clearSelectedRemoval() {
+        pendingSelectedRemoval = null;
+        selectedDeleteConfirm.style.display = 'none';
     }
 
     function saveCellMap() {
@@ -438,10 +475,40 @@
         const targetCell = cell || selectedCell;
         config.celdas = config.celdas.filter(item => cellKey(item.hoja || '', item.celda || '') !== cellKey(targetSheet, targetCell));
         if (targetCell === selectedCell) {
+            clearSelectedRemoval();
             selectCell(selectedCell, selectedVisualCell, selectedMergeRange);
         }
         renderCellMapList();
         markMappedCells();
+    }
+
+    function requestSelectedCellRemoval() {
+        if (!selectedCell || !findCellMap(currentSheet, selectedCell)) return;
+        pendingSelectedRemoval = {sheet: currentSheet, cell: selectedCell};
+        selectedDeleteConfirm.style.display = '';
+    }
+
+    function confirmSelectedCellRemoval() {
+        if (!pendingSelectedRemoval) return;
+        removeCellMap(pendingSelectedRemoval.sheet, pendingSelectedRemoval.cell);
+        clearSelectedRemoval();
+    }
+
+    function renderCellDeleteConfirmation(container, item) {
+        container.classList.add('pending-delete');
+        container.innerHTML = `
+            <strong>${escapeHtml(item.celda)}</strong>
+            <span>¿Eliminar el mapeo de ${escapeHtml(item.hoja)}?</span>
+            <span class="delete-confirm-actions">
+                <button class="btn btn-danger" type="button" data-confirm-remove-cell="${escapeHtml(item.celda)}" data-confirm-remove-sheet="${escapeHtml(item.hoja)}">Eliminar</button>
+                <button class="btn" type="button" data-cancel-remove-cell>Cancelar</button>
+            </span>
+        `;
+        container.querySelector('[data-confirm-remove-cell]').addEventListener('click', button => {
+            const target = button.currentTarget;
+            removeCellMap(target.dataset.confirmRemoveSheet, target.dataset.confirmRemoveCell);
+        });
+        container.querySelector('[data-cancel-remove-cell]').addEventListener('click', renderCellMapList);
     }
 
     function renderCellMapList() {
@@ -460,7 +527,11 @@
                 </div>
             `).join('');
         mapList.querySelectorAll('[data-remove-cell]').forEach(button => {
-            button.addEventListener('click', () => removeCellMap(button.dataset.removeSheet, button.dataset.removeCell));
+            button.addEventListener('click', () => {
+                const item = findCellMap(button.dataset.removeSheet, button.dataset.removeCell);
+                const chip = button.closest('.map-chip');
+                if (item && chip) renderCellDeleteConfirmation(chip, item);
+            });
         });
     }
 
@@ -475,7 +546,29 @@
         `;
         columnBody.appendChild(tr);
         refreshTableSource(tr, sourcePath);
-        tr.querySelector('[data-role="remove"]').addEventListener('click', () => tr.remove());
+        tr.querySelector('[data-role="remove"]').addEventListener('click', () => requestColumnRemoval(tr));
+    }
+
+    function requestColumnRemoval(row) {
+        if (row.nextElementSibling && row.nextElementSibling.classList.contains('table-delete-confirm')) {
+            return;
+        }
+        const column = row.querySelector('[data-role="column"]').value || 'esta columna';
+        const confirmRow = document.createElement('tr');
+        confirmRow.className = 'table-delete-confirm';
+        confirmRow.innerHTML = `
+            <td colspan="3">
+                <span>¿Eliminar el mapeo de ${escapeHtml(column)}?</span>
+                <button class="btn btn-danger" type="button" data-role="confirm-remove">Eliminar</button>
+                <button class="btn" type="button" data-role="cancel-remove">Cancelar</button>
+            </td>
+        `;
+        row.insertAdjacentElement('afterend', confirmRow);
+        confirmRow.querySelector('[data-role="confirm-remove"]').addEventListener('click', () => {
+            confirmRow.remove();
+            row.remove();
+        });
+        confirmRow.querySelector('[data-role="cancel-remove"]').addEventListener('click', () => confirmRow.remove());
     }
 
     function loadTableMapping() {
@@ -486,9 +579,7 @@
         document.getElementById('table-template').value = table.fila_template || table.fila_inicio || 25;
         (table.columnas || []).forEach(addColumnRow);
         if (!columnBody.children.length) {
-            addColumnRow({columna: 'B', source_path: 'sistema.correlativo'});
-            addColumnRow({columna: 'C', source_path: 'tarea.componente'});
-            addColumnRow({columna: 'E', source_path: 'tarea.actividad'});
+            addColumnRow({columna: 'B'});
         }
     }
 
@@ -534,7 +625,9 @@
     });
     sourceSelect.addEventListener('change', refreshFixedVisibility);
     document.getElementById('save-cell-map').addEventListener('click', saveCellMap);
-    document.getElementById('remove-cell-map').addEventListener('click', () => removeCellMap());
+    document.getElementById('remove-cell-map').addEventListener('click', requestSelectedCellRemoval);
+    document.getElementById('confirm-remove-cell-map').addEventListener('click', confirmSelectedCellRemoval);
+    document.getElementById('cancel-remove-cell-map').addEventListener('click', clearSelectedRemoval);
     document.getElementById('add-column-row').addEventListener('click', () => addColumnRow({}));
     form.addEventListener('submit', function () {
         configInput.value = JSON.stringify(collectConfig());

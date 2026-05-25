@@ -59,6 +59,21 @@ def _decimal_first(values):
     return None
 
 
+def _single_or_mixed(values, mixed='Varios'):
+    cleaned = [
+        str(value).strip()
+        for value in values
+        if value not in (None, '')
+    ]
+    if not cleaned:
+        return ''
+    unique = []
+    for value in cleaned:
+        if value not in unique:
+            unique.append(value)
+    return unique[0] if len(unique) == 1 else mixed
+
+
 def _dynamic_task_values(task):
     values = {}
     cached_values = getattr(task, 'valores_campos_cache', None)
@@ -388,6 +403,67 @@ def crear_pauta_desde_grupo(servicio, estrategia, grupo_key, registros, plantill
     )
 
 
+def crear_pauta_consolidada_desde_registros(servicio, estrategia, registros, plantilla=None):
+    first = registros[0]
+    first_task = first['task']
+    equipos = [
+        item['rcm'].equipo
+        for item in registros
+        if getattr(item['rcm'], 'equipo_id', None)
+    ]
+    unique_equipment = []
+    for equipo in equipos:
+        if equipo.pk not in [item.pk for item in unique_equipment]:
+            unique_equipment.append(equipo)
+    equipo = unique_equipment[0] if len(unique_equipment) == 1 else None
+    frecuencia = _single_or_mixed(item['frequency'] for item in registros)
+    especialidad = _single_or_mixed(item['specialty'] for item in registros)
+    estado_equipo = _single_or_mixed(item['estado_equipo'] for item in registros)
+    ubicacion_tecnica = (
+        equipo.ut
+        if equipo
+        else _single_or_mixed(
+            item['rcm'].equipo.ut
+            for item in registros
+            if getattr(item['rcm'], 'equipo_id', None)
+        )
+    )
+    equipo_nombre = equipo.nombre_equipo if equipo else _single_or_mixed(
+        item['rcm'].equipo.nombre_equipo
+        for item in registros
+        if getattr(item['rcm'], 'equipo_id', None)
+    )
+    duracion_total = _decimal_sum(_task_value(item['task'], ['duracion_hr', 'duracion_horas', 'tiempo'], None) for item in registros)
+    hh_total = _decimal_sum(_task_value(item['task'], ['hh', 'hh_sap'], None) for item in registros)
+    personas = _decimal_first(_task_value(item['task'], ['cantidad_personas', 'cant_personas', 'personas'], None) for item in registros)
+    name_parts = [
+        'Pauta consolidada',
+        frecuencia,
+        especialidad,
+        equipo_nombre,
+    ]
+    nombre = ' - '.join(str(part) for part in name_parts if part) or f'Pauta consolidada {servicio.codigo_servicio}'
+    return models.Pauta.objects.create(
+        servicio=servicio,
+        estrategia=estrategia or servicio.estrategia,
+        equipo=equipo,
+        plantilla=plantilla,
+        codigo=_next_pauta_code(servicio),
+        nombre=nombre[:200],
+        area=str(_task_value(first_task, ['area', 'area_negocio', 'planta'], '') or '')[:150],
+        ubicacion_tecnica=ubicacion_tecnica[:150],
+        frecuencia=frecuencia[:150],
+        especialidad=especialidad[:100],
+        estado_equipo=estado_equipo[:100],
+        estrategia_mantenimiento=str(_task_value(first_task, ['tactica', 'estrategia', 'estrategia_mantenimiento'], '') or '')[:150],
+        cantidad_personas=personas,
+        duracion_horas=duracion_total,
+        hh_total=hh_total,
+        origen=models.Pauta.ORIGEN_RCM,
+        estado=models.Pauta.ESTADO_GENERADA,
+    )
+
+
 def crear_tareas_pauta(pauta, registros, incluir_primarias=True, incluir_secundarias=False):
     created = []
     for order, item in enumerate(registros, start=1):
@@ -417,13 +493,23 @@ def crear_tareas_pauta(pauta, registros, incluir_primarias=True, incluir_secunda
 
 
 @transaction.atomic
-def generar_pautas_desde_rcm(servicio, estrategia=None, filtros=None, regla=None, plantilla=None, selected_group_ids=None, selected_task_ids=None):
+def generar_pautas_desde_rcm(
+    servicio,
+    estrategia=None,
+    filtros=None,
+    regla=None,
+    plantilla=None,
+    selected_group_ids=None,
+    selected_task_ids=None,
+    generar_una_pauta=False,
+):
     regla = regla or RuntimeRule()
     selected_group_ids = set(selected_group_ids) if selected_group_ids is not None else None
     selected_task_ids = set(str(task_id) for task_id in selected_task_ids) if selected_task_ids is not None else None
     qs = get_rcm_queryset_for_service(servicio, estrategia=estrategia, filtros=filtros)
     groups = agrupar_tareas_rcm(qs, regla, filtros=filtros)
     created = []
+    consolidated_records = []
     for key, registros in groups.items():
         if selected_group_ids is not None and pauta_group_id(key) not in selected_group_ids:
             continue
@@ -434,10 +520,27 @@ def generar_pautas_desde_rcm(servicio, estrategia=None, filtros=None, regla=None
             ]
         if not registros:
             continue
+        if generar_una_pauta:
+            consolidated_records.extend(registros)
+            continue
         pauta = crear_pauta_desde_grupo(servicio, estrategia, key, registros, plantilla=plantilla)
         crear_tareas_pauta(
             pauta,
             registros,
+            incluir_primarias=regla.incluir_tareas_primarias,
+            incluir_secundarias=regla.incluir_tareas_secundarias,
+        )
+        created.append(pauta)
+    if generar_una_pauta and consolidated_records:
+        pauta = crear_pauta_consolidada_desde_registros(
+            servicio,
+            estrategia,
+            consolidated_records,
+            plantilla=plantilla,
+        )
+        crear_tareas_pauta(
+            pauta,
+            consolidated_records,
             incluir_primarias=regla.incluir_tareas_primarias,
             incluir_secundarias=regla.incluir_tareas_secundarias,
         )

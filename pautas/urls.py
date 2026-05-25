@@ -7,6 +7,16 @@ urlpatterns = [
     path('servicios/<int:pk>/pautas/', views.service_pautas_list, name='service_pautas_list'),
     path('servicios/<int:pk>/pautas/plantillas/', views.service_pauta_templates, name='service_pauta_templates'),
     path(
+        'servicios/<int:service_pk>/pautas/plantillas/<int:template_pk>/editar/',
+        views.service_pauta_template_edit,
+        name='service_pauta_template_edit',
+    ),
+    path(
+        'servicios/<int:service_pk>/pautas/plantillas/<int:template_pk>/eliminar/',
+        views.service_pauta_template_delete,
+        name='service_pauta_template_delete',
+    ),
+    path(
         'servicios/<int:service_pk>/pautas/plantillas/<int:template_pk>/mapeo/',
         views.service_pauta_template_mapping,
         name='service_pauta_template_mapping',

@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -168,6 +169,53 @@ def service_pauta_templates(request, pk):
 
 
 @login_required
+def service_pauta_template_edit(request, service_pk, template_pk):
+    servicio, permission = _service_or_404(request, service_pk, edit=True)
+    plantilla = get_object_or_404(_service_pauta_template_queryset(servicio), pk=template_pk)
+    if request.method == 'POST':
+        form = PlantillaPautaForm(request.POST, request.FILES, instance=plantilla)
+        if form.is_valid():
+            plantilla = form.save(commit=False)
+            if plantilla.servicio_id == servicio.pk:
+                plantilla.empresa = servicio.empresa
+                plantilla.estrategia = servicio.estrategia
+            plantilla.save()
+            messages.success(request, 'Plantilla de pauta actualizada correctamente.')
+            return redirect('service_pauta_templates', pk=servicio.pk)
+    else:
+        form = PlantillaPautaForm(instance=plantilla)
+    return render(request, 'core/pautas/service_pauta_template_form.html', {
+        'service': servicio,
+        'permission': permission,
+        'plantilla': plantilla,
+        'form': form,
+    })
+
+
+@login_required
+def service_pauta_template_delete(request, service_pk, template_pk):
+    servicio, permission = _service_or_404(request, service_pk, edit=True)
+    plantilla = get_object_or_404(_service_pauta_template_queryset(servicio), pk=template_pk)
+    pautas_count = models.Pauta.objects.filter(plantilla=plantilla).count()
+    if request.method == 'POST':
+        archivo = plantilla.archivo
+        with transaction.atomic():
+            models.Pauta.objects.filter(plantilla=plantilla).update(plantilla=None)
+            models.MapeoPlantillaPauta.objects.filter(plantilla=plantilla).delete()
+            plantilla.delete()
+        if archivo:
+            archivo.delete(save=False)
+        messages.success(request, 'Plantilla de pauta eliminada correctamente.')
+        return redirect('service_pauta_templates', pk=servicio.pk)
+    return render(request, 'core/pautas/service_pauta_template_delete.html', {
+        'service': servicio,
+        'permission': permission,
+        'plantilla': plantilla,
+        'pautas_count': pautas_count,
+    })
+
+
+@login_required
 def service_pauta_template_mapping(request, service_pk, template_pk):
     servicio, permission = _service_or_404(request, service_pk, edit=True)
     plantilla = get_object_or_404(_service_pauta_template_queryset(servicio), pk=template_pk)
@@ -257,6 +305,7 @@ def service_pautas_generate(request, pk):
         plantilla = form.cleaned_data.get('plantilla')
         regla_obj = form.cleaned_data.get('regla')
         regla = build_runtime_rule(form.cleaned_data, regla_obj)
+        generar_una_pauta = bool(form.cleaned_data.get('generar_una_pauta'))
         filtros = _pauta_filters_from_form(form)
         preview, groups = preview_pautas_desde_rcm(
             servicio,
@@ -310,9 +359,13 @@ def service_pautas_generate(request, pk):
                     plantilla=plantilla,
                     selected_group_ids=selected_group_ids,
                     selected_task_ids=selected_task_ids,
+                    generar_una_pauta=generar_una_pauta,
                 )
                 if pautas:
-                    messages.success(request, f'Se generaron {len(pautas)} pautas correctamente.')
+                    if generar_una_pauta:
+                        messages.success(request, 'Se genero 1 pauta consolidada correctamente.')
+                    else:
+                        messages.success(request, f'Se generaron {len(pautas)} pautas correctamente.')
                     return redirect('service_pautas_list', pk=servicio.pk)
                 messages.warning(request, 'No se pudo generar ninguna pauta con la seleccion actual.')
 

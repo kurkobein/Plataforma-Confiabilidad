@@ -925,6 +925,35 @@ def _json_safe(value):
     return value
 
 
+def _login_coordinate(value, *, minimum, maximum):
+    try:
+        coordinate = Decimal(str(value).strip().replace(',', '.'))
+    except (InvalidOperation, AttributeError):
+        return Decimal('0.000000')
+    if coordinate < minimum or coordinate > maximum:
+        return Decimal('0.000000')
+    return coordinate.quantize(Decimal('0.000001'))
+
+
+def _record_login_location(request, profile):
+    if not profile:
+        return
+    latitud = _login_coordinate(
+        request.POST.get('latitud'),
+        minimum=Decimal('-90'),
+        maximum=Decimal('90'),
+    )
+    longitud = _login_coordinate(
+        request.POST.get('longitud'),
+        minimum=Decimal('-180'),
+        maximum=Decimal('180'),
+    )
+    models.InicioSesion.objects.create(
+        usuario=profile,
+        hora=timezone.now(),
+        latitud=latitud,
+        longitud=longitud,
+    )
 
 
 def login_view(request):
@@ -933,6 +962,7 @@ def login_view(request):
     form = EmailLoginForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         login(request, form.cleaned_data['auth_user'])
+        _record_login_location(request, form.cleaned_data.get('perfil_usuario'))
         messages.success(request, 'Sesión iniciada correctamente.')
         return redirect(request.GET.get('next') or 'dashboard')
     return render(request, 'core/login.html', {'form': form})

@@ -125,85 +125,18 @@ def _group(name, fields):
 def get_pauta_header_field_options(servicio=None, estrategia=None):
     estrategia = _strategy_from_context(servicio, estrategia)
     return [
-        _group('Pauta', [
-            {'value': 'pauta.codigo', 'label': 'Pauta > Codigo'},
-            {'value': 'pauta.nombre', 'label': 'Pauta > Nombre'},
-            {'value': 'pauta.area', 'label': 'Pauta > Area'},
-            {'value': 'pauta.ubicacion_tecnica', 'label': 'Pauta > Ubicacion tecnica'},
-            {'value': 'pauta.frecuencia', 'label': 'Pauta > Frecuencia'},
-            {'value': 'pauta.especialidad', 'label': 'Pauta > Especialidad'},
-            {'value': 'pauta.estado_equipo', 'label': 'Pauta > Estado equipo'},
-            {'value': 'pauta.estrategia_mantenimiento', 'label': 'Pauta > Estrategia mantenimiento'},
-            {'value': 'pauta.cantidad_personas', 'label': 'Pauta > Cantidad personas'},
-            {'value': 'pauta.duracion_horas', 'label': 'Pauta > Duracion horas'},
-            {'value': 'pauta.hh_total', 'label': 'Pauta > HH total'},
-            {'value': 'pauta.estado', 'label': 'Pauta > Estado'},
-            {'value': 'pauta.origen', 'label': 'Pauta > Origen'},
-        ]),
-        _group('Servicio', [
-            {'value': 'servicio.codigo_servicio', 'label': 'Servicio > Codigo'},
-            {'value': 'servicio.descripcion', 'label': 'Servicio > Descripcion'},
-            {'value': 'servicio.status', 'label': 'Servicio > Estado'},
-            {'value': 'servicio.empresa', 'label': 'Servicio > Empresa'},
-            {'value': 'servicio.estrategia', 'label': 'Servicio > Estrategia'},
-        ]),
         _group('Equipo', _equipment_options(servicio)),
         _group('RCM', _model_field_options(models.RCM, 'rcm', 'RCM', exclude={'carga', 'equipo'})),
         _group('FMEA/FMECA', _model_field_options(models.FMEA_FMECA, 'fmea', 'FMEA/FMECA', exclude={'rcm'})),
         _group('Evaluaciones RCM', _evaluation_options(estrategia)),
-        _group('Tarea de pauta', [
-            {'value': 'tarea.orden', 'label': 'Tarea > Orden'},
-            {'value': 'tarea.componente', 'label': 'Tarea > Componente'},
-            {'value': 'tarea.actividad', 'label': 'Tarea > Actividad'},
-            {'value': 'tarea.limite_aceptable', 'label': 'Tarea > Limite aceptable'},
-            {'value': 'tarea.observacion', 'label': 'Tarea > Observacion'},
-            {'value': 'tarea.tipo_tarea', 'label': 'Tarea > Tipo tarea'},
-            {'value': 'tarea.frecuencia', 'label': 'Tarea > Frecuencia'},
-            {'value': 'tarea.pto_trabajo', 'label': 'Tarea > Punto de trabajo'},
-            {'value': 'tarea.cantidad_personas', 'label': 'Tarea > Cantidad personas'},
-            {'value': 'tarea.duracion_horas', 'label': 'Tarea > Duracion horas'},
-            {'value': 'tarea.hh', 'label': 'Tarea > HH'},
-            {'value': 'tarea.estado_equipo', 'label': 'Tarea > Estado equipo'},
-        ]),
-        _group('Tarea RCM original', _model_field_options(models.TareaRCM, 'tarea_rcm', 'Tarea RCM original', exclude={'fmea', 'tipo_tarea_estrategia'})),
         _group('Campos dinamicos tarea RCM', _dynamic_task_field_options(estrategia)),
-        _group('Sistema', [
-            {'value': 'sistema.fecha_generacion', 'label': 'Sistema > Fecha generacion'},
-            {'value': 'sistema.usuario', 'label': 'Sistema > Usuario'},
-            {'value': 'sistema.correlativo', 'label': 'Sistema > Correlativo'},
-        ]),
-        _group('Valor fijo', [
-            {'value': 'fijo.valor', 'label': 'Valor fijo'},
-        ]),
     ]
 
 
 def get_pauta_task_field_options(servicio=None, estrategia=None):
     estrategia = _strategy_from_context(servicio, estrategia)
     return [
-        _group('Tarea de pauta', [
-            {'value': 'tarea.orden', 'label': 'Tarea > Orden'},
-            {'value': 'tarea.componente', 'label': 'Tarea > Componente'},
-            {'value': 'tarea.actividad', 'label': 'Tarea > Actividad'},
-            {'value': 'tarea.limite_aceptable', 'label': 'Tarea > Limite aceptable'},
-            {'value': 'tarea.observacion', 'label': 'Tarea > Observacion'},
-            {'value': 'tarea.tipo_tarea', 'label': 'Tarea > Tipo tarea'},
-            {'value': 'tarea.frecuencia', 'label': 'Tarea > Frecuencia'},
-            {'value': 'tarea.pto_trabajo', 'label': 'Tarea > Punto de trabajo'},
-            {'value': 'tarea.cantidad_personas', 'label': 'Tarea > Cantidad personas'},
-            {'value': 'tarea.duracion_horas', 'label': 'Tarea > Duracion horas'},
-            {'value': 'tarea.hh', 'label': 'Tarea > HH'},
-            {'value': 'tarea.estado_equipo', 'label': 'Tarea > Estado equipo'},
-        ]),
-        _group('Tarea RCM original', _model_field_options(models.TareaRCM, 'tarea_rcm', 'Tarea RCM original', exclude={'fmea', 'tipo_tarea_estrategia'})),
         _group('Campos dinamicos tarea RCM', _dynamic_task_field_options(estrategia)),
         _group('RCM asociado', _model_field_options(models.RCM, 'rcm', 'RCM asociado', exclude={'carga', 'equipo'})),
         _group('Equipo', _equipment_options(servicio)),
-        _group('Sistema', [
-            {'value': 'sistema.correlativo', 'label': 'Sistema > Correlativo'},
-            {'value': 'sistema.fecha_generacion', 'label': 'Sistema > Fecha generacion'},
-        ]),
-        _group('Valor fijo', [
-            {'value': 'fijo.valor', 'label': 'Valor fijo'},
-        ]),
     ]

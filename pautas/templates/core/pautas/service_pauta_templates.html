@@ -3,6 +3,29 @@
 {% block title %}Plantillas de pauta | Mindco{% endblock %}
 
 {% block content %}
+<style>
+    .template-active-field {
+        align-self: end;
+    }
+    .template-active-check {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        width: fit-content;
+        min-height: 42px;
+        margin: 0;
+        padding: 8px 10px;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        background: #f8fafc;
+        font-weight: 500;
+        cursor: pointer;
+    }
+    .template-active-check input {
+        margin: 0;
+    }
+</style>
+
 <div class="page-header">
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_pautas_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
@@ -30,8 +53,11 @@
                     {{ form.archivo }}
                     {{ form.archivo.errors }}
                 </div>
-                <div class="form-field">
-                    <label>{{ form.activa }} Activa</label>
+                <div class="form-field template-active-field">
+                    <label class="template-active-check" for="{{ form.activa.id_for_label }}">
+                        {{ form.activa }}
+                        <span>Activa</span>
+                    </label>
                     {{ form.activa.errors }}
                 </div>
             </div>
@@ -52,7 +78,13 @@
                             <td>{{ item.nombre }}</td>
                             <td>{% if item.servicio_id %}Servicio{% elif item.estrategia_id %}Estrategia{% elif item.empresa_id %}Empresa{% else %}Global{% endif %}</td>
                             <td>{% if item.activa %}Activa{% else %}Inactiva{% endif %}</td>
-                            <td><a class="btn" href="{% url 'service_pauta_template_mapping' service.pk item.pk %}">Configurar mapeo</a></td>
+                            <td>
+                                <div class="actions">
+                                    <a class="btn" href="{% url 'service_pauta_template_mapping' service.pk item.pk %}">Configurar mapeo</a>
+                                    <a class="btn" href="{% url 'service_pauta_template_edit' service.pk item.pk %}">Editar</a>
+                                    <a class="btn btn-danger" href="{% url 'service_pauta_template_delete' service.pk item.pk %}">Eliminar</a>
+                                </div>
+                            </td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="4" class="muted">No hay plantillas configuradas.</td></tr>

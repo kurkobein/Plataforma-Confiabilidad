@@ -94,3 +94,6 @@ Si una eliminación falla, normalmente será por llaves foráneas ya definidas e
 #COMANDO PARA ELIMINAR:
 
 python manage.py delete_bulk_records --service ERB-001 --type rcm --origin "RCM Excel: RCM.xlsx" --confirm
+
+
+cloudflared tunnel --url http://localhost:8000

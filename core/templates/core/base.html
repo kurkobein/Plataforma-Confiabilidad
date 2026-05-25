@@ -171,6 +171,95 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 </script>
 
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const decimalTailPattern = /(^|[^\w])([+-]?(?:(?:\d{1,3}(?:[.,]\d{3})+)|\d+))([.,])00(?!\d)/g;
+    const ignoredContainers = 'script, style, textarea, pre, code, [data-keep-decimals]';
+    const inputSelector = [
+        'input[type="text"]',
+        'input[type="search"]',
+        'input[type="number"]',
+        'input:not([type])'
+    ].join(',');
+
+    function cleanNumberText(value) {
+        if (value === null || value === undefined) return value;
+        return String(value).replace(decimalTailPattern, function (_match, prefix, integerPart) {
+            return prefix + integerPart;
+        });
+    }
+
+    function cleanTextNode(node) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest(ignoredContainers)) return;
+        const cleaned = cleanNumberText(node.nodeValue);
+        if (cleaned !== node.nodeValue) node.nodeValue = cleaned;
+    }
+
+    function cleanVisibleControls(root) {
+        (root || document).querySelectorAll(inputSelector).forEach(function (input) {
+            if (input.type === 'hidden' || input.closest('[data-keep-decimals]')) return;
+            const cleaned = cleanNumberText(input.value);
+            if (cleaned !== input.value) input.value = cleaned;
+        });
+        (root || document).querySelectorAll('option').forEach(function (option) {
+            if (option.closest('[data-keep-decimals]')) return;
+            const cleaned = cleanNumberText(option.textContent);
+            if (cleaned !== option.textContent) option.textContent = cleaned;
+        });
+    }
+
+    function cleanRenderedNumbers(root) {
+        const start = root || document.body;
+        if (!start) return;
+        if (start.nodeType === Node.TEXT_NODE) {
+            cleanTextNode(start);
+            return;
+        }
+        if (!(start instanceof Element || start instanceof Document)) return;
+        if (start instanceof Element && start.closest(ignoredContainers)) return;
+        const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        textNodes.forEach(cleanTextNode);
+        cleanVisibleControls(start);
+    }
+
+    window.MindcoNumberDisplay = {
+        clean: cleanNumberText,
+        refresh: cleanRenderedNumbers
+    };
+
+    cleanRenderedNumbers(document.body);
+
+    if (window.jQuery) {
+        $(document).on('draw.dt', function () {
+            window.requestAnimationFrame(function () {
+                cleanRenderedNumbers(document.body);
+            });
+        });
+    }
+
+    const numberObserver = new MutationObserver(function (mutations) {
+        const touched = new Set();
+        mutations.forEach(function (mutation) {
+            if (mutation.type === 'characterData') {
+                touched.add(mutation.target);
+                return;
+            }
+            mutation.addedNodes.forEach(function (node) {
+                touched.add(node);
+            });
+        });
+        if (!touched.size) return;
+        window.requestAnimationFrame(function () {
+            touched.forEach(cleanRenderedNumbers);
+        });
+    });
+    numberObserver.observe(document.body, { childList: true, characterData: true, subtree: true });
+});
+</script>
+
 {% block extra_js %}{% endblock %}
 </body>
 </html>

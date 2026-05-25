@@ -1,44 +1,167 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Iniciar sesión | Mindco</title>
     <style>
-        body { margin: 0; font-family: Arial, Helvetica, sans-serif; background:#f5f7fb; color:#1f2937; }
-        .wrap { min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-        .card { width:100%; max-width:420px; background:white; border:1px solid #d8deea; border-radius:16px; padding:24px; }
-        h1 { margin:0 0 8px; font-size:24px; }
-        p { margin:0 0 20px; color:#6b7280; }
-        .field { margin-bottom:14px; }
-        label { display:block; margin-bottom:6px; font-size:14px; }
-        .input-control { width:100%; padding:10px 12px; border:1px solid #d8deea; border-radius:8px; }
-        .btn { width:100%; padding:12px 14px; border:none; border-radius:8px; background:#6700D0; color:white; cursor:pointer; }
-        .errorlist { color:#b91c1c; margin:6px 0 0; padding-left:18px; font-size:13px; }
-        .message { padding: 12px 14px; border-radius: 10px; border: 1px solid #fecaca; margin-bottom: 12px; background:#fef2f2; color:#b91c1c; }
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f5f7fb;
+        color: #1f2937;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: white;
+        border: 1px solid #d8deea;
+        border-radius: 16px;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 20px;
+        color: #6b7280;
+      }
+      .field {
+        margin-bottom: 14px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+      }
+      .input-control {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d8deea;
+        border-radius: 8px;
+      }
+
+      .input-control[id="id_correo"] {
+        width: 93%;
+      }
+      
+      .input-control[id="id_password"] {
+        width: 93%;
+      }
+
+      .btn {
+        width: 100%;
+        padding: 12px 14px;
+        border: none;
+        border-radius: 8px;
+        background: #6700d0;
+        color: white;
+        cursor: pointer;
+      }
+      .errorlist {
+        color: #b91c1c;
+        margin: 6px 0 0;
+        padding-left: 18px;
+        font-size: 13px;
+      }
+      .message {
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #fecaca;
+        margin-bottom: 12px;
+        background: #fef2f2;
+        color: #b91c1c;
+      }
+      .location-status {
+        min-height: 18px;
+        margin: 10px 0 0;
+        color: #6b7280;
+        font-size: 12px;
+      }
     </style>
-</head>
-<body>
-<div class="wrap">
-    <div class="card">
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
         <h1>Iniciar sesión</h1>
         <p>Accede con correo corporativo y contraseña del usuario.</p>
         {% if form.non_field_errors %}
-            <div class="message">{{ form.non_field_errors }}</div>
+        <div class="message">{{ form.non_field_errors }}</div>
         {% endif %}
-        <form method="post">
-            {% csrf_token %}
-            <div class="field">
-                <label for="{{ form.correo.id_for_label }}">{{ form.correo.label }}</label>
-                {{ form.correo }}
-            </div>
-            <div class="field">
-                <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
-                {{ form.password }}
-            </div>
-            <button class="btn" type="submit">Entrar</button>
+        <form method="post" id="login-form">
+          {% csrf_token %}
+          <input type="hidden" name="latitud" id="login-latitud">
+          <input type="hidden" name="longitud" id="login-longitud">
+          <div class="field">
+            <label for="{{ form.correo.id_for_label }}"
+              >{{ form.correo.label }}</label
+            >
+            {{ form.correo }}
+          </div>
+          <div class="field">
+            <label for="{{ form.password.id_for_label }}"
+              >{{ form.password.label }}</label
+            >
+            {{ form.password }}
+          </div>
+          <button class="btn" type="submit">Entrar</button>
+          <div class="location-status" id="location-status"></div>
         </form>
+      </div>
     </div>
-</div>
-</body>
+    <script>
+      (function () {
+        const form = document.getElementById('login-form');
+        const latInput = document.getElementById('login-latitud');
+        const lonInput = document.getElementById('login-longitud');
+        const status = document.getElementById('location-status');
+        let locationHandled = false;
+
+        function submitNow() {
+          locationHandled = true;
+          form.submit();
+        }
+
+        form.addEventListener('submit', function (event) {
+          if (locationHandled) return;
+          if (!navigator.geolocation) return;
+          event.preventDefault();
+          status.textContent = 'Solicitando ubicación del inicio de sesión...';
+
+          const timeout = window.setTimeout(function () {
+            status.textContent = 'No se pudo obtener la ubicación a tiempo. Iniciando sesión...';
+            submitNow();
+          }, 3500);
+
+          navigator.geolocation.getCurrentPosition(
+            function (position) {
+              window.clearTimeout(timeout);
+              latInput.value = position.coords.latitude.toFixed(6);
+              lonInput.value = position.coords.longitude.toFixed(6);
+              status.textContent = 'Ubicación registrada. Iniciando sesión...';
+              submitNow();
+            },
+            function () {
+              window.clearTimeout(timeout);
+              status.textContent = 'Ubicación no autorizada o no disponible. Iniciando sesión...';
+              submitNow();
+            },
+            {
+              enableHighAccuracy: false,
+              timeout: 3000,
+              maximumAge: 300000
+            }
+          );
+        });
+      })();
+    </script>
+  </body>
 </html>

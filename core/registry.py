@@ -20,7 +20,7 @@ MODEL_REGISTRY = OrderedDict({
         'label': 'Metodologías',
         'group': 'Configuración',
         'search_fields': ['nombre', 'abreviatura', 'descripcion'],
-        'show_in_sidebar': True,
+        'show_in_sidebar': False,
         'show_in_dashboard': True,
         'allow_direct_crud': True,
         'delete_superuser_only': True,
