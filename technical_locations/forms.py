@@ -144,7 +144,7 @@ class HierarchyBulkValueForm(forms.Form):
     )
     sin_nodo_superior = forms.BooleanField(
         required=False,
-        initial=True,
+        initial=False,
         label='Cargar solo al nivel, sin nodo superior',
         help_text='Guarda los valores como catalogo simple del nivel y no modifica el arbol de UT existente.',
     )
@@ -182,7 +182,7 @@ class HierarchyBulkValueForm(forms.Form):
         self.fields['parent'].label_from_instance = lambda obj: f'{obj.ut} - {obj.ruta_nombre}'
         for _, field in self.fields.items():
             field.widget.attrs['class'] = 'input-control'
-        self.fields['sin_nodo_superior'].widget.attrs['class'] = 'form-check-input'
+        self.fields['sin_nodo_superior'].widget = forms.HiddenInput()
 
     @staticmethod
     def _split_bulk_line(line):

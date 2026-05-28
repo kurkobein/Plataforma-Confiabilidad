@@ -63,26 +63,18 @@
             <h3 class="card-title">Carga rapida</h3>
             <p class="muted" style="margin-top:-4px;">Elige el nivel y su nodo superior una vez. Luego pega varias filas desde Excel.</p>
             {% if bulk_form.non_field_errors %}<div class="form-errors">{{ bulk_form.non_field_errors }}</div>{% endif %}
+            {{ bulk_form.sin_nodo_superior }}
             <div class="form-grid">
                 <div class="form-field">
                     <label>{{ bulk_form.nivel.label }}</label>
                     {{ bulk_form.nivel }}
                     {{ bulk_form.nivel.errors }}
                 </div>
-                <div class="form-field">
-                    <label>&nbsp;</label>
-                    <label class="check-option">
-                        {{ bulk_form.sin_nodo_superior }}
-                        <span>{{ bulk_form.sin_nodo_superior.label }}</span>
-                    </label>
-                    <small class="muted">{{ bulk_form.sin_nodo_superior.help_text }}</small>
-                    {{ bulk_form.sin_nodo_superior.errors }}
-                </div>
                 <div class="form-field" id="bulk-parent-field">
                     <label>{{ bulk_form.parent.label }}</label>
                     <div id="bulk-value-parent-picker" class="form-grid"></div>
                     <div style="display:none;">{{ bulk_form.parent }}</div>
-                    <small class="muted">Selecciona la ruta superior una sola vez para todo el lote.</small>
+                    <small class="muted">Selecciona el nodo superior donde se guardar&aacute;n todos los valores del lote.</small>
                     {{ bulk_form.parent.errors }}
                 </div>
             </div>
