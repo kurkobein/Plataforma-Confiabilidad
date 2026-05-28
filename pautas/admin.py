@@ -28,10 +28,3 @@ class PautaTareaAdmin(admin.ModelAdmin):
     list_display = ('id', 'pauta', 'orden', 'tipo_tarea', 'componente', 'frecuencia', 'pto_trabajo')
     search_fields = ('pauta__codigo', 'actividad', 'componente', 'limite_aceptable')
     list_filter = ('tipo_tarea', 'frecuencia', 'pto_trabajo')
-
-
-@admin.register(models.ReglaGeneracionPauta)
-class ReglaGeneracionPautaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nombre', 'servicio', 'estrategia', 'activa', 'incluir_tareas_primarias', 'incluir_tareas_secundarias')
-    search_fields = ('nombre', 'servicio__codigo_servicio', 'estrategia__nombre')
-    list_filter = ('activa', 'servicio', 'estrategia')

@@ -40,10 +40,8 @@ def _rcm_dimensions(estrategia):
     if not estrategia:
         return []
     process_values = [
-        getattr(models.EstrategiaDimension, 'PROCESO_RCM', 'rcm'),
+        *getattr(models.EstrategiaDimension, 'PROCESO_FMECA_ALIASES', ('fmeca', 'rcm')),
         getattr(models.EstrategiaDimension, 'PROCESO_AMBOS', 'ambos'),
-        'rcm_fmea',
-        'global',
     ]
     return (
         models.EstrategiaDimension.objects

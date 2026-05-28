@@ -44,6 +44,13 @@ CATALOG_NUMBER_MAX = Decimal('9999999999.99')
 CATALOG_NUMBER_DECIMAL_PLACES = 2
 
 
+def _normalize_process_usage(value):
+    value = str(value or models.EstrategiaDimension.PROCESO_ACA).strip()
+    if value == getattr(models.EstrategiaDimension, 'PROCESO_RCM_LEGACY', 'rcm'):
+        return models.EstrategiaDimension.PROCESO_FMECA
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Editor de dimensiones y tablas por estrategia
 # ---------------------------------------------------------------------------
@@ -73,7 +80,8 @@ def _serialize_dimension_catalog(catalogo):
         'tipo_calculo': dimension.tipo_calculo or '',
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
-        'proceso_uso': ed.proceso_uso or models.EstrategiaDimension.PROCESO_ACA,
+        'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
+        'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [
             {
@@ -81,6 +89,7 @@ def _serialize_dimension_catalog(catalogo):
                 'nombre_columna': col.nombre_columna,
                 'clave_interna': col.clave_interna,
                 'tipo_dato': col.tipo_dato,
+                'visible_en_registro': getattr(col, 'visible_en_registro', True),
                 'orden': col.orden,
             }
             for col in columnas
@@ -128,7 +137,8 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'tipo_calculo': dimension.tipo_calculo or '',
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
-        'proceso_uso': ed.proceso_uso or models.EstrategiaDimension.PROCESO_ACA,
+        'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
+        'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [] if dimension.tipo_calculo else _default_columns_for_type(tipo),
         'filas': [],
@@ -440,7 +450,7 @@ def _save_strategy_catalogs(estrategia, payload):
         tipo_calculo = str(item.get('tipo_calculo') or '').strip()
         if tipo_calculo not in tipos_calculo_validos:
             tipo_calculo = ''
-        proceso_uso = str(item.get('proceso_uso') or models.EstrategiaDimension.PROCESO_ACA).strip()
+        proceso_uso = _normalize_process_usage(item.get('proceso_uso'))
         if proceso_uso not in procesos_validos:
             proceso_uso = models.EstrategiaDimension.PROCESO_ACA
         es_calculada = bool(tipo_calculo)
@@ -479,6 +489,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 columnas = _default_columns_for_type(tipo)
 
         obligatorio = item.get('obligatorio', True) is not False
+        considerar_avance_aca = item.get('considerar_avance_aca', True) is not False
         if cat_id and cat_id in existing:
             catalogo = existing[cat_id]
             estrategia_dimension = catalogo.estrategia_dimension
@@ -512,6 +523,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 dimension=dimension,
                 orden=idx,
                 obligatorio=obligatorio,
+                considerar_avance_aca=considerar_avance_aca,
                 proceso_uso=proceso_uso,
                 activo=True,
             )
@@ -535,6 +547,7 @@ def _save_strategy_catalogs(estrategia, payload):
 
         estrategia_dimension.orden = idx
         estrategia_dimension.obligatorio = obligatorio
+        estrategia_dimension.considerar_avance_aca = considerar_avance_aca
         estrategia_dimension.proceso_uso = proceso_uso
         estrategia_dimension.activo = True
         estrategia_dimension.save()
@@ -562,6 +575,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 nombre_columna=str(col.get('nombre_columna') or '').strip() or f'Columna {col_idx}',
                 clave_interna=str(col.get('clave_interna') or '').strip() or f'col_{col_idx}',
                 tipo_dato=tipo_columna,
+                visible_en_registro=col.get('visible_en_registro', True) is not False,
                 orden=col_idx,
             )
             columnas_creadas.append(columna)

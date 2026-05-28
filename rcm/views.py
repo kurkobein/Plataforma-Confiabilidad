@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -15,6 +16,7 @@ from core.access import get_accessible_services
 from rcm.forms import RCMRegistroForm, RCMTaskFormSet
 from core.views import (
     _decimal_or_none,
+    _equipment_items_payload,
     _export_filename,
     _export_pdf_response,
     _export_value,
@@ -61,6 +63,23 @@ def _task_field_options_list(raw):
     return []
 
 
+def _service_family_payload(servicio):
+    payload = []
+    familias = (
+        models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True)
+        .prefetch_related('items__equipo')
+        .order_by('nombre')
+    )
+    for familia in familias:
+        equipos = [item.equipo for item in familia.items.all()]
+        payload.append({
+            'id': familia.pk,
+            'nombre': familia.nombre,
+            'equipos': _equipment_items_payload(equipos),
+        })
+    return payload
+
+
 def _task_config_payload(estrategia):
     tipos = (
         models.TipoTareaEstrategia.objects.filter(estrategia=estrategia, activo=True)
@@ -91,6 +110,38 @@ def _task_config_payload(estrategia):
             ],
         })
     return payload
+
+
+def _record_attachment_payload(request):
+    files = request.FILES.getlist('adjuntos')
+    if not files:
+        return [], []
+    allowed = set(models.RECORD_ATTACHMENT_EXTENSIONS)
+    invalid = []
+    payload = []
+    for uploaded in files:
+        extension = (uploaded.name.rsplit('.', 1)[-1] if '.' in uploaded.name else '').lower()
+        if extension not in allowed:
+            invalid.append(uploaded.name)
+            continue
+        payload.append({
+            'name': uploaded.name,
+            'content': uploaded.read(),
+        })
+    return payload, invalid
+
+
+def _save_rcm_attachments(rcm, attachment_payload, usuario):
+    now = timezone.now()
+    for item in attachment_payload:
+        adjunto = models.RCMAdjunto(
+            rcm=rcm,
+            nombre_original=item['name'],
+            creado_en=now,
+            usuario=usuario,
+        )
+        adjunto.archivo.save(item['name'], ContentFile(item['content']), save=False)
+        adjunto.save()
 
 
 def _save_task_config(estrategia, payload):
@@ -269,6 +320,7 @@ def _service_rcm_export_data(servicio):
         ('modo_de_falla', 'Modo de falla'),
         ('causa', 'Causa'),
         ('efecto', 'Efecto'),
+        ('observacion', 'Observación'),
         ('criticidad', 'Criticidad'),
         ('evaluacion', 'Evaluación'),
         ('tareas', 'Tareas'),
@@ -297,6 +349,7 @@ def _service_rcm_export_data(servicio):
             'modo_de_falla': registro.modo_de_falla,
             'causa': registro.causa,
             'efecto': registro.efecto,
+            'observacion': registro.observacion,
             'criticidad': registro.criticidad,
             'evaluacion': '\n'.join(evaluations),
             'tareas': '\n'.join(tasks),
@@ -362,6 +415,7 @@ def _rcm_form_initial_from_instance(rcm):
         'modo_de_falla': rcm.modo_de_falla,
         'causa': rcm.causa,
         'efecto': rcm.efecto,
+        'observacion': rcm.observacion,
     }
 
 
@@ -596,9 +650,11 @@ def _save_rcm_tasks(fmea, task_formset):
     stale_tasks.delete()
 
 
-def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
+def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equipo=None, attachment_payload=None):
     cleaned = form.cleaned_data
     now = timezone.now()
+    selected_equipment = equipo or cleaned['equipo']
+    attachment_payload = attachment_payload or []
 
     if rcm:
         carga = rcm.carga
@@ -611,7 +667,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
             carga.usuario = permission.get('profile')
         carga.save(update_fields=['fecha_analisis', 'status', 'actualizado', 'estrategia', 'servicio', 'usuario'])
 
-        rcm.equipo = cleaned['equipo']
+        rcm.equipo = selected_equipment
         rcm.criticidad = cleaned.get('criticidad')
         rcm.fecha_analisis = cleaned['fecha_analisis']
         rcm.estado = cleaned['estado']
@@ -620,6 +676,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
         rcm.modo_de_falla = cleaned['modo_de_falla']
         rcm.causa = cleaned['causa']
         rcm.efecto = cleaned['efecto']
+        rcm.observacion = cleaned.get('observacion') or ''
         rcm.save(update_fields=[
             'equipo',
             'criticidad',
@@ -630,6 +687,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
             'modo_de_falla',
             'causa',
             'efecto',
+            'observacion',
         ])
     else:
         carga = models.Carga.objects.create(
@@ -645,7 +703,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
         )
         rcm = models.RCM.objects.create(
             carga=carga,
-            equipo=cleaned['equipo'],
+            equipo=selected_equipment,
             criticidad=cleaned.get('criticidad'),
             fecha_analisis=cleaned['fecha_analisis'],
             estado=cleaned['estado'],
@@ -654,6 +712,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
             modo_de_falla=cleaned['modo_de_falla'],
             causa=cleaned['causa'],
             efecto=cleaned['efecto'],
+            observacion=cleaned.get('observacion') or '',
         )
 
     fmea, _created = models.FMEA_FMECA.objects.get_or_create(rcm=rcm)
@@ -677,6 +736,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None):
     ).delete()
     if task_formset is not None:
         _save_rcm_tasks(fmea, task_formset)
+    _save_rcm_attachments(rcm, attachment_payload, permission.get('profile'))
     return rcm
 
 
@@ -694,10 +754,33 @@ def service_rcm_new(request, pk):
     task_formset = _rcm_task_formset(request, servicio)
 
     if request.method == 'POST' and form.is_valid() and task_formset.is_valid():
-        with transaction.atomic():
-            _save_rcm_form(servicio, permission, form, task_formset=task_formset)
-        messages.success(request, 'Registro RCM creado correctamente.')
-        return redirect('service_rcm_list', pk=servicio.pk)
+        attachment_payload, invalid_attachments = _record_attachment_payload(request)
+        if invalid_attachments:
+            form.add_error(
+                None,
+                'Formato de archivo no permitido: '
+                + ', '.join(invalid_attachments)
+                + '. Usa PDF, Word, Excel, PowerPoint, CSV, TXT, imagen o ZIP.',
+            )
+        else:
+            with transaction.atomic():
+                familia = form.cleaned_data.get('familia_equipo')
+                if familia:
+                    equipos = [item.equipo for item in familia.items.select_related('equipo').order_by('orden', 'id')]
+                    for equipo in equipos:
+                        _save_rcm_form(
+                            servicio,
+                            permission,
+                            form,
+                            task_formset=task_formset,
+                            equipo=equipo,
+                            attachment_payload=attachment_payload,
+                        )
+                    messages.success(request, f'Se crearon {len(equipos)} registros RCM para la familia {familia.nombre}.')
+                else:
+                    _save_rcm_form(servicio, permission, form, task_formset=task_formset, attachment_payload=attachment_payload)
+                    messages.success(request, 'Registro RCM creado correctamente.')
+            return redirect('service_rcm_list', pk=servicio.pk)
 
     return render(request, 'core/rcm/service_rcm_form.html', {
         'service': servicio,
@@ -712,6 +795,8 @@ def service_rcm_new(request, pk):
         'submit_label': 'Guardar registro RCM',
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
+        'service_family_payload': _service_family_payload(servicio),
+        'existing_attachments': [],
     })
 
 
@@ -732,10 +817,26 @@ def service_rcm_edit(request, service_pk, rcm_pk):
     task_formset = _rcm_task_formset(request, servicio, rcm=rcm)
 
     if request.method == 'POST' and form.is_valid() and task_formset.is_valid():
-        with transaction.atomic():
-            _save_rcm_form(servicio, permission, form, task_formset=task_formset, rcm=rcm)
-        messages.success(request, 'Registro RCM actualizado correctamente.')
-        return redirect('service_rcm_list', pk=servicio.pk)
+        attachment_payload, invalid_attachments = _record_attachment_payload(request)
+        if invalid_attachments:
+            form.add_error(
+                None,
+                'Formato de archivo no permitido: '
+                + ', '.join(invalid_attachments)
+                + '. Usa PDF, Word, Excel, PowerPoint, CSV, TXT, imagen o ZIP.',
+            )
+        else:
+            with transaction.atomic():
+                _save_rcm_form(
+                    servicio,
+                    permission,
+                    form,
+                    task_formset=task_formset,
+                    rcm=rcm,
+                    attachment_payload=attachment_payload,
+                )
+            messages.success(request, 'Registro RCM actualizado correctamente.')
+            return redirect('service_rcm_list', pk=servicio.pk)
 
     return render(request, 'core/rcm/service_rcm_form.html', {
         'service': servicio,
@@ -750,6 +851,8 @@ def service_rcm_edit(request, service_pk, rcm_pk):
         'submit_label': 'Actualizar registro RCM',
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
+        'service_family_payload': _service_family_payload(servicio),
+        'existing_attachments': rcm.adjuntos.all(),
     })
 
 

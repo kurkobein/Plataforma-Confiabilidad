@@ -46,7 +46,7 @@
         <p class="muted">Selecciona las pautas que quieres crear. Por defecto se marcan todas las {{ preview|length }} pautas detectadas.</p>
         <p class="muted">Si marcas "Crear una unica pauta con los registros seleccionados", las tareas seleccionadas de varios grupos se guardaran dentro de una sola pauta.</p>
         <div class="table-wrap">
-            <table class="datatable display">
+            <table class="datatable display compact-table">
                 <thead>
                     <tr>
                         <th style="width:46px;text-align:center;">
@@ -73,11 +73,11 @@
                                     {% if row.selected %}checked{% endif %}
                                     aria-label="Crear pauta {{ forloop.counter }}">
                             </td>
-                            <td>{{ row.equipo|default:'-' }}</td>
-                            <td>{{ row.ubicacion_tecnica|default:'-' }}</td>
+                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.equipo|default:'-' }}" data-copy="{{ row.equipo|default:'-' }}">{{ row.equipo|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.ubicacion_tecnica|default:'-' }}" data-copy="{{ row.ubicacion_tecnica|default:'-' }}">{{ row.ubicacion_tecnica|default:'-' }}</span></td>
                             <td>{{ row.frecuencia|default:'-' }}</td>
-                            <td>{{ row.especialidad|default:'-' }}</td>
-                            <td>{{ row.estado_equipo|default:'-' }}</td>
+                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.especialidad|default:'-' }}" data-copy="{{ row.especialidad|default:'-' }}">{{ row.especialidad|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.estado_equipo|default:'-' }}" data-copy="{{ row.estado_equipo|default:'-' }}">{{ row.estado_equipo|default:'-' }}</span></td>
                             <td>
                                 <details>
                                     <summary>{{ row.tareas_count }} tarea{{ row.tareas_count|pluralize }}</summary>

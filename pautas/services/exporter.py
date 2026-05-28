@@ -554,13 +554,8 @@ def aplicar_mapeo_tablas(wb, pauta, config):
         except (TypeError, ValueError):
             raise PautaExportError(f'La tabla "{table.get("nombre", "tareas")}" tiene filas inválidas.')
 
-        if len(tareas) > 1:
-            ws.insert_rows(fila_inicio + 1, amount=len(tareas) - 1)
-
         for index, tarea in enumerate(tareas, start=1):
             row_number = fila_inicio + index - 1
-            if row_number != fila_template:
-                copiar_formato_fila(ws, fila_template, row_number)
             for column in table.get('columnas', []):
                 col = (column.get('columna') or '').strip().upper()
                 if not col:

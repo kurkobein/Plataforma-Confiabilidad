@@ -18,7 +18,6 @@ class DeletePlan:
     pauta_tarea_ids: list[int]
     plantilla_ids: list[int]
     mapeo_ids: list[int]
-    regla_ids: list[int]
 
 
 class Command(BaseCommand):
@@ -32,7 +31,6 @@ class Command(BaseCommand):
         parser.add_argument('--confirm', action='store_true', help='Ejecuta el borrado real.')
         parser.add_argument('--all', action='store_true', dest='all_records', help='Permite borrar sin filtro de servicio/estado/origen.')
         parser.add_argument('--include-templates', action='store_true', help='Tambien borra MapeoPlantillaPauta y PlantillaPauta.')
-        parser.add_argument('--include-rules', action='store_true', help='Tambien borra ReglaGeneracionPauta.')
 
     def handle(self, *args, **options):
         self.validate_options(options)
@@ -57,8 +55,6 @@ class Command(BaseCommand):
             if options['include_templates']:
                 self.stdout.write(self.style.NOTICE(f'- Mapeos de plantilla eliminados: {len(plan.mapeo_ids)}'))
                 self.stdout.write(self.style.NOTICE(f'- Plantillas eliminadas: {len(plan.plantilla_ids)}'))
-            if options['include_rules']:
-                self.stdout.write(self.style.NOTICE(f'- Reglas de generacion eliminadas: {len(plan.regla_ids)}'))
 
     def validate_options(self, options):
         if not options['dry_run'] and not options['confirm']:
@@ -72,8 +68,6 @@ class Command(BaseCommand):
 
         if options['include_templates'] and not options.get('service') and not options['all_records']:
             raise CommandError('Para borrar plantillas sin filtro de servicio debes usar --all explicitamente.')
-        if options['include_rules'] and not options.get('service') and not options['all_records']:
-            raise CommandError('Para borrar reglas sin filtro de servicio debes usar --all explicitamente.')
 
         self.validate_choice('estado', options.get('estado'), models.Pauta.ESTADO_CHOICES)
         self.validate_choice('origen', options.get('origen'), models.Pauta.ORIGEN_CHOICES)
@@ -133,13 +127,6 @@ class Command(BaseCommand):
                 .values_list('id', flat=True)
             )
 
-        regla_ids = []
-        if options['include_rules']:
-            regla_qs = models.ReglaGeneracionPauta.objects.all()
-            if service:
-                regla_qs = regla_qs.filter(servicio=service)
-            regla_ids = list(regla_qs.values_list('id', flat=True))
-
         return DeletePlan(
             service=service,
             estado=options.get('estado') or '',
@@ -148,7 +135,6 @@ class Command(BaseCommand):
             pauta_tarea_ids=pauta_tarea_ids,
             plantilla_ids=plantilla_ids,
             mapeo_ids=mapeo_ids,
-            regla_ids=regla_ids,
         )
 
     def print_plan(self, plan, options, before_delete=False):
@@ -167,8 +153,6 @@ class Command(BaseCommand):
         if options['include_templates']:
             self.stdout.write(self.style.NOTICE(f'- Plantillas: {len(plan.plantilla_ids)}'))
             self.stdout.write(self.style.NOTICE(f'- Mapeos de plantilla: {len(plan.mapeo_ids)}'))
-        if options['include_rules']:
-            self.stdout.write(self.style.NOTICE(f'- Reglas de generacion: {len(plan.regla_ids)}'))
 
     def delete_from_plan(self, plan, options):
         if plan.pauta_tarea_ids:
@@ -181,6 +165,3 @@ class Command(BaseCommand):
                 models.MapeoPlantillaPauta.objects.filter(id__in=plan.mapeo_ids).delete()
             if plan.plantilla_ids:
                 models.PlantillaPauta.objects.filter(id__in=plan.plantilla_ids).delete()
-
-        if options['include_rules'] and plan.regla_ids:
-            models.ReglaGeneracionPauta.objects.filter(id__in=plan.regla_ids).delete()

@@ -3,11 +3,25 @@ from django.contrib import admin
 from core import models
 
 
+class RCMAdjuntoInline(admin.TabularInline):
+    model = models.RCMAdjunto
+    extra = 0
+    readonly_fields = ('creado_en',)
+
+
 @admin.register(models.RCM)
 class RCMAdmin(admin.ModelAdmin):
     list_display = ('id', 'carga', 'equipo', 'componente', 'tipo_analisis', 'criticidad', 'estado', 'fecha_analisis')
-    search_fields = ('equipo__tag_equipo', 'equipo__nombre_equipo', 'equipo__ut', 'componente', 'falla_funcional', 'modo_de_falla', 'causa', 'efecto')
+    search_fields = ('equipo__tag_equipo', 'equipo__nombre_equipo', 'equipo__ut', 'componente', 'falla_funcional', 'modo_de_falla', 'causa', 'efecto', 'observacion')
     list_filter = ('estado', 'fecha_analisis', 'criticidad')
+    inlines = (RCMAdjuntoInline,)
+
+
+@admin.register(models.RCMAdjunto)
+class RCMAdjuntoAdmin(admin.ModelAdmin):
+    list_display = ('id', 'rcm', 'nombre_original', 'usuario', 'creado_en')
+    search_fields = ('nombre_original', 'rcm__equipo__tag_equipo', 'rcm__equipo__ut')
+    list_filter = ('creado_en',)
 
 
 @admin.register(models.FMEA_FMECA)

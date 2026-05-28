@@ -30,7 +30,7 @@
 </div>
 
 <div class="table-wrap">
-    <table>
+    <table class="datatable display compact-table rcm-records-table">
         <thead>
             <tr>
                 <th>Fechas</th>
@@ -42,6 +42,7 @@
                 <th>Componente</th>
                 <th>Falla funcional</th>
                 <th>Modo de falla</th>
+                <th>Observación</th>
                 <th>Valores tarea principal</th>
                 <th>NPR</th>
                 <th>Tareas</th>
@@ -52,34 +53,24 @@
             {% for row in rows %}
                 <tr>
                     <td>
-                        <div><small class="muted">Creación</small><br>{{ row.registro.carga.creado_en|date:"d/m/Y H:i" }}</div>
-                        <div style="margin-top:6px;"><small class="muted">Modificación</small><br>{{ row.registro.carga.actualizado|date:"d/m/Y H:i" }}</div>
+                        <div class="date-inline"><small class="muted">Creación:</small> {{ row.registro.carga.creado_en|date:"d/m/Y" }}</div>
+                        <div class="date-inline"><small class="muted">Modificación:</small> {{ row.registro.carga.actualizado|date:"d/m/Y" }}</div>
                     </td>
                     <td>{{ row.registro.tipo_analisis }}</td>
                     <td>{{ row.registro.get_estado_display }}</td>
-                    <td style="width: 100px;">{{ row.registro.equipo.ut }}</td>
-                    <td style="width: 100px;">{{ row.registro.equipo.nombre_equipo }}</td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.ut }}" data-copy="{{ row.registro.equipo.ut }}">{{ row.registro.equipo.ut }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.nombre_equipo }}" data-copy="{{ row.registro.equipo.nombre_equipo }}">{{ row.registro.equipo.nombre_equipo }}</span></td>
                     <td>{{ row.registro.equipo.tag_display }}</td>
-                    <td style="width: 70px;">{{ row.registro.componente|default:'' }}</td>
-                    <td style="width: 250px;">{{ row.registro.falla_funcional|truncatechars:150 }}</td>
-                    <td style="width: 200px;">{{ row.registro.modo_de_falla|truncatechars:80 }}</td>
-                    <td style="width: 150px;">
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.componente|default:'' }}" data-copy="{{ row.registro.componente|default:'' }}">{{ row.registro.componente|default:'' }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.falla_funcional }}" data-copy="{{ row.registro.falla_funcional }}">{{ row.registro.falla_funcional }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.modo_de_falla }}" data-copy="{{ row.registro.modo_de_falla }}">{{ row.registro.modo_de_falla }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.observacion|default:'' }}" data-copy="{{ row.registro.observacion|default:'' }}">{{ row.registro.observacion|default:'-' }}</span></td>
+                    <td>
                         {% for task in row.tasks %}
                             {% if task.tipo_tarea_estrategia.codigo == 'tarea_primaria' %}
-                                <div>
-                                    <small class="muted">Frecuencia</small><br>
-                                    {{ task.frecuencia_texto|default:'-' }}
-
-                                    <br>
-
-                                    <small class="muted">Especialidad</small><br>
-                                    {{ task.especialidad|default:task.puesto_trabajo|default:'-' }}
-
-                                    <br>
-
-                                    <small class="muted">Estado equipo</small><br>
-                                    {{ task.estado_equipo|default:'-' }}
-                                </div>
+                                <span class="cell-ellipsis" title="Frecuencia: {{ task.frecuencia_texto|default:'-' }} · Especialidad: {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} · Estado: {{ task.estado_equipo|default:'-' }}">
+                                    {{ task.frecuencia_texto|default:'-' }} · {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} · {{ task.estado_equipo|default:'-' }}
+                                </span>
                             {% endif %}
                         {% empty %}
                             -
@@ -101,7 +92,7 @@
                     <td>
                         {% if row.tasks %}
                             {% for task in row.tasks|slice:":3" %}
-                                <div>{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion|truncatechars:80 }}</div>
+                                <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}" data-copy="{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}">{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}</span>
                             {% endfor %}
                             {% if row.tasks|length > 3 %}
                                 <div class="muted">+{{ row.tasks|length|add:"-3" }} tareas</div>
@@ -110,16 +101,16 @@
                             -
                         {% endif %}
                     </td>
-                    <td style="width: 100px;">
+                    <td>
                         {% if permission.can_edit %}
                             <div class="actions">
-                                <a class="btn" href="{% url 'service_rcm_edit' service.pk row.registro.pk %}">Editar</a>
+                                <a class="btn" href="{% url 'service_rcm_edit' service.pk row.registro.pk %}"><i class="bi bi-pencil"></i></a>
                                 <form method="post"
                                       action="{% url 'service_rcm_delete' service.pk row.registro.pk %}"
                                       style="display:inline;"
                                       onsubmit="return confirm('¿Seguro que deseas eliminar este registro RCM?');">
                                     {% csrf_token %}
-                                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                                    <button type="submit" class="btn btn-danger"><i class="bi bi-trash3"></i></button>
                                 </form>
                             </div>
                         {% else %}
@@ -128,7 +119,7 @@
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="13" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+                <tr><td colspan="14" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
             {% endfor %}
         </tbody>
     </table>

@@ -109,10 +109,10 @@
                                 {% elif model_key == 'criticidad' %}
                                     <a class="btn" href="{% url 'model_update' model_key row.pk %}">Editar base</a>
                                 {% else %}
-                                    <a class="btn" href="{% url 'model_update' model_key row.pk %}">Editar</a>
+                                    <a class="btn" href="{% url 'model_update' model_key row.pk %}"><i class="bi bi-pencil"></i></a>
                                 {% endif %}
 
-                                <a class="btn btn-danger" href="{% url 'model_delete' model_key row.pk %}">Eliminar</a>
+                                <a class="btn btn-danger" href="{% url 'model_delete' model_key row.pk %}"><i class="bi bi-trash3"></i></a>
                             {% endif %}
                         </div>
                     </td>

@@ -7,71 +7,387 @@
         <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
             <h2>Registros ACA</h2>
-        <p>{{ service.codigo_servicio }} · vista horizontal con equipo, dimensiones y criticidad.</p>
-    </div>
+            <p>{{ service.codigo_servicio }} - vista horizontal con equipo, dimensiones y criticidad.</p>
+        </div>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
         <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
-        {% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>{% endif %}
+        {% if permission.can_edit %}
+            <a class="btn" href="{% url 'service_aca_bulk_new' service.pk %}">Nueva carga grupal</a>
+            <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>
+        {% endif %}
     </div>
 </div>
 
 <div class="card">
-    <h3 class="card-title">Resumen</h3>
-    <div class="grid-3">
-        <div class="stat"><small>Servicio</small><strong style="font-size:20px;">{{ service.codigo_servicio }}</strong></div>
-
-        <div class="stat"><small>Registros</small><strong>{{ aca_count }}</strong></div>
-        <div class="stat"><small>Completos</small><strong>{{ complete_count }}</strong></div>
-        <div class="stat"><small>Incompletos</small><strong>{{ incomplete_count }}</strong></div>
+    <div id="aca-progress-container">
+        {% include 'core/aca/partials/aca_progress_summary.html' %}
     </div>
 </div>
 
-<div class="table-wrap">
-    <table class="datatable display">
+{% if aca_list_items %}
+<div class="table-wrap aca-datatable-wrap">
+    <table class="compact-table aca-records-table" data-page-length="25" data-scroll-y="52vh" data-scroll-x="true" data-scroll-collapse="false">
         <thead>
             <tr>
+                <th>ID</th>
                 {% for key, label in columns %}<th>{{ label }}</th>{% endfor %}
             </tr>
         </thead>
         <tbody>
-            {% for row in rows %}
-                <tr>
-                    {% for key, label in columns %}
-                        <td>
-                            {% if key == 'acciones' %}
-                                <div class="actions">
-                                    {% if permission.can_edit %}
-                                        <a class="btn" href="{% url 'service_aca_edit' service.pk row.id %}">Editar</a>
-
-                                        <form method="post"
-                                            action="{% url 'service_aca_delete' service.pk row.id %}"
-                                            style="display:inline;"
-                                            onsubmit="return confirm('¿Seguro que deseas eliminar este registro ACA?');">
-                                            {% csrf_token %}
-                                            <button type="submit" class="btn btn-danger">Eliminar</button>
-                                        </form>
+            {% for item in aca_list_items %}
+                {% if item.type == 'group' %}
+                    {% with group=item.group %}
+                    <tr class="aca-group-row">
+                        <td data-order="{{ group.anchor|default:0 }}">
+                            <button class="btn aca-group-toggle" type="button" data-aca-group-toggle data-template-id="aca-group-template-{{ forloop.counter }}" aria-expanded="false">
+                                <i class="bi bi-folder2"></i>
+                            </button>
+                        </td>
+                        {% for key, label in columns %}
+                            <td{% if key == 'acciones' %} data-order="Configurar"{% endif %}>
+                                {% if key == 'cliente' %}
+                                    {{ service.codigo_servicio }}
+                                {% elif key == 'status' %}
+                                    <span class="pill-soft">Grupo</span>
+                                {% elif key == 'fecha_analisis' %}
+                                    {{ group.meta }}
+                                {% elif key == 'ubicacion_tecnica' %}
+                                    <span class="cell-ellipsis" title="{{ group.label }}">{{ group.label }}</span>
+                                {% elif key == 'descripcion_ut' %}
+                                    {{ group.count }} registros
+                                {% elif key == 'equipo' %}
+                                    Carga grupal
+                                {% elif key == 'acciones' %}
+                                    {% if permission.can_edit and group.anchor %}
+                                        <a class="btn" href="{% url 'service_aca_bulk_group_edit' service.pk group.anchor %}">
+                                            <i class="bi bi-sliders"></i> Configurar grupo
+                                        </a>
                                     {% else %}
                                         -
                                     {% endif %}
-                                </div>
-                            {% elif key == 'status' %}
-                                <span class="{% if row.status == 'Incompleto' %}pill-warning{% else %}pill-success{% endif %}">{{ row.status }}</span>
-                            {% else %}
-                                {{ row|get_item:key }}
-                            {% endif %}
-                        </td>
-                    {% endfor %}
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="{{ columns|length }}" class="muted">
-                        No hay registros ACA asociados a este servicio.
-                    </td>
-                </tr>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% endwith %}
+                {% else %}
+                    {% include 'core/aca/partials/aca_list_row.html' with row=item.row columns=columns service=service permission=permission %}
+                {% endif %}
             {% endfor %}
         </tbody>
     </table>
 </div>
+
+{% for item in aca_list_items %}
+    {% if item.type == 'group' %}
+        {% with group=item.group %}
+            <template id="aca-group-template-{{ forloop.counter }}">
+                <div class="aca-group-frame">
+                    <div>
+                        <table class="compact-table no-datatable aca-folder-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    {% for key, label in columns %}<th>{{ label }}</th>{% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in group.rows %}
+                                    {% include 'core/aca/partials/aca_list_row.html' with row=row columns=columns service=service permission=permission %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+        {% endwith %}
+    {% endif %}
+{% endfor %}
+{% else %}
+<div class="card">
+    <p class="muted">No hay registros ACA asociados a este servicio.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ACA_PROGRESS_PREF_KEY = 'mindco_aca_progress_preferences_{{ service.pk }}';
+
+function optionExists(select, value) {
+    if (!select || !value) return false;
+    return Array.from(select.options).some(function (option) {
+        return option.value === value;
+    });
+}
+
+function readAcaProgressPrefs() {
+    try {
+        return JSON.parse(localStorage.getItem(ACA_PROGRESS_PREF_KEY) || '{}') || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function writeAcaProgressPrefs(data) {
+    const current = readAcaProgressPrefs();
+    localStorage.setItem(ACA_PROGRESS_PREF_KEY, JSON.stringify(Object.assign({}, current, data || {})));
+}
+
+function getAcaProgressFormValues(form) {
+    if (!form) return;
+    return {
+        progress_nivel: form.querySelector('[name="progress_nivel"]')?.value || '',
+        progress_nodo: form.querySelector('[name="progress_nodo"]')?.value || '',
+        progress_chart_level: form.querySelector('[name="progress_chart_level"]')?.value || '',
+    };
+}
+
+function saveAcaProgressPrefsFromForm(form, extra) {
+    writeAcaProgressPrefs(Object.assign({}, getAcaProgressFormValues(form) || {}, extra || {}));
+}
+
+function applyAcaProgressPanelState(form) {
+    if (!form) return;
+    const prefs = readAcaProgressPrefs();
+    const filterBody = form.querySelector('[data-aca-progress-filter-body]');
+    const chartPanel = form.querySelector('[data-aca-progress-chart-panel]');
+    const filterToggle = form.querySelector('[data-aca-progress-toggle-filters]');
+    const chartToggle = form.querySelector('[data-aca-progress-toggle-chart]');
+    const filtersOpen = prefs.filters_open === true;
+    const chartOpen = prefs.chart_open === true;
+    if (filterBody) filterBody.hidden = !filtersOpen;
+    if (chartPanel) chartPanel.hidden = !chartOpen;
+    if (filterToggle) filterToggle.setAttribute('aria-expanded', filtersOpen ? 'true' : 'false');
+    if (chartToggle) chartToggle.setAttribute('aria-expanded', chartOpen ? 'true' : 'false');
+}
+
+function syncAcaProgressNodeOptions(root) {
+    const scope = root || document;
+    const level = scope.querySelector('[data-progress-level-filter]');
+    const node = scope.querySelector('[data-progress-node-filter]');
+    if (!level || !node) return;
+    const selectedLevel = level.value || '';
+    let selectedOptionVisible = true;
+    Array.from(node.options).forEach(function (option) {
+        if (!option.value) {
+            option.hidden = false;
+            return;
+        }
+        const visible = !selectedLevel || option.dataset.levelId === selectedLevel;
+        option.hidden = !visible;
+        if (option.selected && !visible) selectedOptionVisible = false;
+    });
+    if (!selectedOptionVisible) node.value = '';
+}
+
+function applySavedAcaProgressValues(form) {
+    if (!form) return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('progress_nivel') || params.has('progress_nodo') || params.has('progress_chart_level')) {
+        saveAcaProgressPrefsFromForm(form);
+        return false;
+    }
+    const prefs = readAcaProgressPrefs();
+    let changed = false;
+    const level = form.querySelector('[name="progress_nivel"]');
+    const node = form.querySelector('[name="progress_nodo"]');
+    const chartLevel = form.querySelector('[name="progress_chart_level"]');
+    if (level && optionExists(level, prefs.progress_nivel || '') && level.value !== prefs.progress_nivel) {
+        level.value = prefs.progress_nivel;
+        changed = true;
+    }
+    syncAcaProgressNodeOptions(form);
+    if (node && optionExists(node, prefs.progress_nodo || '') && node.value !== prefs.progress_nodo) {
+        node.value = prefs.progress_nodo;
+        changed = true;
+    }
+    syncAcaProgressNodeOptions(form);
+    if (chartLevel && optionExists(chartLevel, prefs.progress_chart_level || '') && chartLevel.value !== prefs.progress_chart_level) {
+        chartLevel.value = prefs.progress_chart_level;
+        changed = true;
+    }
+    return changed;
+}
+
+function setAcaProgressStatus(container, text, isError) {
+    const status = container ? container.querySelector('[data-aca-progress-status]') : null;
+    if (!status) return;
+    status.textContent = text || '';
+    status.classList.toggle('error', Boolean(isError));
+}
+
+function updateAcaProgressSummary(form) {
+    const container = document.getElementById('aca-progress-container');
+    if (!form || !container) return;
+    syncAcaProgressNodeOptions(form);
+    saveAcaProgressPrefsFromForm(form);
+
+    const progressUrl = form.dataset.progressUrl;
+    if (!progressUrl || !window.fetch) return;
+
+    const params = new URLSearchParams(new FormData(form));
+    const url = progressUrl + '?' + params.toString();
+    container.classList.add('loading');
+    setAcaProgressStatus(container, 'Actualizando...', false);
+
+    fetch(url, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+        .then(function (response) {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.text();
+        })
+        .then(function (html) {
+            container.innerHTML = html;
+            container.classList.remove('loading');
+            const nextForm = container.querySelector('[data-aca-progress-form]');
+            applyAcaProgressPanelState(nextForm);
+            syncAcaProgressNodeOptions(nextForm || container);
+
+            const pageUrl = new URL(window.location.href);
+            pageUrl.searchParams.delete('progress_group_level');
+            ['progress_nivel', 'progress_nodo', 'progress_chart_level'].forEach(function (key) {
+                const value = params.get(key);
+                if (value) pageUrl.searchParams.set(key, value);
+                else pageUrl.searchParams.delete(key);
+            });
+            window.history.replaceState({}, '', pageUrl.toString());
+        })
+        .catch(function () {
+            container.classList.remove('loading');
+            setAcaProgressStatus(container, 'No se pudo actualizar el resumen', true);
+        });
+}
+
+document.addEventListener('change', function (event) {
+    const form = event.target.closest('[data-aca-progress-form]');
+    if (!form) return;
+    if (event.target.closest('[data-progress-level-filter]')) {
+        syncAcaProgressNodeOptions(form);
+    }
+    if (
+        event.target.matches('[name="progress_nivel"]') ||
+        event.target.matches('[name="progress_nodo"]') ||
+        event.target.matches('[name="progress_chart_level"]')
+    ) {
+        updateAcaProgressSummary(form);
+    }
+});
+
+document.addEventListener('click', function (event) {
+    const form = event.target.closest('[data-aca-progress-form]');
+    if (event.target.closest('[data-aca-progress-clear]')) {
+        localStorage.removeItem(ACA_PROGRESS_PREF_KEY);
+        return;
+    }
+    if (!form) return;
+
+    const filterToggle = event.target.closest('[data-aca-progress-toggle-filters]');
+    if (filterToggle) {
+        const body = form.querySelector('[data-aca-progress-filter-body]');
+        if (!body) return;
+        const open = body.hidden;
+        body.hidden = !open;
+        filterToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        saveAcaProgressPrefsFromForm(form, { filters_open: open });
+        return;
+    }
+
+    const chartToggle = event.target.closest('[data-aca-progress-toggle-chart]');
+    if (chartToggle) {
+        const panel = form.querySelector('[data-aca-progress-chart-panel]');
+        if (!panel) return;
+        const open = panel.hidden;
+        panel.hidden = !open;
+        chartToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        saveAcaProgressPrefsFromForm(form, { chart_open: open });
+        return;
+    }
+
+    if (event.target.closest('[data-aca-progress-save]')) {
+        saveAcaProgressPrefsFromForm(form);
+        setAcaProgressStatus(document.getElementById('aca-progress-container'), 'Vista guardada', false);
+        window.setTimeout(function () {
+            setAcaProgressStatus(document.getElementById('aca-progress-container'), '', false);
+        }, 1200);
+    }
+});
+
+const initialAcaProgressForm = document.querySelector('[data-aca-progress-form]');
+applyAcaProgressPanelState(initialAcaProgressForm);
+syncAcaProgressNodeOptions(document);
+if (applySavedAcaProgressValues(initialAcaProgressForm)) {
+    updateAcaProgressSummary(initialAcaProgressForm);
+}
+
+function syncAcaGroupTableColumns(parentRow) {
+    const childRow = parentRow ? parentRow.nextElementSibling : null;
+    const childTable = childRow ? childRow.querySelector('.aca-folder-table') : null;
+    if (!parentRow || !childRow || !childTable) return;
+
+    const widths = Array.from(parentRow.cells).map(function (cell) {
+        return Math.ceil(cell.getBoundingClientRect().width);
+    });
+    if (!widths.length) return;
+
+    const childCell = childRow.cells && childRow.cells[0];
+    if (childCell) {
+        childCell.style.padding = '0';
+        childCell.style.borderTop = '0';
+    }
+
+    let colgroup = childTable.querySelector('colgroup');
+    if (!colgroup) {
+        colgroup = document.createElement('colgroup');
+        childTable.insertBefore(colgroup, childTable.firstChild);
+    }
+    colgroup.innerHTML = widths.map(function (width) {
+        return '<col style="width:' + width + 'px; min-width:' + width + 'px;">';
+    }).join('');
+    childTable.style.width = widths.reduce(function (total, width) {
+        return total + width;
+    }, 0) + 'px';
+}
+
+window.addEventListener('resize', function () {
+    document.querySelectorAll('.aca-group-toggle[aria-expanded="true"]').forEach(function (button) {
+        syncAcaGroupTableColumns(button.closest('tr'));
+    });
+});
+
+document.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-aca-group-toggle]');
+    if (!button) return;
+
+    const table = button.closest('table');
+    const parentRow = button.closest('tr');
+    const template = document.getElementById(button.dataset.templateId);
+    if (!table || !parentRow || !template || !window.jQuery || !$.fn || !$.fn.DataTable) return;
+    if (!$.fn.dataTable.isDataTable(table)) return;
+
+    const api = $(table).DataTable();
+    const row = api.row(parentRow);
+    const icon = button.querySelector('i');
+
+    if (row.child.isShown()) {
+        row.child.hide();
+        button.setAttribute('aria-expanded', 'false');
+        if (icon) icon.className = 'bi bi-folder2';
+        return;
+    }
+
+    row.child(template.innerHTML).show();
+    syncAcaGroupTableColumns(parentRow);
+    window.setTimeout(function () {
+        syncAcaGroupTableColumns(parentRow);
+    }, 0);
+    button.setAttribute('aria-expanded', 'true');
+    if (icon) icon.className = 'bi bi-folder2-open';
+});
+</script>
 {% endblock %}

@@ -1,0 +1,651 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ bulk_title|default:"Carga masiva ACA" }} | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_aca_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>{{ bulk_title|default:"Nueva carga ACA" }}</h2>
+            <p>{{ service.codigo_servicio }} · {{ auto_fecha_analisis }} · versión inicial {{ auto_version }}</p>
+        </div>
+    </div>
+    <div class="actions">
+        <button class="btn" type="button" id="toggle-matrix-preview">Ver matriz de criticidad <i class="bi bi-grid-3x3"></i></button>
+        <button class="btn" type="button" id="add-bulk-row">Agregar fila</button>
+    </div>
+</div>
+
+{% if bulk_errors %}
+    <div class="card">
+        <h3 class="card-title">Errores de validación</h3>
+        {% for error in bulk_errors %}
+            <div class="form-error">{{ error }}</div>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post" id="aca-bulk-form">
+    {% csrf_token %}
+    <input type="hidden" name="bulk_payload" id="bulk-payload">
+
+    <div class="aca-bulk-shell">
+        <div class="aca-bulk-table-wrap">
+            <table class="aca-bulk-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Equipo</th>
+                        <th>UT</th>
+                        <th>Nombre equipo</th>
+                        <th>TAG</th>
+                        <th>Escenario falla</th>
+                        {% for dimension in dimension_payload %}
+                            <th title="{{ dimension.nombre }}">{{ dimension.nombre }}</th>
+                        {% endfor %}
+                        <th>Criticidad</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="aca-bulk-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="aca-bulk-matrix-preview" id="aca-bulk-matrix-preview" hidden>
+        <div class="card">
+            <h3 class="card-title">{{ matrix_selector.matriz.nombre|default:"Matriz de criticidad" }}</h3>
+            {% if matrix_selector.matriz %}
+                <div class="matriz-wrap matrix-compact-wrap">
+                    <table class="matrix-compact aca-bulk-matrix-table">
+                        <thead>
+                            <tr>
+                                <th>Probabilidad \ Impacto</th>
+                                {% for col in matrix_selector.columns %}
+                                    <th>{{ col.label }}<br><span class="muted">{{ col.value }}</span></th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in matrix_selector.rows %}
+                                <tr>
+                                    <th>{{ row.label }}<br><span class="muted">{{ row.value }}</span></th>
+                                    {% for cell in row.cells %}
+                                        <td>
+                                            <button type="button"
+                                                    class="matrix-cell-btn aca-bulk-matrix-cell"
+                                                    data-cell-id="{{ cell.id }}"
+                                                    data-prob-id="{{ cell.prob_id }}"
+                                                    data-prob-value="{{ cell.prob_value }}"
+                                                    data-impact-id="{{ cell.impact_id }}"
+                                                    data-impact-value="{{ cell.impact_value }}"
+                                                    data-result="{{ cell.result }}"
+                                                    data-classification="{{ cell.classification }}"
+                                                    style="--cell-color: {{ cell.color }};"
+                                                    {% if not cell.id %}disabled{% endif %}>
+                                                <strong>{{ cell.classification|default:"-" }}</strong>
+                                                <span>{{ cell.result|default:"-" }}</span>
+                                                <em class="aca-bulk-cell-count" data-cell-count="{{ cell.id }}" hidden>0</em>
+                                            </button>
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="inline-note muted" id="aca-bulk-matrix-detail">Selecciona una celda con contador para ver sus filas.</div>
+            {% else %}
+                <div class="inline-note muted">No hay matriz configurada para este servicio.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="actions" style="margin-top:12px;">
+        <button class="btn btn-primary" type="submit" name="save_as" value="complete">{{ bulk_primary_label|default:"Guardar carga masiva" }}</button>
+        <button class="btn" type="submit" name="save_as" value="draft">Guardar borrador</button>
+    </div>
+</form>
+
+<div class="aca-bulk-modal" id="aca-bulk-modal" hidden>
+    <div class="aca-bulk-modal-card">
+        <div class="aca-bulk-modal-head">
+            <strong id="aca-bulk-modal-title">Seleccionar valor</strong>
+            <button class="btn" type="button" id="aca-bulk-modal-close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="table-wrap">
+            <table class="compact-table">
+                <thead id="aca-bulk-modal-head"></thead>
+                <tbody id="aca-bulk-modal-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ dimension_payload|json_script:"aca-bulk-dimensions" }}
+{{ service_equipment_endpoints|json_script:"aca-bulk-equipment-endpoints" }}
+{{ initial_equipment_payload|json_script:"aca-bulk-initial-equipment" }}
+{{ bulk_payload|default:""|json_script:"aca-bulk-initial-payload" }}
+<script>
+(function () {
+    const dimensions = JSON.parse(document.getElementById('aca-bulk-dimensions').textContent || '[]');
+    const endpoints = JSON.parse(document.getElementById('aca-bulk-equipment-endpoints').textContent || '{}');
+    const initialEquipment = JSON.parse(document.getElementById('aca-bulk-initial-equipment').textContent || '[]');
+    const initialPayloadText = JSON.parse(document.getElementById('aca-bulk-initial-payload').textContent || '""');
+    const tbody = document.getElementById('aca-bulk-body');
+    const payloadInput = document.getElementById('bulk-payload');
+    const form = document.getElementById('aca-bulk-form');
+    const modal = document.getElementById('aca-bulk-modal');
+    const modalTitle = document.getElementById('aca-bulk-modal-title');
+    const modalHead = document.getElementById('aca-bulk-modal-head');
+    const modalBody = document.getElementById('aca-bulk-modal-body');
+    const matrixPreview = document.getElementById('aca-bulk-matrix-preview');
+    const matrixDetail = document.getElementById('aca-bulk-matrix-detail');
+    const rows = {};
+    let nextRowId = 1;
+    let activePicker = null;
+
+    const matrixConfig = {
+        resolutionMode: '{{ matrix_selector.modo_resolucion|default:"exacta" }}',
+        probDimensionId: '{{ matrix_selector.prob_dimension_id|default:"" }}',
+        impactDimensionId: '{{ matrix_selector.impact_dimension_id|default:"" }}',
+        probEstrategiaDimensionId: '{{ matrix_selector.prob_estrategia_dimension_id|default:"" }}',
+        impactEstrategiaDimensionId: '{{ matrix_selector.impact_estrategia_dimension_id|default:"" }}',
+        probAxisGenerated: '{{ matrix_selector.prob_axis_generated|yesno:"1,0" }}' === '1',
+        impactAxisGenerated: '{{ matrix_selector.impact_axis_generated|yesno:"1,0" }}' === '1',
+    };
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function toNumber(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const n = Number(String(value).replace(',', '.'));
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function calcSlug(value) {
+        return (value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    }
+
+    function rememberValue(sourceValues, dimension, value) {
+        if (value === null || value === undefined) return;
+        sourceValues[dimension.dimension_id] = value;
+        sourceValues['dim:' + dimension.dimension_id] = value;
+        sourceValues[dimension.estrategia_dimension_id] = value;
+        sourceValues['ed:' + dimension.estrategia_dimension_id] = value;
+        sourceValues['estrategia_dimension:' + dimension.estrategia_dimension_id] = value;
+        sourceValues[dimension.nombre] = value;
+        sourceValues[calcSlug(dimension.nombre)] = value;
+        if (dimension.dimension_campo) {
+            sourceValues[dimension.dimension_campo] = value;
+            sourceValues[calcSlug(dimension.dimension_campo)] = value;
+        }
+    }
+
+    function sourceNumericValue(sourceValues, keys) {
+        for (const key of keys) {
+            if (!key) continue;
+            const value = toNumber(sourceValues[key] ?? sourceValues[calcSlug(key)]);
+            if (value !== null) return value;
+        }
+        return null;
+    }
+
+    function applyOperation(type, values) {
+        if (!values.length) return null;
+        if (type === 'suma') return values.reduce((a, b) => a + b, 0);
+        if (type === 'resta') return values.slice(1).reduce((a, b) => a - b, values[0]);
+        if (type === 'multiplicacion') return values.reduce((a, b) => a * b, 1);
+        if (type === 'maximo') return Math.max(...values);
+        if (type === 'minimo') return Math.min(...values);
+        if (type === 'division') {
+            let result = values[0];
+            for (const value of values.slice(1)) {
+                if (value === 0 || result === null) return null;
+                result = result / value;
+            }
+            return result;
+        }
+        return null;
+    }
+
+    function operandValue(op, sourceValues, previousResult) {
+        if (typeof op === 'object' && op !== null && (op.resultado === true || op.tipo === 'resultado')) return previousResult;
+        if (typeof op !== 'object' && ['$resultado', '__resultado__', 'resultado_anterior'].includes(String(op))) return previousResult;
+        const candidates = typeof op === 'object' && op !== null
+            ? [op.estrategia_dimension_id ? 'ed:' + op.estrategia_dimension_id : '', op.dimension_id, op.dimension_id ? 'dim:' + op.dimension_id : '', op.campo, op.nombre, op.source]
+            : [op];
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            const value = sourceValues[String(candidate)] ?? sourceValues[calcSlug(String(candidate))];
+            const number = toNumber(value);
+            if (number !== null) return number;
+        }
+        return null;
+    }
+
+    function calculationSteps(type, config) {
+        const configured = Array.isArray(config.pasos) ? config.pasos : (Array.isArray(config.steps) ? config.steps : []);
+        if (configured.length) {
+            return configured.map(step => ({
+                operation: step.operacion || step.tipo_calculo || step.operation || type,
+                operands: step.operandos || step.campos || step.sources || []
+            })).filter(step => step.operation && Array.isArray(step.operands));
+        }
+        return [{ operation: type, operands: config.operandos || config.campos || config.sources || [] }];
+    }
+
+    function evaluateCalculation(type, config, sourceValues) {
+        let result = null;
+        for (const step of calculationSteps(type, config || {})) {
+            const values = [];
+            step.operands.forEach(op => {
+                const value = operandValue(op, sourceValues, result);
+                if (value !== null && value !== undefined && !Number.isNaN(value)) values.push(value);
+            });
+            result = applyOperation(step.operation || type, values);
+            if (result === null) return null;
+        }
+        return result;
+    }
+
+    function matchesRange(value, option) {
+        const min = toNumber(option.range_min);
+        const max = toNumber(option.range_max);
+        if (min !== null && value < min) return false;
+        if (max !== null && value >= max) return false;
+        return true;
+    }
+
+    function matchesOption(value, option) {
+        let matchValue = toNumber(option.match_value);
+        if (matchValue === null) matchValue = toNumber(option.value_numeric);
+        return matchValue !== null && Math.abs(matchValue - value) < 0.000001;
+    }
+
+    function optionDisplay(option) {
+        return (option.cells || []).filter(item => item !== null && item !== undefined && item !== '').join(' | ') || 'Opción';
+    }
+
+    function setDimensionValue(row, dimension, value) {
+        row.dimensions[String(dimension.estrategia_dimension_id)] = Object.assign({}, row.dimensions[String(dimension.estrategia_dimension_id)] || {}, value);
+    }
+
+    function currentDimensionValue(row, dimension) {
+        return row.dimensions[String(dimension.estrategia_dimension_id)] || {};
+    }
+
+    function recalcRow(rowId) {
+        const row = rows[rowId];
+        if (!row) return;
+        const sourceValues = {};
+
+        dimensions.forEach(dimension => {
+            const value = currentDimensionValue(row, dimension);
+            if (dimension.tipo_calculo || dimension.catalog_dependency) return;
+            const numeric = toNumber(value.valor_numerico);
+            if (numeric !== null) rememberValue(sourceValues, dimension, numeric);
+        });
+
+        dimensions.forEach(dimension => {
+            if (!dimension.tipo_calculo) return;
+            const result = evaluateCalculation(dimension.tipo_calculo, dimension.config_calculo || {}, sourceValues);
+            setDimensionValue(row, dimension, {
+                valor_numerico: result === null ? '' : Number(result.toFixed(6)),
+                valor_texto: result === null ? '' : String(Number(result.toFixed(6))),
+                display: result === null ? '' : String(Number(result.toFixed(6))).replace('.', ','),
+            });
+            if (result !== null) rememberValue(sourceValues, dimension, result);
+        });
+
+        dimensions.forEach(dimension => {
+            if (!dimension.catalog_dependency) return;
+            const source = sourceNumericValue(sourceValues, [
+                dimension.catalog_dependency_estrategia_dimension_id ? 'ed:' + dimension.catalog_dependency_estrategia_dimension_id : '',
+                dimension.catalog_dependency_dimension_id,
+                dimension.catalog_dependency_dimension_id ? 'dim:' + dimension.catalog_dependency_dimension_id : '',
+                dimension.catalog_dependency_campo,
+                dimension.catalog_dependency,
+            ]);
+            let matched = null;
+            if (source !== null) {
+                (dimension.option_rows || []).forEach(option => {
+                    const ok = dimension.catalog_type === 'rangos' ? matchesRange(source, option) : matchesOption(source, option);
+                    if (!matched && ok) matched = option;
+                });
+            }
+            if (matched) {
+                setDimensionValue(row, dimension, {
+                    catalogo_fila_id: matched.pk,
+                    valor_numerico: matched.value_numeric || '',
+                    valor_texto: optionDisplay(matched),
+                    display: optionDisplay(matched),
+                });
+                const numeric = toNumber(matched.value_numeric);
+                if (numeric !== null) rememberValue(sourceValues, dimension, numeric);
+            } else {
+                setDimensionValue(row, dimension, { catalogo_fila_id: '', valor_numerico: '', valor_texto: '', display: '' });
+            }
+        });
+
+        updateRowMatrix(row, sourceValues);
+        renderRow(rowId);
+        updateMatrixCounters();
+    }
+
+    function matrixCells() {
+        return Array.from(document.querySelectorAll('.aca-bulk-matrix-cell')).filter(button => !button.disabled && button.dataset.cellId);
+    }
+
+    function numericEquals(a, b) {
+        const left = toNumber(a);
+        const right = toNumber(b);
+        return left !== null && right !== null && Math.abs(left - right) < 0.000001;
+    }
+
+    function findFloorMatrixCell(resultValue) {
+        if (resultValue === null) return null;
+        let best = null;
+        let bestValue = null;
+        matrixCells().forEach(button => {
+            const value = toNumber(button.dataset.result);
+            if (value === null || value > resultValue) return;
+            if (bestValue === null || value > bestValue) {
+                bestValue = value;
+                best = button;
+            }
+        });
+        return best;
+    }
+
+    function updateRowMatrix(row, sourceValues) {
+        row.matrix_cell_id = '';
+        row.criticidad = '';
+        const probValue = sourceNumericValue(sourceValues, [
+            matrixConfig.probDimensionId,
+            matrixConfig.probDimensionId ? 'dim:' + matrixConfig.probDimensionId : '',
+            matrixConfig.probEstrategiaDimensionId ? 'ed:' + matrixConfig.probEstrategiaDimensionId : '',
+        ]);
+        const impactValue = sourceNumericValue(sourceValues, [
+            matrixConfig.impactDimensionId,
+            matrixConfig.impactDimensionId ? 'dim:' + matrixConfig.impactDimensionId : '',
+            matrixConfig.impactEstrategiaDimensionId ? 'ed:' + matrixConfig.impactEstrategiaDimensionId : '',
+        ]);
+
+        let cell = null;
+        if (matrixConfig.resolutionMode === 'umbral_resultado') {
+            let result = null;
+            if (probValue !== null && impactValue !== null) result = probValue * impactValue;
+            cell = findFloorMatrixCell(result);
+        } else if (probValue !== null && impactValue !== null) {
+            cell = matrixCells().find(button => numericEquals(button.dataset.probValue, probValue) && numericEquals(button.dataset.impactValue, impactValue));
+        }
+        if (cell) {
+            row.matrix_cell_id = cell.dataset.cellId;
+            row.criticidad = `${cell.dataset.classification || '-'} [${cell.dataset.result || '-'}]`;
+        }
+    }
+
+    function addRow(initial) {
+        const rowId = nextRowId++;
+        rows[rowId] = Object.assign({ id: rowId, criticidad_id: '', equipo_id: '', equipo: null, equipmentOptions: initialEquipment, escenario_falla: '', dimensions: {}, matrix_cell_id: '', criticidad: '' }, initial || {});
+        if (!rows[rowId].equipmentOptions || !rows[rowId].equipmentOptions.length) rows[rowId].equipmentOptions = initialEquipment;
+        rows[rowId].id = rowId;
+        renderRow(rowId, true);
+        recalcRow(rowId);
+    }
+
+    function equipmentLabel(item) {
+        if (!item) return 'Selecciona equipo';
+        return (item.tag ? item.tag + ' · ' : '') + (item.equipo || 'Sin nombre') + (item.ut ? ' · ' + item.ut : '');
+    }
+
+    function equipmentOptionsHtml(row) {
+        const selectedId = String(row.equipo_id || '');
+        const options = [];
+        const seen = new Set();
+        if (row.equipo && selectedId) {
+            options.push(row.equipo);
+            seen.add(selectedId);
+        }
+        (row.equipmentOptions || initialEquipment || []).forEach(function (item) {
+            const id = String(item.id || '');
+            if (!id || seen.has(id)) return;
+            options.push(item);
+            seen.add(id);
+        });
+        return '<option value="">Selecciona equipo</option>' + options.map(function (item) {
+            const id = String(item.id || '');
+            const selected = id === selectedId ? 'selected' : '';
+            return `<option value="${escapeHtml(id)}" ${selected} data-item="${escapeHtml(JSON.stringify(item))}">${escapeHtml(equipmentLabel(item))}</option>`;
+        }).join('');
+    }
+
+    function renderRow(rowId, appendOnly) {
+        const row = rows[rowId];
+        if (!row) return;
+        let tr = tbody.querySelector(`tr[data-row-id="${rowId}"]`);
+        if (!tr) {
+            tr = document.createElement('tr');
+            tr.dataset.rowId = rowId;
+            tbody.appendChild(tr);
+        }
+        const equipment = row.equipo || {};
+        tr.innerHTML = `
+            <td class="aca-bulk-index">${rowId}</td>
+            <td class="aca-bulk-equipment-cell">
+                <input class="aca-bulk-search" data-row-id="${rowId}" type="search" placeholder="Buscar equipo" value="">
+                <select class="aca-bulk-equipment-select" data-row-id="${rowId}">
+                    ${equipmentOptionsHtml(row)}
+                </select>
+            </td>
+            <td><span class="cell-ellipsis" title="${escapeHtml(equipment.ut || '')}">${escapeHtml(equipment.ut || '')}</span></td>
+            <td><span class="cell-ellipsis" title="${escapeHtml(equipment.equipo || '')}">${escapeHtml(equipment.equipo || '')}</span></td>
+            <td>${escapeHtml(equipment.tag || '')}</td>
+            <td><input class="aca-bulk-scenario" data-row-id="${rowId}" value="${escapeHtml(row.escenario_falla || '')}" placeholder="Escenario"></td>
+            ${dimensions.map(dimension => renderDimensionCell(row, dimension)).join('')}
+            <td><span class="aca-bulk-crit">${escapeHtml(row.criticidad || '-')}</span></td>
+            <td><span class="${row.equipo_id ? 'pill-success' : 'pill-warning'}">${row.equipo_id ? 'Lista' : 'Pendiente'}</span></td>
+            <td class="actions">
+                <button class="btn" type="button" data-duplicate-row="${rowId}"><i class="bi bi-copy"></i></button>
+                <button class="btn btn-danger" type="button" data-remove-row="${rowId}"><i class="bi bi-trash3"></i></button>
+            </td>
+        `;
+    }
+
+    function renderDimensionCell(row, dimension) {
+        const value = currentDimensionValue(row, dimension);
+        const id = dimension.estrategia_dimension_id;
+        if (dimension.input_mode === 'numerico') {
+            return `<td><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_numerico" value="${escapeHtml(value.valor_numerico || '')}"></td>`;
+        }
+        if (dimension.input_mode === 'texto' || dimension.input_mode === 'booleano') {
+            return `<td><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_texto" value="${escapeHtml(value.valor_texto || '')}"></td>`;
+        }
+        const label = value.display || value.valor_texto || (dimension.input_mode === 'calculado' ? 'Calculado' : 'Seleccionar');
+        const disabled = dimension.input_mode === 'calculado' ? 'disabled' : '';
+        return `<td><button class="aca-bulk-dimension-cell" type="button" data-row-id="${row.id}" data-dimension-id="${id}" ${disabled}>${escapeHtml(label)}</button></td>`;
+    }
+
+    async function searchEquipment(rowId, query) {
+        const row = rows[rowId];
+        if (!row || !endpoints.search) return;
+        if (query.trim().length < 2) {
+            row.equipmentOptions = initialEquipment;
+            const initialSelect = tbody.querySelector(`.aca-bulk-equipment-select[data-row-id="${rowId}"]`);
+            if (initialSelect) initialSelect.innerHTML = equipmentOptionsHtml(row);
+            return;
+        }
+        const response = await fetch(`${endpoints.search}?q=${encodeURIComponent(query)}&limit=20`);
+        const data = await response.json();
+        const select = tbody.querySelector(`.aca-bulk-equipment-select[data-row-id="${rowId}"]`);
+        if (!select) return;
+        row.equipmentOptions = data.items || [];
+        select.innerHTML = equipmentOptionsHtml(row);
+    }
+
+    function openDimensionPicker(rowId, dimensionId) {
+        const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(dimensionId));
+        if (!dimension || !(dimension.option_rows || []).length) return;
+        activePicker = { rowId, dimensionId };
+        modalTitle.textContent = dimension.nombre;
+        modalHead.innerHTML = `<tr>${(dimension.option_headers || ['Valor']).map(header => `<th>${escapeHtml(header)}</th>`).join('')}<th></th></tr>`;
+        modalBody.innerHTML = (dimension.option_rows || []).map((option, idx) => `
+            <tr>
+                ${(option.cells || []).map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}
+                <td><button class="btn" type="button" data-pick-option="${idx}">Elegir</button></td>
+            </tr>
+        `).join('');
+        modal.hidden = false;
+    }
+
+    function selectDimensionOption(optionIndex) {
+        if (!activePicker) return;
+        const row = rows[activePicker.rowId];
+        const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(activePicker.dimensionId));
+        const option = dimension && dimension.option_rows ? dimension.option_rows[optionIndex] : null;
+        if (!row || !dimension || !option) return;
+        const payload = {
+            valor_numerico: option.value_numeric || '',
+            valor_texto: optionDisplay(option),
+            display: optionDisplay(option),
+        };
+        if (dimension.input_mode === 'escala') payload.escala_valor_id = option.pk;
+        else payload.catalogo_fila_id = option.pk;
+        setDimensionValue(row, dimension, payload);
+        modal.hidden = true;
+        activePicker = null;
+        recalcRow(row.id);
+    }
+
+    function updateMatrixCounters() {
+        const counts = {};
+        Object.values(rows).forEach(row => {
+            if (!row.matrix_cell_id) return;
+            counts[row.matrix_cell_id] = (counts[row.matrix_cell_id] || 0) + 1;
+        });
+        document.querySelectorAll('[data-cell-count]').forEach(badge => {
+            const count = counts[badge.dataset.cellCount] || 0;
+            badge.textContent = count;
+            badge.hidden = !count;
+        });
+    }
+
+    function buildPayload() {
+        return {
+            rows: Object.values(rows).map(row => ({
+                equipo_id: row.equipo_id,
+                criticidad_id: row.criticidad_id || '',
+                equipo: row.equipo || null,
+                escenario_falla: row.escenario_falla || '',
+                dimensions: row.dimensions || {},
+                matrix_cell_id: row.matrix_cell_id || '',
+            }))
+        };
+    }
+
+    document.getElementById('add-bulk-row').addEventListener('click', () => addRow());
+    document.getElementById('toggle-matrix-preview').addEventListener('click', () => {
+        matrixPreview.hidden = !matrixPreview.hidden;
+    });
+    document.getElementById('aca-bulk-modal-close').addEventListener('click', () => {
+        modal.hidden = true;
+        activePicker = null;
+    });
+
+    tbody.addEventListener('input', event => {
+        const rowId = Number(event.target.dataset.rowId);
+        const row = rows[rowId];
+        if (!row) return;
+        if (event.target.classList.contains('aca-bulk-search')) {
+            clearTimeout(event.target._searchTimer);
+            event.target._searchTimer = setTimeout(() => searchEquipment(rowId, event.target.value), 250);
+        }
+        if (event.target.classList.contains('aca-bulk-scenario')) row.escenario_falla = event.target.value;
+        if (event.target.classList.contains('aca-bulk-dim-input')) {
+            const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(event.target.dataset.dimensionId));
+            if (dimension) {
+                const key = event.target.dataset.kind;
+                setDimensionValue(row, dimension, { [key]: event.target.value, display: event.target.value });
+                recalcRow(rowId);
+            }
+        }
+    });
+
+    tbody.addEventListener('change', event => {
+        if (!event.target.classList.contains('aca-bulk-equipment-select')) return;
+        const row = rows[Number(event.target.dataset.rowId)];
+        const selected = event.target.options[event.target.selectedIndex];
+        if (!row || !selected) return;
+        row.equipo_id = selected.value;
+        if (!row.equipo_id) {
+            row.equipo = null;
+            renderRow(row.id);
+            return;
+        }
+        try {
+            row.equipo = selected.dataset.item ? JSON.parse(selected.dataset.item) : row.equipo;
+        } catch (e) {
+            row.equipo = row.equipo || {};
+        }
+        renderRow(row.id);
+    });
+
+    tbody.addEventListener('click', event => {
+        const pick = event.target.closest('.aca-bulk-dimension-cell');
+        if (pick) openDimensionPicker(Number(pick.dataset.rowId), pick.dataset.dimensionId);
+        const remove = event.target.closest('[data-remove-row]');
+        if (remove) {
+            delete rows[Number(remove.dataset.removeRow)];
+            remove.closest('tr').remove();
+            updateMatrixCounters();
+        }
+        const duplicate = event.target.closest('[data-duplicate-row]');
+        if (duplicate) {
+            const source = rows[Number(duplicate.dataset.duplicateRow)];
+            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, { id: undefined, criticidad_id: '', equipo_id: '', equipo: null }))));
+        }
+    });
+
+    modalBody.addEventListener('click', event => {
+        const button = event.target.closest('[data-pick-option]');
+        if (button) selectDimensionOption(Number(button.dataset.pickOption));
+    });
+
+    document.querySelectorAll('.aca-bulk-matrix-cell').forEach(button => {
+        button.addEventListener('click', () => {
+            const affected = Object.values(rows).filter(row => String(row.matrix_cell_id) === String(button.dataset.cellId));
+            matrixDetail.textContent = affected.length
+                ? 'Filas: ' + affected.map(row => row.id).join(', ')
+                : 'Sin filas en esta celda.';
+        });
+    });
+
+    form.addEventListener('submit', () => {
+        payloadInput.value = JSON.stringify(buildPayload());
+    });
+
+    try {
+        const parsed = initialPayloadText ? JSON.parse(initialPayloadText) : null;
+        if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) {
+            parsed.rows.forEach(row => addRow(row));
+        } else {
+            addRow();
+            addRow();
+        }
+    } catch (e) {
+        addRow();
+        addRow();
+    }
+})();
+</script>
+{% endblock %}

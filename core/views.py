@@ -9,7 +9,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Count, Q, TextField, Prefetch
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -948,12 +948,18 @@ def _record_login_location(request, profile):
         minimum=Decimal('-180'),
         maximum=Decimal('180'),
     )
-    models.InicioSesion.objects.create(
+    login_record = models.InicioSesion.objects.create(
         usuario=profile,
         hora=timezone.now(),
         latitud=latitud,
         longitud=longitud,
     )
+    hora_chile = timezone.localtime(login_record.hora).replace(tzinfo=None)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'UPDATE reliability_iniciosesion SET hora = %s WHERE id = %s',
+            [hora_chile, login_record.pk],
+        )
 
 
 def login_view(request):
@@ -1000,7 +1006,10 @@ def _strategy_dimensions(estrategia, proceso=None):
         .order_by('orden', 'id')
     )
     if proceso:
-        qs = qs.filter(proceso_uso__in=[proceso, models.EstrategiaDimension.PROCESO_AMBOS])
+        process_values = [proceso, models.EstrategiaDimension.PROCESO_AMBOS]
+        if proceso == getattr(models.EstrategiaDimension, 'PROCESO_FMECA', 'fmeca'):
+            process_values.extend(getattr(models.EstrategiaDimension, 'PROCESO_FMECA_ALIASES', ()))
+        qs = qs.filter(proceso_uso__in=list(dict.fromkeys(process_values)))
     return list(qs)
 
 

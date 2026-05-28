@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
     load_workbook = None
 
 
-PROCESS_RCM_VALUES = {'rcm', 'rcm_fmea', 'global', 'ambos'}
+PROCESS_RCM_VALUES = {'fmeca', 'rcm', 'rcm_fmea', 'global', 'ambos'}
 
 BASE_ALIASES = {
     'items': ['items', 'item'],
@@ -494,7 +494,7 @@ class Command(BaseCommand):
         for value in PROCESS_RCM_VALUES:
             if value in choices:
                 allowed.add(value)
-        allowed.add(models.EstrategiaDimension.PROCESO_RCM)
+        allowed.update(getattr(models.EstrategiaDimension, 'PROCESO_FMECA_ALIASES', ('fmeca', 'rcm')))
         allowed.add(models.EstrategiaDimension.PROCESO_AMBOS)
         return list(
             models.EstrategiaDimension.objects.filter(

@@ -16,7 +16,7 @@
     </div>
 </div>
 
-<form method="post">
+<form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {{ base_form.fecha_analisis }}
     {{ base_form.version_carga }}
@@ -26,12 +26,33 @@
     {% if editing_crit %}<input type="hidden" name="crit_id" value="{{ editing_crit.pk }}">{% endif %}
 
     <div class="card">
-        <h3 class="card-title">Cabecera del análisis</h3>
+        <h3 class="card-title">Equipo o familia</h3>
         <div class="form-grid">
+            {% if not editing_crit %}
             <div class="form-field full">
-                <label for="aca-equipment-search">Buscar equipo por U.T.</label>
-                <input type="hidden" name="{{ base_form.equipo.html_name }}" id="{{ base_form.equipo.id_for_label }}" value="{{ base_form.equipo.value|default:'' }}">
-                <div class="form-grid" id="aca-equipment-level-filters"></div>
+                <label>Tipo de registro</label>
+                <div class="segmented-control">
+                    <label><input type="radio" name="aca_scope" value="equipo" checked> Equipo individual</label>
+                    <label><input type="radio" name="aca_scope" value="familia"> Familia de equipos</label>
+                </div>
+            </div>
+            <div class="form-field full" id="aca-family-field" hidden>
+                <label for="{{ base_form.familia_equipo.id_for_label }}">{{ base_form.familia_equipo.label }}</label>
+                <div class="family-inline-select">
+                    {{ base_form.familia_equipo }}
+                    <a class="btn" id="aca-family-edit-link" href="{% url 'service_equipment_family_new' service.pk %}" data-new-url="{% url 'service_equipment_family_new' service.pk %}" data-edit-template="{% url 'service_equipment_family_edit' service.pk 0 %}">Crear/editar familias</a>
+                </div>
+                {% if base_form.familia_equipo.help_text %}<small class="muted">{{ base_form.familia_equipo.help_text }}</small>{% endif %}
+                {% if base_form.familia_equipo.errors %}<div class="form-error">{{ base_form.familia_equipo.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full" id="aca-family-equipment-summary" hidden>
+                <details class="family-analysis-details" open>
+                    <summary><span id="aca-family-summary-title">Equipos de la familia</span></summary>
+                    <div id="aca-family-equipment-list" class="family-analysis-list"></div>
+                </details>
+            </div>
+            {% endif %}
+            <div class="form-field full" id="aca-equipment-picker-field">
                 <div class="form-grid" style="margin-top:12px;">
                     <div class="form-field">
                         <label for="aca-equipment-search">Buscar</label>
@@ -45,21 +66,24 @@
                         <small class="muted" id="aca-equipment-count"></small>
                     </div>
                 </div>
+                <input type="hidden" name="{{ base_form.equipo.html_name }}" id="{{ base_form.equipo.id_for_label }}" value="{{ base_form.equipo.value|default:'' }}">
+                <div class="form-grid" id="aca-equipment-level-filters"></div>
+                
                 {% if base_form.equipo.errors %}<div class="form-error">{{ base_form.equipo.errors }}</div>{% endif %}
             </div>
-            <div class="form-field">
+            <div class="form-field aca-equipment-detail-field">
                 <label>Ubicaci&oacute;n T&eacute;cnica</label>
                 <input id="aca-equipment-ut" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
             </div>
-            <div class="form-field">
+            <div class="form-field aca-equipment-detail-field">
                 <label>Descripci&oacute;n U.T&eacute;cnica</label>
                 <input id="aca-equipment-description" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
             </div>
-            <div class="form-field">
+            <div class="form-field aca-equipment-detail-field">
                 <label>Equipo</label>
                 <input id="aca-equipment-name" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
             </div>
-            <div class="form-field">
+            <div class="form-field aca-equipment-detail-field">
                 <label>TAG</label>
                 <input id="aca-equipment-tag" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
             </div>
@@ -67,6 +91,11 @@
                 <label for="{{ base_form.escenario_falla.id_for_label }}">{{ base_form.escenario_falla.label }}</label>
                 {{ base_form.escenario_falla }}
                 {% if base_form.escenario_falla.errors %}<div class="form-error">{{ base_form.escenario_falla.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full" id="aca-scenario-other-field" hidden>
+                <label for="{{ base_form.escenario_falla_otro.id_for_label }}">{{ base_form.escenario_falla_otro.label }}</label>
+                {{ base_form.escenario_falla_otro }}
+                {% if base_form.escenario_falla_otro.errors %}<div class="form-error">{{ base_form.escenario_falla_otro.errors }}</div>{% endif %}
             </div>
         </div>
         
@@ -287,6 +316,37 @@
                     <div class="inline-note muted">No hay una matriz configurada para la estrategia del servicio. Se usarán solo los indicadores manuales configurados.</div>
                 {% endif %}
             </div>
+            <div class="card record-notes-card">
+                <h3 class="card-title">Observación y documentos</h3>
+                <div class="form-grid">
+                    <div class="form-field full">
+                        <label for="{{ base_form.observacion.id_for_label }}">{{ base_form.observacion.label }}</label>
+                        {{ base_form.observacion }}
+                        {% if base_form.observacion.errors %}<div class="form-error">{{ base_form.observacion.errors }}</div>{% endif %}
+                    </div>
+                    <div class="form-field full">
+                        <label for="aca-adjuntos">Documentos relacionados</label>
+                        <label class="attachment-dropzone" for="aca-adjuntos">
+                            <i class="bi bi-paperclip"></i>
+                            <span>Selecciona o arrastra archivos</span>
+                            <small class="muted">PDF, Word, Excel, PowerPoint, CSV, TXT, imágenes o ZIP.</small>
+                        </label>
+                        <input id="aca-adjuntos" class="record-file-input" type="file" name="adjuntos" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip">
+                        <div id="aca-adjuntos-preview" class="attachment-list attachment-preview-list" hidden></div>
+                    </div>
+                </div>
+                {% if existing_attachments %}
+                    <div class="attachment-list">
+                        {% for adjunto in existing_attachments %}
+                            <a class="attachment-item" href="{{ adjunto.archivo.url }}" target="_blank" rel="noopener">
+                                <i class="bi bi-file-earmark-text"></i>
+                                <span>{{ adjunto.nombre_original }}</span>
+                                <small class="muted">{{ adjunto.creado_en|date:"d/m/Y" }}</small>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
             <div class="actions">
                 <button class="btn btn-primary" type="submit" name="save_as" value="complete">{% if editing_crit %}Actualizar registro ACA{% else %}Guardar registro ACA{% endif %}</button>
                 <button class="btn" type="submit" name="save_as" value="draft" formnovalidate>{% if editing_crit %}Guardar como borrador{% else %}Guardar borrador{% endif %}</button>
@@ -298,6 +358,7 @@
 {% block extra_js %}
 {{ service_equipment_payload|json_script:"service-equipment-data" }}
 {{ service_equipment_endpoints|json_script:"service-equipment-endpoints" }}
+{{ service_family_payload|json_script:"service-family-data" }}
 <script>
 (function () {
     const matrixHidden = document.getElementById('{{ base_form.matrix_celda.id_for_label }}');
@@ -316,8 +377,11 @@
     const equipmentInput = document.getElementById('{{ base_form.equipo.id_for_label }}');
     const equipmentDataNode = document.getElementById('service-equipment-data');
     const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
+    const familyDataNode = document.getElementById('service-family-data');
     const equipmentPayload = equipmentDataNode ? JSON.parse(equipmentDataNode.textContent || '{}') : {};
     const equipmentEndpoints = equipmentEndpointsNode ? JSON.parse(equipmentEndpointsNode.textContent || '{}') : {};
+    const familyPayload = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
+    const familyById = Object.fromEntries(familyPayload.map(item => [String(item.id), item]));
     const equipmentLevels = equipmentPayload.levels || [];
     const equipmentNodes = equipmentPayload.nodes || [];
     const equipmentItems = equipmentPayload.equipment || [];
@@ -327,12 +391,163 @@
     const equipmentSearch = document.getElementById('aca-equipment-search');
     const equipmentResults = document.getElementById('aca-equipment-results');
     const equipmentCount = document.getElementById('aca-equipment-count');
+    const familySelect = document.getElementById('{{ base_form.familia_equipo.id_for_label }}');
+    const familyField = document.getElementById('aca-family-field');
+    const familyEditLink = document.getElementById('aca-family-edit-link');
+    const familySummary = document.getElementById('aca-family-equipment-summary');
+    const familySummaryTitle = document.getElementById('aca-family-summary-title');
+    const familyEquipmentList = document.getElementById('aca-family-equipment-list');
+    const equipmentPickerField = document.getElementById('aca-equipment-picker-field');
+    const equipmentDetailFields = Array.from(document.querySelectorAll('.aca-equipment-detail-field'));
+    const scopeRadios = Array.from(document.querySelectorAll('input[name="aca_scope"]'));
+    const scenarioSelect = document.getElementById('{{ base_form.escenario_falla.id_for_label }}');
+    const scenarioOtherField = document.getElementById('aca-scenario-other-field');
+    const attachmentInput = document.getElementById('aca-adjuntos');
+    const attachmentPreview = document.getElementById('aca-adjuntos-preview');
     const equipmentFields = {
         ut: document.getElementById('aca-equipment-ut'),
         description: document.getElementById('aca-equipment-description'),
         name: document.getElementById('aca-equipment-name'),
         tag: document.getElementById('aca-equipment-tag')
     };
+
+    function setScope(scope) {
+        const familyMode = scope === 'familia';
+        if (familyField) familyField.hidden = !familyMode;
+        if (familySummary) familySummary.hidden = !familyMode;
+        if (equipmentPickerField) equipmentPickerField.hidden = familyMode;
+        equipmentDetailFields.forEach(function (field) {
+            field.hidden = familyMode;
+        });
+        scopeRadios.forEach(function (radio) {
+            radio.checked = radio.value === scope;
+        });
+        if (familyMode) {
+            if (equipmentInput) equipmentInput.value = '';
+            if (equipmentResults) equipmentResults.value = '';
+            syncEquipmentInfo();
+        } else if (familySelect) {
+            familySelect.value = '';
+        }
+        updateFamilyEditLink();
+        renderSelectedFamily();
+    }
+
+    function updateFamilyEditLink() {
+        if (!familyEditLink || !familySelect) return;
+        if (familySelect.value) {
+            familyEditLink.href = familyEditLink.dataset.editTemplate.replace('/0/', `/${familySelect.value}/`);
+            familyEditLink.textContent = 'Añadir equipos a esta familia';
+        } else {
+            familyEditLink.href = familyEditLink.dataset.newUrl;
+            familyEditLink.textContent = 'Crear/editar familias';
+        }
+    }
+
+    function renderSelectedFamily() {
+        if (!familyEquipmentList || !familySelect) return;
+        const family = familyById[String(familySelect.value || '')];
+        if (!family) {
+            if (familySummaryTitle) familySummaryTitle.textContent = 'Equipos de la familia';
+            familyEquipmentList.innerHTML = '<div class="muted">Selecciona una familia para ver sus equipos.</div>';
+            return;
+        }
+        const equipos = family.equipos || [];
+        if (familySummaryTitle) {
+            familySummaryTitle.textContent = `${family.nombre} · ${equipos.length} equipo${equipos.length === 1 ? '' : 's'}`;
+        }
+        if (!equipos.length) {
+            familyEquipmentList.innerHTML = '<div class="muted">Esta familia no tiene equipos.</div>';
+            return;
+        }
+        familyEquipmentList.innerHTML = equipos.map(function (item) {
+            return `
+                <div class="family-analysis-item">
+                    <strong>${escapeHtml(item.tag || '')}</strong>
+                    <span>${escapeHtml(item.equipo || '')}</span>
+                    <small class="muted">${escapeHtml(item.ut || '')}</small>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function toggleScenarioOther() {
+        if (!scenarioSelect || !scenarioOtherField) return;
+        scenarioOtherField.hidden = scenarioSelect.value !== '__otro__';
+    }
+
+    function initAttachmentPicker() {
+        if (!attachmentInput || !attachmentPreview || typeof DataTransfer === 'undefined') return;
+        const selectedFiles = new DataTransfer();
+
+        function fileKey(file) {
+            return [file.name, file.size, file.lastModified].join('|');
+        }
+
+        function formatFileSize(size) {
+            if (!size && size !== 0) return '';
+            if (size < 1024) return `${size} B`;
+            if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+            return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function syncInputFiles() {
+            attachmentInput.files = selectedFiles.files;
+            renderAttachmentPreview();
+        }
+
+        function renderAttachmentPreview() {
+            attachmentPreview.hidden = selectedFiles.files.length === 0;
+            attachmentPreview.innerHTML = Array.from(selectedFiles.files).map(function (file, index) {
+                return `
+                    <div class="attachment-item attachment-preview-item">
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+                        <small class="muted">${escapeHtml(formatFileSize(file.size))}</small>
+                        <button class="btn btn-icon" type="button" data-remove-attachment="${index}" aria-label="Quitar archivo" title="Quitar archivo">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        attachmentInput.addEventListener('change', function () {
+            const existing = new Set(Array.from(selectedFiles.files).map(fileKey));
+            Array.from(attachmentInput.files || []).forEach(function (file) {
+                const key = fileKey(file);
+                if (existing.has(key)) return;
+                selectedFiles.items.add(file);
+                existing.add(key);
+            });
+            syncInputFiles();
+        });
+
+        attachmentPreview.addEventListener('click', function (event) {
+            const button = event.target.closest('[data-remove-attachment]');
+            if (!button) return;
+            const index = Number(button.dataset.removeAttachment);
+            if (Number.isNaN(index)) return;
+            selectedFiles.items.remove(index);
+            syncInputFiles();
+        });
+    }
+
+    function initScopeSelector() {
+        if (!scopeRadios.length) return;
+        scopeRadios.forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (radio.checked) setScope(radio.value);
+            });
+        });
+        if (familySelect) {
+            familySelect.addEventListener('change', function () {
+                updateFamilyEditLink();
+                renderSelectedFamily();
+            });
+        }
+        setScope(familySelect && familySelect.value ? 'familia' : 'equipo');
+    }
 
     function setEquipmentField(field, value) {
         if (!field) return;
@@ -875,7 +1090,10 @@
 
         if (matrixResolutionMode === 'umbral_resultado') {
             const resultValue = resultFromAxisValues(probValue, impactValue);
-            if (resultValue === null) return;
+            if (resultValue === null || probValue === null || impactValue === null) {
+                clearMatrixSelection();
+                return;
+            }
             const button = findFloorMatrixButton(resultValue);
             if (!button) {
                 clearMatrixSelection();
@@ -885,7 +1103,10 @@
             return;
         }
 
-        if (probValue === null || impactValue === null) return;
+        if (probValue === null || impactValue === null) {
+            clearMatrixSelection();
+            return;
+        }
 
         const matchedProb = selectLevelByNumericValue(probSelect, probValue);
         const matchedImpact = selectLevelByNumericValue(impactSelect, impactValue);
@@ -1158,6 +1379,10 @@
         if (button) selectMatrixCell(button);
     }
 
+    initScopeSelector();
+    if (scenarioSelect) scenarioSelect.addEventListener('change', toggleScenarioOther);
+    toggleScenarioOther();
+    initAttachmentPicker();
     initEquipmentBrowser();
     recalcCalculatedDimensions();
 })();

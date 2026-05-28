@@ -3,30 +3,30 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 <style>
   .editor-shell {
     display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 16px;
+    grid-template-columns: 300px 1fr;
+    gap: 10px;
   }
 
   .panel-soft {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 8px;
     max-height: 87vh;
     overflow-y: scroll;
   }
 
   .side-head,
   .main-head {
-    padding: 14px 16px;
+    padding: 9px 11px;
     border-bottom: 1px solid var(--line);
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     align-items: center;
   }
 
   .side-body {
-    padding: 12px;
+    padding: 9px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -37,8 +37,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   .item-card {
     border: 1px solid var(--line);
     background: #f8fafc;
-    border-radius: 10px;
-    padding: 12px;
+    border-radius: 8px;
+    padding: 8px;
     cursor: pointer;
   }
 
@@ -60,8 +60,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
 
   .process-group + .process-group {
-    margin-top: 14px;
-    padding-top: 14px;
+    margin-top: 10px;
+    padding-top: 10px;
     border-top: 1px solid var(--line);
   }
 
@@ -88,9 +88,9 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     border: 1px solid var(--line);
     background: #fff;
     color: var(--muted);
-    border-radius: 8px;
-    width: 28px;
-    height: 28px;
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
     cursor: pointer;
     line-height: 1;
   }
@@ -115,16 +115,16 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
 
   .main-body {
-    padding: 16px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
   }
 
   .field-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 9px;
   }
 
   .field-grid .full {
@@ -133,19 +133,20 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 
   .builder {
     display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 14px;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    gap: 10px;
   }
 
   .subpanel {
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 8px;
     overflow: hidden;
     background: #fbfdff;
+    min-width: 0;
   }
 
   .subhead {
-    padding: 12px 14px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--line);
     display: flex;
     justify-content: space-between;
@@ -153,7 +154,36 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
 
   .subbody {
-    padding: 12px;
+    padding: 9px;
+    min-width: 0;
+  }
+
+  .catalog-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .catalog-scroll .table-mini {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+  }
+
+  #columnsWrap .table-mini th,
+  #columnsWrap .table-mini td {
+    min-width: 112px;
+  }
+
+  #rowsWrap .table-mini th,
+  #rowsWrap .table-mini td {
+    min-width: 140px;
+  }
+
+  #rowsWrap .table-mini th:last-child,
+  #rowsWrap .table-mini td:last-child {
+    min-width: 48px;
+    width: 48px;
   }
 
   .table-mini {
@@ -168,7 +198,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   }
 
   .table-mini th {
-    padding: 8px;
+    padding: 6px;
     background: #f8fafc;
     font-size: 12px;
   }
@@ -177,16 +207,16 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   .table-mini td select {
     border: none;
     width: 100%;
-    padding: 10px;
+    padding: 6px;
     background: white;
   }
 
   .empty-state {
-    padding: 24px;
+    padding: 14px;
     text-align: center;
     color: var(--muted);
     border: 1px dashed var(--line);
-    border-radius: 12px;
+    border-radius: 8px;
     background: #fafafa;
   }
 
@@ -194,8 +224,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     border: 1px solid var(--line);
     border-radius: 8px;
     background: #fff;
-    padding: 10px;
-    margin-bottom: 10px;
+    padding: 8px;
+    margin-bottom: 8px;
   }
 
   .calc-step-head {
@@ -226,12 +256,12 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 
   .checkbox-select {
     height: auto;
-    min-height: 42px;
+    min-height: 34px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex-wrap: wrap;
-    padding: 8px 10px;
+    padding: 6px 8px;
   }
 
   .checkbox-select label {
@@ -249,8 +279,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   .validation-panel {
     border: 1px solid var(--line);
     border-radius: 10px;
-    padding: 10px 12px;
-    margin-bottom: 14px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
     background: #f8fafc;
     color: var(--muted);
     font-size: 13px;
@@ -290,12 +320,16 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 </style>
 {% endblock %} {% block content %}
 <div class="page-header">
-  <div>
+  <div class="page-title-group">
+    <a class="btn" href="{% url 'model_detail' 'estrategia' estrategia.pk %}" aria-label="Volver" title="Volver">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <div class="page-title-copy">
     <h2>Dimensiones y catálogos</h2>
     <p>{{ estrategia.empresa }} | {{ estrategia.nombre }}</p>
+    </div>
   </div>
   <div class="actions">
-    <a class="btn" href="{% url 'model_detail' 'estrategia' estrategia.pk %}">Volver a estrategia</a>
     <button class="btn" type="button" onclick="newItem()">
       Nueva dimensión
     </button>
@@ -391,8 +425,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
                   onchange="updateProcessUsage()" /> {{ label }}</label>
               {% endif %}
               {% endfor %}
+              <label><input type="checkbox" data-process-checkbox disabled /> Malos actores</label>
             </div>
-            <small class="muted">Puedes seleccionar ACA, RCM o ambos.</small>
           </div>
           <div id="calcSourcesBlock">
             <label>Operandos del cálculo</label>
@@ -422,6 +456,10 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
             <label><input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
               Obligatorio</label>
           </div>
+          <div style="display: flex; align-items: end">
+            <label><input type="checkbox" id="fConsiderarAvanceAca" onchange="updateField('considerar_avance_aca', this.checked)" />
+              Considerar en avance ACA</label>
+          </div>
         </div>
 
         <div class="builder" id="catalogBuilder">
@@ -431,7 +469,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
                 + Columna
               </button>
             </div>
-            <div class="subbody" id="columnsWrap"></div>
+            <div class="subbody catalog-scroll" id="columnsWrap"></div>
           </div>
           <div class="subpanel">
             <div class="subhead">
@@ -439,7 +477,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
                 + Fila
               </button>
             </div>
-            <div class="subbody" id="rowsWrap"></div>
+            <div class="subbody catalog-scroll" id="rowsWrap"></div>
           </div>
         </div>
       </div>
@@ -545,7 +583,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     panel.classList.toggle('has-errors', result.errors.length > 0);
     panel.classList.toggle('has-warnings', !result.errors.length && result.warnings.length > 0);
     if (!result.errors.length && !result.warnings.length) {
-      panel.innerHTML = `Validacion OK. Numeros permitidos: hasta ${CATALOG_NUMBER_MAX} y maximo ${CATALOG_DECIMAL_PLACES} decimales.${rangeHint}`;
+      panel.innerHTML = `Numeros permitidos: hasta ${CATALOG_NUMBER_MAX} y maximo ${CATALOG_DECIMAL_PLACES} decimales.${rangeHint}`;
       return result;
     }
     const errorList = result.errors.length
@@ -568,16 +606,25 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     });
     return { errors, warnings };
   }
-  function processLabel(value) { return (processOptions.find(opt => opt.value === (value || 'aca')) || processOptions[0] || { label: 'ACA' }).label; }
+  const acaProcessValue = 'aca';
+  const bothProcessValue = 'ambos';
+  const fmecaProcessValue = (processOptions.find(opt => ![acaProcessValue, bothProcessValue].includes(opt.value)) || { value: 'fmeca' }).value;
+  function normalizeProcessValue(value) {
+    if (value === 'rcm') return fmecaProcessValue;
+    return value || acaProcessValue;
+  }
+  function processLabel(value) { return (processOptions.find(opt => opt.value === normalizeProcessValue(value)) || processOptions[0] || { label: 'ACA' }).label; }
   function processGroupTitle(value) {
-    if (value === 'rcm') return 'Tablas de RCM';
-    if (value === 'ambos') return 'Tablas compartidas ACA y RCM';
+    value = normalizeProcessValue(value);
+    if (value === fmecaProcessValue) return 'Tablas de FMECA';
+    if (value === bothProcessValue) return 'Tablas compartidas ACA y FMECA';
     return 'Tablas de ACA';
   }
   function processGroupOrder(value) {
-    if (value === 'aca') return 1;
-    if (value === 'rcm') return 2;
-    if (value === 'ambos') return 3;
+    value = normalizeProcessValue(value);
+    if (value === acaProcessValue) return 1;
+    if (value === fmecaProcessValue) return 2;
+    if (value === bothProcessValue) return 3;
     return 4;
   }
   function isGroupCollapsed(value) {
@@ -591,20 +638,21 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     renderList();
   }
   function expandItemGroup(item) {
-    if (item) setGroupCollapsed(item.proceso_uso || 'aca', false);
+    if (item) setGroupCollapsed(normalizeProcessValue(item.proceso_uso), false);
   }
   function processValues(value) {
-    if (value === 'ambos') return ['aca', 'rcm'];
-    if (value === 'rcm') return ['rcm'];
-    return ['aca'];
+    value = normalizeProcessValue(value);
+    if (value === bothProcessValue) return [acaProcessValue, fmecaProcessValue];
+    if (value === fmecaProcessValue) return [fmecaProcessValue];
+    return [acaProcessValue];
   }
   function processValueFromSelection(values) {
     const selected = new Set(values || []);
-    const hasAca = selected.has('aca');
-    const hasRcm = selected.has('rcm');
-    if (hasAca && hasRcm) return 'ambos';
-    if (hasRcm) return 'rcm';
-    return 'aca';
+    const hasAca = selected.has(acaProcessValue);
+    const hasFmeca = selected.has(fmecaProcessValue);
+    if (hasAca && hasFmeca) return bothProcessValue;
+    if (hasFmeca) return fmecaProcessValue;
+    return acaProcessValue;
   }
   function syncProcessCheckboxes(item) {
     const selected = processValues(item?.proceso_uso || 'aca');
@@ -623,10 +671,10 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     renderDependencySources();
   }
   function processCompatible(target, source) {
-    const targetProcess = target.proceso_uso || 'aca';
-    const sourceProcess = source.proceso_uso || 'aca';
-    if (targetProcess === 'ambos') return sourceProcess === 'ambos';
-    return sourceProcess === targetProcess || sourceProcess === 'ambos';
+    const targetProcess = normalizeProcessValue(target.proceso_uso);
+    const sourceProcess = normalizeProcessValue(source.proceso_uso);
+    if (targetProcess === bothProcessValue) return sourceProcess === bothProcessValue;
+    return sourceProcess === targetProcess || sourceProcess === bothProcessValue;
   }
   function isCalculated(item) { return !!(item && item.tipo_calculo); }
   function sourceKey(src) {
@@ -704,14 +752,14 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function defaultColumns(type) {
     if (type === 'numerico_libre') return [];
     return type === 'rangos' ? [
-      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
-      { id: 'c2', nombre_columna: 'Desde', clave_interna: 'limite_inferior', tipo_dato: 'numero' },
-      { id: 'c3', nombre_columna: 'Hasta', clave_interna: 'limite_superior', tipo_dato: 'numero' },
-      { id: 'c4', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' }
+      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto', visible_en_registro: true },
+      { id: 'c2', nombre_columna: 'Desde', clave_interna: 'limite_inferior', tipo_dato: 'numero', visible_en_registro: true },
+      { id: 'c3', nombre_columna: 'Hasta', clave_interna: 'limite_superior', tipo_dato: 'numero', visible_en_registro: true },
+      { id: 'c4', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero', visible_en_registro: true }
     ] : [
-      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto' },
-      { id: 'c2', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero' },
-      { id: 'c3', nombre_columna: 'Booleano', clave_interna: 'valor_booleano', tipo_dato: 'booleano' }
+      { id: 'c1', nombre_columna: 'Etiqueta', clave_interna: 'etiqueta', tipo_dato: 'texto', visible_en_registro: true },
+      { id: 'c2', nombre_columna: 'Valor principal', clave_interna: 'valor_numerico', tipo_dato: 'numero', visible_en_registro: true },
+      { id: 'c3', nombre_columna: 'Booleano', clave_interna: 'valor_booleano', tipo_dato: 'booleano', visible_en_registro: true }
     ];
   }
   function ensureRows(item) { item.filas = Array.isArray(item.filas) ? item.filas : []; item.filas.forEach(r => r.valores = r.valores || {}); }
@@ -723,7 +771,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     document.getElementById('itemsCount').textContent = store.items.length;
     if (!store.items.length) { list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin dimensiones todavía.</div>'; return; }
     const grouped = store.items.reduce((acc, item) => {
-      const key = item.proceso_uso || 'aca';
+      const key = normalizeProcessValue(item.proceso_uso);
+      item.proceso_uso = key;
       acc[key] = acc[key] || [];
       acc[key].push(item);
       return acc;
@@ -738,7 +787,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
           processLabel(it.proceso_uso),
           it.tipo_funcional || '-',
           it.tipo_dato || '-',
-          it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones')
+          it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones'),
+          it.considerar_avance_aca === false ? '' : 'avance ACA'
         ];
         if (dep) meta.push('depende: ' + dep);
         return `<div class="item-card ${activeClass}" onclick="selectItem('${escapeHtml(it.id)}')"><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong><div class="meta">${escapeHtml(meta.join(' | '))}</div></div>`;
@@ -756,7 +806,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     ensureColumns(item); ensureRows(item);
     document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
     fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
-    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false;
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false;
     const calculated = isCalculated(item);
     catalogTypeBlock.style.display = calculated ? 'none' : '';
     catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
@@ -931,6 +981,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
           <th>Nombre</th>
           <th>Clave</th>
           <th>Tipo</th>
+          <th><i class="bi bi-eye"></i></th>
           <th></th>
         </tr>
        </thead>
@@ -945,6 +996,11 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
         <select onchange="updateColumn(${idx},'tipo_dato',this.value)">${columnTypeOptions.map(opt => `<option value="${opt.value}" ${opt.value === col.tipo_dato ? 'selected' : ''}>${opt.label}</option>`).join('')}</select>
         </td>
       <td>
+        <button style="border-radius: 0; border: 0;" class="btn btn-icon column-visibility-toggle ${col.visible_en_registro === false ? 'is-hidden-column' : ''}" type="button" onclick="toggleColumnVisibility(${idx})" title="${col.visible_en_registro === false ? 'Mostrar en registro' : 'Ocultar en registro'}">
+          <i class="bi ${col.visible_en_registro === false ? 'bi-eye-slash' : 'bi-eye'}"></i>
+        </button>
+        </td>
+      <td>
         <button class="btn btn-danger" type="button" onclick="removeColumn(${idx})">X</button>
         </td>
     </tr>`).join('')}</tbody>
@@ -953,7 +1009,10 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function renderRows() {
     const item = current(); if (!item) return;
     if (!item.columnas.length) { rowsWrap.innerHTML = '<div class="empty-state">Agrega al menos una columna.</div>'; return; }
-    let html = `<table class="table-mini"><thead><tr>${item.columnas.map(col => `<th>${col.nombre_columna || col.clave_interna}</th>`).join('')}<th></th></tr></thead><tbody>`;
+    let html = `<table class="table-mini"><thead><tr>${item.columnas.map((col, colIdx) => `<th class="dimension-column-header ${col.visible_en_registro === false ? 'is-hidden-column-preview' : ''}" draggable="true" ondragstart="startColumnDrag(event, ${colIdx})" ondragover="allowColumnDrop(event)" ondrop="dropColumn(event, ${colIdx})">
+      <button class="btn btn-icon column-drag-handle" type="button" draggable="true" ondragstart="startColumnDrag(event, ${colIdx})" title="Mover columna"><i class="bi bi-list"></i></button>
+      <span>${col.nombre_columna || col.clave_interna}</span>
+    </th>`).join('')}<th></th></tr></thead><tbody>`;
     html += item.filas.map((row, rowIdx) => `<tr>${item.columnas.map(col => `<td>${cellEditor(row, col, rowIdx)}</td>`).join('')}<td><button class="btn btn-danger" type="button" onclick="removeRow(${rowIdx})">X</button></td></tr>`).join('');
     html += '</tbody></table>';
     rowsWrap.innerHTML = html;
@@ -970,7 +1029,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
   function newItem() {
     const id = 'new_' + Date.now();
-    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
     store.active = id; expandItemGroup(current()); renderList(); renderEditor();
   }
   function duplicateItem() {
@@ -1011,7 +1070,14 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     }
     renderEditor();
   }
-  function addColumn() { const item = current(); if (!item) return; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: 'Nueva columna', clave_interna: 'col_' + (item.columnas.length + 1), tipo_dato: 'texto' }); renderColumns(); renderRows(); renderValidation(); }
+  function addColumn() { const item = current(); if (!item) return; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: 'Nueva columna', clave_interna: 'col_' + (item.columnas.length + 1), tipo_dato: 'texto', visible_en_registro: true }); renderColumns(); renderRows(); renderValidation(); }
+  function toggleColumnVisibility(idx) {
+    const item = current(); if (!item) return;
+    const col = item.columnas[idx]; if (!col) return;
+    col.visible_en_registro = col.visible_en_registro === false;
+    renderColumns();
+    renderRows();
+  }
   function updateColumn(idx, field, value){
     const item = current();
     if(!item) return;
@@ -1054,6 +1120,28 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     renderValidation();
   }
   function removeColumn(idx) { const item = current(); if (!item) return; const removed = item.columnas[idx]?.clave_interna; item.columnas.splice(idx, 1); item.filas.forEach(row => { if (row.valores && removed in row.valores) delete row.valores[removed]; }); renderColumns(); renderRows(); renderValidation(); }
+  function moveColumn(fromIdx, toIdx) {
+    const item = current(); if (!item) return;
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= item.columnas.length || toIdx >= item.columnas.length) return;
+    const [moved] = item.columnas.splice(fromIdx, 1);
+    item.columnas.splice(toIdx, 0, moved);
+    renderColumns();
+    renderRows();
+    renderValidation();
+  }
+  function startColumnDrag(event, idx) {
+    event.dataTransfer.setData('text/plain', String(idx));
+    event.dataTransfer.effectAllowed = 'move';
+  }
+  function allowColumnDrop(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }
+  function dropColumn(event, idx) {
+    event.preventDefault();
+    const fromIdx = Number(event.dataTransfer.getData('text/plain'));
+    if (Number.isFinite(fromIdx)) moveColumn(fromIdx, idx);
+  }
   function addRow() { const item = current(); if (!item) return; const valores = {}; item.columnas.forEach(col => valores[col.clave_interna] = ''); item.filas.push({ id: 'r' + Date.now(), etiqueta: '', valores }); renderRows(); renderValidation(); }
   function updateCell(rowIdx, key, value) { const item = current(); if (!item) return; const row = item.filas[rowIdx]; row.valores = row.valores || {}; row.valores[key] = value; if (key === 'etiqueta') row.etiqueta = value; renderValidation(); }
   function removeRow(idx) { const item = current(); if (!item) return; item.filas.splice(idx, 1); renderRows(); renderValidation(); }
@@ -1096,6 +1184,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       tipo_funcional: item.tipo_funcional || 'atributo',
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
       proceso_uso: item.proceso_uso || 'aca',
+      considerar_avance_aca: item.considerar_avance_aca !== false,
       tipo_calculo: item.tipo_calculo || '',
       config_calculo: item.tipo_calculo
         ? normalizedCalculationConfig(item)
@@ -1104,7 +1193,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : withoutSecondaryColumns(item.columnas).map((col, colIdx) => ({
         nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,
         clave_interna: col.clave_interna || slugifyLite(col.nombre_columna || `col_${colIdx + 1}`),
-        tipo_dato: col.tipo_dato || 'texto'
+        tipo_dato: col.tipo_dato || 'texto',
+        visible_en_registro: col.visible_en_registro !== false
       })),
       filas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : (item.filas || []).map((row, rowIdx) => {
         const valores = Object.assign({}, row.valores || {});

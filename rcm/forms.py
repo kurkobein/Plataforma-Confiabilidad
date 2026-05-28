@@ -37,6 +37,10 @@ def _catalog_primary_numeric_from_values(values):
 def _rcm_dimension_queryset(service):
     if not service or not service.estrategia_id:
         return app_models.EstrategiaDimension.objects.none()
+    process_values = list(dict.fromkeys([
+        *getattr(app_models.EstrategiaDimension, 'PROCESO_FMECA_ALIASES', ('fmeca', 'rcm')),
+        app_models.EstrategiaDimension.PROCESO_AMBOS,
+    ]))
     consequence_terms = [
         'impacto',
         'consecuencia',
@@ -55,10 +59,7 @@ def _rcm_dimension_queryset(service):
         app_models.EstrategiaDimension.objects.filter(
             estrategia=service.estrategia,
             activo=True,
-            proceso_uso__in=[
-                app_models.EstrategiaDimension.PROCESO_RCM,
-                app_models.EstrategiaDimension.PROCESO_AMBOS,
-            ],
+            proceso_uso__in=process_values,
         )
         .select_related('dimension')
         .prefetch_related(
@@ -396,7 +397,14 @@ class RCMRegistroForm(forms.Form):
     equipo = forms.ModelChoiceField(
         queryset=app_models.Equipo.objects.none(),
         widget=forms.HiddenInput(),
+        required=False,
         label='Equipo',
+    )
+    familia_equipo = forms.ModelChoiceField(
+        queryset=app_models.FamiliaEquipo.objects.none(),
+        required=False,
+        label='Familia de equipos',
+        help_text='Opcional. Si seleccionas una familia, se creara un registro RCM/FMEA para cada equipo activo de esa familia.',
     )
     fecha_analisis = forms.DateField(
         label='Fecha de análisis',
@@ -418,6 +426,11 @@ class RCMRegistroForm(forms.Form):
     modo_de_falla = forms.CharField(label='Modo de falla', widget=forms.Textarea(attrs={'rows': 3}))
     causa = forms.CharField(label='Causa', widget=forms.Textarea(attrs={'rows': 3}), required=False)
     efecto = forms.CharField(label='Efecto', widget=forms.Textarea(attrs={'rows': 3}))
+    observacion = forms.CharField(
+        required=False,
+        label='Observación',
+        widget=forms.Textarea(attrs={'rows': 3}),
+    )
 
     def __init__(self, *args, service=None, rcm=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -453,6 +466,11 @@ class RCMRegistroForm(forms.Form):
 
         if service:
             self.fields['equipo'].queryset = get_service_equipment(service)
+            self.fields['familia_equipo'].queryset = app_models.FamiliaEquipo.objects.filter(
+                servicio=service,
+                activa=True,
+            ).order_by('nombre')
+        self.fields['familia_equipo'].empty_label = 'Sin familia'
 
         for estrategia_dimension in _rcm_impact_dimension_queryset(service):
             dimension = estrategia_dimension.dimension
@@ -722,7 +740,16 @@ class RCMRegistroForm(forms.Form):
         return cleaned
 
     def clean(self):
-        return self._clean_dynamic_rcm_evaluations()
+        cleaned = self._clean_dynamic_rcm_evaluations()
+        familia = cleaned.get('familia_equipo')
+        equipo = cleaned.get('equipo')
+        if familia and equipo:
+            self.add_error('familia_equipo', 'Elige una familia o un equipo individual, no ambos.')
+        if familia and not familia.items.exists():
+            self.add_error('familia_equipo', 'La familia seleccionada no tiene equipos.')
+        if not familia and not equipo:
+            self.add_error('equipo', 'Selecciona un equipo o una familia de equipos.')
+        return cleaned
 
 
 class TareaRCMForm(forms.Form):

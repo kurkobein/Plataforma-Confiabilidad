@@ -1,0 +1,127 @@
+{% load l10n %}
+<div class="aca-progress-panel" data-aca-progress-panel>
+    <div class="aca-progress-status" data-aca-progress-status aria-live="polite"></div>
+
+    <div class="aca-progress-summary">
+        <div class="aca-progress-donut-block">
+            <div class="aca-progress-donut" style="--progress-degrees: {{ progress_summary.average_progress_degrees|default:0|unlocalize }}deg;">
+                <span>{{ progress_summary.average_progress_label }}</span>
+            </div>
+            <small>Avance</small>
+        </div>
+        <div class="aca-progress-donut-block">
+            <div class="aca-progress-donut aca-progress-donut-status" style="--progress-degrees: {{ progress_summary.complete_records_degrees|default:0|unlocalize }}deg;">
+                <span>{{ progress_summary.complete_records_label }}</span>
+            </div>
+            <small>Completos</small>
+        </div>
+        <div class="aca-progress-summary-copy">
+            <h3 class="card-title">Avance ACA</h3>
+            <p class="muted">
+                {% if progress_summary.progress_available %}
+                    {{ progress_summary.dimension_count }} dimensiones consideradas para avance.
+                {% else %}
+                    No hay dimensiones configuradas para avance ACA.
+                {% endif %}
+            </p>
+            {% if selected_progress_nodo %}
+                <span class="aca-progress-filter-badge">Resumen filtrado</span>
+            {% endif %}
+        </div>
+        <div class="aca-progress-kpis">
+            <div class="stat"><small>Avance promedio</small><strong>{{ progress_summary.average_progress_label }}</strong></div>
+            <div class="stat"><small>Total registros</small><strong>{{ progress_summary.total_records }}</strong></div>
+            <div class="stat"><small>Completos</small><strong>{{ progress_summary.complete_records }}</strong></div>
+            <div class="stat"><small>Incompletos</small><strong>{{ progress_summary.incomplete_records }}</strong></div>
+        </div>
+        <div class="aca-progress-gap">
+            <small>Mayor brecha</small>
+            {% if progress_summary.major_gap %}
+                <strong>{{ progress_summary.major_gap.name }}</strong>
+                <span>{{ progress_summary.major_gap.missing_count }} registros sin completar</span>
+            {% else %}
+                <strong>Sin brechas</strong>
+                <span>No hay faltantes en las dimensiones consideradas.</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <form class="aca-progress-filters" method="get" data-aca-progress-form data-progress-url="{% url 'service_aca_progress_partial' service.pk %}">
+        <div class="aca-progress-toolbar">
+            <button class="btn" type="button" data-aca-progress-toggle-filters aria-expanded="false">
+                <i class="bi bi-funnel"></i> Filtros
+            </button>
+            <button class="btn" type="button" data-aca-progress-toggle-chart aria-expanded="false">
+                <i class="bi bi-pie-chart"></i> Grafico por nivel
+            </button>
+            <button class="btn" type="button" data-aca-progress-save>
+                <i class="bi bi-save"></i> Guardar vista
+            </button>
+        </div>
+
+        <div class="aca-progress-filter-body" data-aca-progress-filter-body hidden>
+            <div class="form-field">
+                <label for="progress-nivel">Nivel filtro</label>
+                <select class="input-control" id="progress-nivel" name="progress_nivel" data-progress-level-filter>
+                    <option value="">Todos</option>
+                    {% for level in hierarchy_filters.levels %}
+                        <option value="{{ level.id }}"{% if selected_progress_nivel == level.id|stringformat:"s" %} selected{% endif %}>{{ level.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="progress-nodo">Nodo</label>
+                <select class="input-control" id="progress-nodo" name="progress_nodo" data-progress-node-filter>
+                    <option value="">Todos los nodos</option>
+                    {% for node in hierarchy_filters.nodes %}
+                        <option value="{{ node.id }}" data-level-id="{{ node.level_id }}"{% if selected_progress_nodo == node.id|stringformat:"s" %} selected{% endif %}>{{ node.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="actions aca-progress-filter-actions">
+                <button class="btn btn-primary" type="submit">Aplicar</button>
+                <a class="btn" href="{% url 'service_aca_list' service.pk %}" data-aca-progress-clear>Limpiar</a>
+            </div>
+        </div>
+
+        <div class="aca-progress-chart-panel" data-aca-progress-chart-panel hidden>
+            <div class="aca-progress-chart-head">
+                <div class="form-field">
+                    <label for="progress-chart-level">Nivel del grafico</label>
+                    <select class="input-control" id="progress-chart-level" name="progress_chart_level" data-progress-chart-level>
+                        <option value="">Selecciona nivel</option>
+                        {% for level in hierarchy_filters.levels %}
+                            <option value="{{ level.id }}"{% if selected_progress_chart_level == level.id|stringformat:"s" %} selected{% endif %}>{{ level.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <small class="muted">El grafico usa los filtros activos de nivel/nodo.</small>
+            </div>
+
+            {% if hierarchy_chart_summary %}
+                <div class="aca-progress-level-chart-grid">
+                    {% for group in hierarchy_chart_summary %}
+                        <div class="aca-progress-level-card">
+                            <div class="aca-progress-donut aca-progress-donut-small" style="--progress-degrees: {{ group.average_progress_degrees|default:0|unlocalize }}deg;">
+                                <span>{{ group.average_progress_label }}</span>
+                            </div>
+                            <div class="aca-progress-level-copy">
+                                <strong title="{{ group.label }}">{{ group.display_label|default:group.label }}</strong>
+                                <span>{{ group.total_records }} registros &middot; {{ group.complete_records }} completos &middot; {{ group.incomplete_records }} incompletos</span>
+                                {% if group.major_gap %}
+                                    <small>Brecha: {{ group.major_gap.name }} ({{ group.major_gap.missing_count }})</small>
+                                {% else %}
+                                    <small>Sin brechas</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="aca-progress-chart-empty muted">
+                    Selecciona un nivel para ver donas por area, planta, sistema u otro nivel disponible.
+                </div>
+            {% endif %}
+        </div>
+    </form>
+</div>

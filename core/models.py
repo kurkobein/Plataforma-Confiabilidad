@@ -1,6 +1,32 @@
 from django.contrib.auth.models import User
+from django.core.validators import FileExtensionValidator
 from django.db import models
 import re
+
+
+RECORD_ATTACHMENT_EXTENSIONS = [
+    'pdf',
+    'doc',
+    'docx',
+    'xls',
+    'xlsx',
+    'csv',
+    'ppt',
+    'pptx',
+    'txt',
+    'png',
+    'jpg',
+    'jpeg',
+    'zip',
+]
+
+
+def aca_attachment_upload_to(instance, filename):
+    return f'aca_adjuntos/{instance.criticidad_id}/{filename}'
+
+
+def rcm_attachment_upload_to(instance, filename):
+    return f'rcm_adjuntos/{instance.rcm_id}/{filename}'
 
 
 class ActiveUsuarioManager(models.Manager):
@@ -338,6 +364,67 @@ class ServicioEquipo(BaseUnmanagedModel):
         return f'{self.servicio} / {self.equipo}'
 
 
+class FamiliaEquipo(BaseUnmanagedModel):
+    nombre = models.CharField(max_length=150)
+    descripcion = models.TextField(blank=True)
+    activa = models.BooleanField(default=True)
+    creado_en = models.DateTimeField()
+    actualizado = models.DateTimeField()
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='familias_equipo')
+    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='familias_equipo')
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_familiaequipo'
+        ordering = ['servicio_id', 'nombre']
+        unique_together = (('servicio', 'nombre'),)
+        indexes = [
+            models.Index(fields=['servicio', 'activa'], name='idx_familiaequipo_servicio'),
+            models.Index(fields=['nombre'], name='idx_familiaequipo_nombre'),
+        ]
+
+    def __str__(self):
+        return f'{self.servicio.codigo_servicio} / {self.nombre}'
+
+
+class FamiliaEquipoItem(BaseUnmanagedModel):
+    familia = models.ForeignKey(FamiliaEquipo, on_delete=models.CASCADE, db_column='familia_id', related_name='items')
+    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='familias_item')
+    orden = models.PositiveIntegerField(default=0)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_familiaequipoitem'
+        ordering = ['familia_id', 'orden', 'equipo__tag_equipo', 'equipo__nombre_equipo']
+        unique_together = (('familia', 'equipo'),)
+        indexes = [
+            models.Index(fields=['familia'], name='idx_familiaitem_familia'),
+            models.Index(fields=['equipo'], name='idx_familiaitem_equipo'),
+        ]
+
+    def __str__(self):
+        return f'{self.familia} / {self.equipo}'
+
+
+class EscenarioFalla(BaseUnmanagedModel):
+    nombre = models.CharField(max_length=200)
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField()
+    actualizado = models.DateTimeField()
+    servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='escenarios_falla')
+    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='escenarios_falla')
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_escenariofalla'
+        ordering = ['servicio_id', 'nombre']
+        unique_together = (('servicio', 'nombre'),)
+        indexes = [
+            models.Index(fields=['servicio', 'activo'], name='idx_escenariofalla_servicio'),
+            models.Index(fields=['nombre'], name='idx_escenariofalla_nombre'),
+        ]
+
+    def __str__(self):
+        return f'{self.servicio.codigo_servicio} / {self.nombre}'
+
+
 class Carga(BaseUnmanagedModel):
     STATUS_COMPLETO = 'Completo'
     STATUS_INCOMPLETO = 'Incompleto'
@@ -366,6 +453,7 @@ class Carga(BaseUnmanagedModel):
 
 class Criticidad(BaseUnmanagedModel):
     escenario_falla = models.TextField(blank=True)
+    observacion = models.TextField('Observación', blank=True, default='')
     frecuencia_original = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     frecuencia_normalizada = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     valor_cons_total = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
@@ -382,6 +470,28 @@ class Criticidad(BaseUnmanagedModel):
 
     def __str__(self):
         return f'Criticidad {self.id} - {self.equipo}'
+
+
+class CriticidadAdjunto(BaseUnmanagedModel):
+    criticidad = models.ForeignKey(Criticidad, on_delete=models.CASCADE, db_column='criticidad_id', related_name='adjuntos')
+    archivo = models.FileField(
+        upload_to=aca_attachment_upload_to,
+        validators=[FileExtensionValidator(RECORD_ATTACHMENT_EXTENSIONS)],
+    )
+    nombre_original = models.CharField(max_length=255)
+    creado_en = models.DateTimeField()
+    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='adjuntos_aca')
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_criticidadadjunto'
+        ordering = ['-creado_en', '-id']
+        indexes = [
+            models.Index(fields=['criticidad'], name='idx_critadj_criticidad'),
+            models.Index(fields=['creado_en'], name='idx_critadj_creado'),
+        ]
+
+    def __str__(self):
+        return self.nombre_original or f'Adjunto ACA {self.id}'
 
 
 class Dimension(BaseUnmanagedModel):
@@ -426,17 +536,21 @@ class Dimension(BaseUnmanagedModel):
 
 class EstrategiaDimension(BaseUnmanagedModel):
     PROCESO_ACA = 'aca'
-    PROCESO_RCM = 'rcm'
+    PROCESO_FMECA = 'fmeca'
+    PROCESO_RCM_LEGACY = 'rcm'
+    PROCESO_RCM = PROCESO_FMECA
     PROCESO_AMBOS = 'ambos'
+    PROCESO_FMECA_ALIASES = (PROCESO_FMECA, PROCESO_RCM_LEGACY, 'rcm_fmea', 'global')
     PROCESO_USO_CHOICES = [
         (PROCESO_ACA, 'ACA'),
-        (PROCESO_RCM, 'RCM'),
-        (PROCESO_AMBOS, 'ACA y RCM'),
+        (PROCESO_FMECA, 'FMECA'),
+        (PROCESO_AMBOS, 'ACA y FMECA'),
     ]
 
     orden = models.PositiveIntegerField()
     obligatorio = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
+    considerar_avance_aca = models.BooleanField('Considerar en avance ACA', default=True)
     proceso_uso = models.CharField(max_length=10, choices=PROCESO_USO_CHOICES, default=PROCESO_ACA)
     dimension = models.ForeignKey(Dimension, on_delete=models.DO_NOTHING, db_column='dimension_id', related_name='estrategias_dimension')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='dimensiones_estrategia')
@@ -462,6 +576,7 @@ class RCM(BaseUnmanagedModel):
     modo_de_falla = models.TextField()
     causa = models.TextField(blank=True, null=True)
     efecto = models.TextField()
+    observacion = models.TextField('Observación', blank=True, default='')
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_rcm'
@@ -479,6 +594,28 @@ class RCM(BaseUnmanagedModel):
 
     def __str__(self):
         return f'RCM {self.id} - {self.equipo}'
+
+
+class RCMAdjunto(BaseUnmanagedModel):
+    rcm = models.ForeignKey(RCM, on_delete=models.CASCADE, db_column='rcm_id', related_name='adjuntos')
+    archivo = models.FileField(
+        upload_to=rcm_attachment_upload_to,
+        validators=[FileExtensionValidator(RECORD_ATTACHMENT_EXTENSIONS)],
+    )
+    nombre_original = models.CharField(max_length=255)
+    creado_en = models.DateTimeField()
+    usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='adjuntos_rcm')
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_rcmadjunto'
+        ordering = ['-creado_en', '-id']
+        indexes = [
+            models.Index(fields=['rcm'], name='idx_rcmadj_rcm'),
+            models.Index(fields=['creado_en'], name='idx_rcmadj_creado'),
+        ]
+
+    def __str__(self):
+        return self.nombre_original or f'Adjunto RCM {self.id}'
 
 
 class FMEA_FMECA(BaseUnmanagedModel):
@@ -950,6 +1087,7 @@ class DimensionCatalogoColumna(BaseUnmanagedModel):
     clave_interna = models.CharField(max_length=100)
     tipo_dato = models.CharField(max_length=20)
     orden = models.PositiveIntegerField()
+    visible_en_registro = models.BooleanField('Visible en registro', default=True)
     catalogo = models.ForeignKey(DimensionCatalogo, on_delete=models.DO_NOTHING, db_column='catalogo_id', related_name='columnas')
 
     class Meta(BaseUnmanagedModel.Meta):

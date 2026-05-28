@@ -12,7 +12,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link rel="stylesheet" href="{% static 'styles.css' %}">
     <link rel="stylesheet" href="https://cdn.datatables.net/2.3.8/css/dataTables.dataTables.min.css">
-    <link rel="icon" href="{% static 'img/favicon.ico' %}">
+    <link rel="icon" href="{% static 'img/favicon.jpg' %}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
     {% block extra_head %}{% endblock %}
 </head>
@@ -71,6 +71,366 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    function textFromHeader(header, selector) {
+        const node = header.querySelector(selector);
+        return node ? node.textContent.trim() : '';
+    }
+
+    function cleanLabel(value) {
+        return String(value || '')
+            .replace(/\s+/g, ' ')
+            .replace(/^[·\-\s]+|[·\-\s]+$/g, '')
+            .trim();
+    }
+
+    function titleLabel(header) {
+        return cleanLabel(textFromHeader(header, 'h1, h2')) || document.title.split('|')[0].trim() || 'Seccion';
+    }
+
+    function serviceLabel(header) {
+        const title = titleLabel(header);
+        const subtitle = textFromHeader(header, 'p');
+        const subtitleCode = cleanLabel((subtitle.split('·')[0] || ''));
+        if (/^[A-Z0-9_-]{2,}$/i.test(title) && !['registros rcm', 'registros aca', 'pautas'].includes(title.toLowerCase())) {
+            return title;
+        }
+        return subtitleCode || 'Servicio';
+    }
+
+    function prettifySegment(segment) {
+        const labels = {
+            aca: 'ACA',
+            rcm: 'RCM',
+            pautas: 'Pautas',
+            plantillas: 'Plantillas',
+            mapeo: 'Mapeo',
+            generar: 'Generar',
+            nuevo: 'Nuevo',
+            editar: 'Editar',
+            eliminar: 'Eliminar',
+            matrices: 'Matrices',
+            builder: 'Constructor',
+            estrategias: 'Estrategias',
+            tablas: 'Tablas de evaluacion',
+            empresas: 'Empresas',
+            jerarquia: 'Jerarquia',
+            estructura: 'Estructura',
+            valores: 'Valores',
+            constructor: 'Constructor',
+            nodos: 'Nodos',
+            mover: 'Mover',
+            equipo: 'Equipos',
+            servicio: 'Servicios',
+            servicios: 'Servicios',
+            'ubicaciones-tecnicas': 'Ubicaciones tecnicas',
+            'carga-masiva': 'Carga masiva',
+            dimensiones: 'Dimensiones',
+            accesos: 'Accesos',
+        };
+        return labels[segment] || segment.replace(/-/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    }
+
+    function addCrumb(crumbs, label, href) {
+        label = cleanLabel(label);
+        if (!label) return;
+        const previous = crumbs[crumbs.length - 1];
+        if (previous && previous.label.toLowerCase() === label.toLowerCase()) return;
+        crumbs.push({ label, href: href || '' });
+    }
+
+    function buildServiceCrumbs(path, parts, header) {
+        const crumbs = [{ label: 'Inicio', href: '/' }];
+        const serviceId = parts[1];
+        const serviceHref = serviceId ? `/servicios/${serviceId}/` : '/servicios/';
+        addCrumb(crumbs, serviceLabel(header), serviceHref);
+        const section = parts[2] || '';
+        if (section) {
+            addCrumb(crumbs, prettifySegment(section), `${serviceHref}${section}/`);
+        }
+        for (let i = 3; i < parts.length; i += 1) {
+            const segment = parts[i];
+            if (/^\d+$/.test(segment)) continue;
+            const href = `/servicios/${serviceId}/${parts.slice(2, i + 1).join('/')}/`;
+            addCrumb(crumbs, prettifySegment(segment), href);
+        }
+        return crumbs;
+    }
+
+    function buildGenericCrumbs(path, header) {
+        const parts = path.split('/').filter(Boolean);
+        const crumbs = [{ label: 'Inicio', href: '/' }];
+        if (!parts.length) return crumbs;
+        if (parts[0] === 'servicios') return buildServiceCrumbs(path, parts, header);
+        if (parts[0] === 'ubicaciones-tecnicas') {
+            addCrumb(crumbs, 'Ubicaciones tecnicas', '/ubicaciones-tecnicas/');
+            return crumbs;
+        }
+        if (parts[0] === 'empresas' && parts[2] === 'jerarquia') {
+            addCrumb(crumbs, 'Ubicaciones tecnicas', '/ubicaciones-tecnicas/');
+            addCrumb(crumbs, `Empresa ${parts[1]}`, `/empresas/${parts[1]}/jerarquia/`);
+            for (let i = 2; i < parts.length; i += 1) {
+                if (/^\d+$/.test(parts[i])) continue;
+                addCrumb(crumbs, prettifySegment(parts[i]), `/${parts.slice(0, i + 1).join('/')}/`);
+            }
+            return crumbs;
+        }
+        let cumulative = '';
+        parts.forEach(segment => {
+            if (/^\d+$/.test(segment)) return;
+            cumulative += `/${segment}`;
+            addCrumb(crumbs, prettifySegment(segment), `${cumulative}/`);
+        });
+        return crumbs;
+    }
+
+    function renderBreadcrumb(header) {
+        if (!header || header.querySelector('.page-location')) return;
+        const path = window.location.pathname;
+        const crumbs = buildGenericCrumbs(path, header);
+        const current = titleLabel(header);
+        if (crumbs.length === 1 && current.toLowerCase() !== 'inicio') {
+            addCrumb(crumbs, current, '');
+        } else if (crumbs.length > 1) {
+            crumbs[crumbs.length - 1].label = current || crumbs[crumbs.length - 1].label;
+            crumbs[crumbs.length - 1].href = '';
+        }
+        const nav = document.createElement('nav');
+        nav.className = 'page-location';
+        nav.setAttribute('aria-label', 'Ubicacion actual');
+        crumbs.forEach((crumb, index) => {
+            if (index > 0) {
+                const separator = document.createElement('span');
+                separator.className = 'separator';
+                separator.textContent = '>';
+                nav.appendChild(separator);
+            }
+            if (crumb.href && index < crumbs.length - 1) {
+                const link = document.createElement('a');
+                link.href = crumb.href;
+                link.textContent = crumb.label;
+                nav.appendChild(link);
+            } else {
+                const span = document.createElement('span');
+                span.className = index === crumbs.length - 1 ? 'current' : '';
+                span.textContent = crumb.label;
+                nav.appendChild(span);
+            }
+        });
+        header.insertBefore(nav, header.firstChild);
+    }
+
+    document.querySelectorAll('.page-header').forEach(renderBreadcrumb);
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const NAV_KEY = 'mindco_navigation_stack_v2';
+    const NAV_RESET_KEY = 'mindco_navigation_reset_target_v2';
+    const MAX_STACK = 12;
+
+    function cleanLabel(value) {
+        return String(value || '')
+            .replace(/\s+/g, ' ')
+            .replace(/^[·\-\s]+|[·\-\s]+$/g, '')
+            .trim();
+    }
+
+    function pageTitle() {
+        const header = document.querySelector('.page-header');
+        const title = header ? header.querySelector('h1, h2') : null;
+        return cleanLabel(title ? title.textContent : document.title.split('|')[0]) || 'Seccion';
+    }
+
+    function currentUrl() {
+        return window.location.pathname + window.location.search;
+    }
+
+    function pathOnly(url) {
+        try {
+            return new URL(url, window.location.origin).pathname;
+        } catch (_error) {
+            return String(url || '').split('?')[0];
+        }
+    }
+
+    function internalPath(url) {
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.origin === window.location.origin ? parsed.pathname + parsed.search : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function readStack() {
+        try {
+            const parsed = JSON.parse(sessionStorage.getItem(NAV_KEY) || '[]');
+            return Array.isArray(parsed) ? parsed.filter(item => item && item.url && item.label) : [];
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    function writeStack(stack) {
+        sessionStorage.setItem(NAV_KEY, JSON.stringify(stack.slice(-MAX_STACK)));
+    }
+
+    function registerSidebarNavigation() {
+        document.querySelectorAll('.sidebar a[href]').forEach(link => {
+            link.addEventListener('click', function () {
+                const target = internalPath(link.href);
+                if (target) sessionStorage.setItem(NAV_RESET_KEY, target);
+            });
+        });
+    }
+
+    function fallbackStack(label, url) {
+        return label.toLowerCase() === 'inicio'
+            ? [{ label: 'Inicio', url: '/' }]
+            : [{ label: 'Inicio', url: '/' }, { label, url }];
+    }
+
+    function navigationStack(label, url) {
+        const resetTarget = sessionStorage.getItem(NAV_RESET_KEY) || '';
+        if (resetTarget === url) {
+            sessionStorage.removeItem(NAV_RESET_KEY);
+            const resetStack = fallbackStack(label, url);
+            writeStack(resetStack);
+            return resetStack;
+        }
+
+        let stack = readStack();
+        const currentPath = pathOnly(url);
+        const existingIndex = stack.findIndex(item => item.url === url || pathOnly(item.url) === currentPath);
+        if (existingIndex >= 0) {
+            stack = stack.slice(0, existingIndex + 1);
+            stack[stack.length - 1] = { label, url };
+        } else {
+            const referrerPath = internalPath(document.referrer);
+            const referrerPathOnly = pathOnly(referrerPath);
+            const referrerIndex = referrerPath ? stack.findIndex(item => item.url === referrerPath || pathOnly(item.url) === referrerPathOnly) : -1;
+            if (referrerIndex >= 0) {
+                stack = stack.slice(0, referrerIndex + 1);
+            } else if (!stack.length || !referrerPath) {
+                stack = fallbackStack(label, url).slice(0, -1);
+            }
+            const last = stack[stack.length - 1];
+            if (!last || pathOnly(last.url) !== currentPath) {
+                stack.push({ label, url });
+            } else {
+                stack[stack.length - 1] = { label, url };
+            }
+        }
+        if (!stack.length) stack = fallbackStack(label, url);
+        if (stack[0].url !== '/') stack.unshift({ label: 'Inicio', url: '/' });
+        writeStack(stack);
+        return stack;
+    }
+
+    function renderBreadcrumb(stack) {
+        const header = document.querySelector('.page-header');
+        if (!header) return;
+        header.querySelectorAll('.page-location').forEach(node => node.remove());
+        const nav = document.createElement('nav');
+        nav.className = 'page-location';
+        nav.setAttribute('aria-label', 'Ubicacion actual');
+        stack.forEach((crumb, index) => {
+            if (index > 0) {
+                const separator = document.createElement('span');
+                separator.className = 'separator';
+                separator.textContent = '>';
+                nav.appendChild(separator);
+            }
+            if (index < stack.length - 1) {
+                const link = document.createElement('a');
+                link.href = crumb.url;
+                link.textContent = crumb.label;
+                nav.appendChild(link);
+            } else {
+                const current = document.createElement('span');
+                current.className = 'current';
+                current.textContent = crumb.label;
+                nav.appendChild(current);
+            }
+        });
+        header.insertBefore(nav, header.firstChild);
+    }
+
+    function previousUrl(stack) {
+        return stack.length > 1 ? stack[stack.length - 2].url : '/';
+    }
+
+    function isBackButton(link) {
+        const text = cleanLabel(link.textContent).toLowerCase();
+        const href = link.getAttribute('href') || '';
+        return text === 'volver' || Boolean(link.querySelector('.bi-chevron-left')) || href === '..';
+    }
+
+    function normalizeBackButtons(stack) {
+        const target = previousUrl(stack);
+        document.querySelectorAll('.content a.btn').forEach(link => {
+            if (!isBackButton(link)) return;
+            link.href = target;
+            link.innerHTML = '<i class="bi bi-chevron-left"></i>';
+            link.setAttribute('aria-label', 'Volver');
+            link.setAttribute('title', 'Volver');
+        });
+    }
+
+    function activeScore(linkPath, currentPath) {
+        if (!linkPath) return 0;
+        if (linkPath === currentPath) return 10000 + linkPath.length;
+        if (linkPath !== '/' && currentPath.startsWith(linkPath)) return 1000 + linkPath.length;
+        if (linkPath === '/servicio/' && currentPath.startsWith('/servicios/')) return 900;
+        if (linkPath === '/servicio/' && currentPath === '/servicios/') return 900;
+        if (linkPath === '/ubicaciones-tecnicas/' && (
+            currentPath.startsWith('/empresas/')
+            || currentPath.startsWith('/jerarquia/')
+        )) return 850;
+        if (linkPath === '/matrices/nueva/' && currentPath.startsWith('/matrices/')) return 800;
+        return 0;
+    }
+
+    function hasServiceContext(stack) {
+        return (stack || []).some(item => /^\/servicios\/\d+\/?$/.test(pathOnly(item.url)));
+    }
+
+    function forcedSidebarPath(currentPath, stack) {
+        if (!hasServiceContext(stack)) return '';
+        if (/^\/estrategias\/\d+\/tablas\/?$/.test(currentPath)) return '/servicio/';
+        return '';
+    }
+
+    function markActiveSidebarLink(stack) {
+        const currentPath = window.location.pathname;
+        const forcedPath = forcedSidebarPath(currentPath, stack);
+        let bestLink = null;
+        let bestScore = 0;
+        document.querySelectorAll('.sidebar .nav-link[href]').forEach(link => {
+            link.classList.remove('active');
+            const linkPath = internalPath(link.href).split('?')[0];
+            const score = forcedPath && linkPath === forcedPath ? 20000 : activeScore(linkPath, currentPath);
+            if (score > bestScore) {
+                bestScore = score;
+                bestLink = link;
+            }
+        });
+        if (bestLink) bestLink.classList.add('active');
+    }
+
+    const label = pageTitle();
+    const url = currentUrl();
+    registerSidebarNavigation();
+    const stack = navigationStack(label, url);
+    renderBreadcrumb(stack);
+    normalizeBackButtons(stack);
+    markActiveSidebarLink(stack);
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
     if (!window.jQuery || !$.fn || !$.fn.DataTable) return;
 
     const skipSelector = [
@@ -117,30 +477,38 @@ document.addEventListener("DOMContentLoaded", function () {
     function initDataTable(table) {
         if (!shouldUseDataTable(table)) return;
         table.classList.add('datatable', 'display');
-        try {
-            $(table).DataTable({
-                pageLength: Number(table.dataset.pageLength || 25),
-                lengthMenu: [10, 25, 50, 100],
-                info: true,
-                lengthChange: true,
-                searching: true,
-                ordering: true,
-                autoWidth: false,
-                language: {
-                    emptyTable: "Sin registros.",
-                    zeroRecords: "Sin registros.",
-                    search: "Buscar:",
-                    lengthMenu: "Mostrar _MENU_ registros",
-                    info: "Mostrando _START_ a _END_ de _TOTAL_ registros",
-                    infoEmpty: "Mostrando 0 registros",
-                    paginate: {
-                        first: "Primero",
-                        last: "Ultimo",
-                        next: "Siguiente",
-                        previous: "Anterior"
-                    }
+        const options = {
+            pageLength: Number(table.dataset.pageLength || 25),
+            lengthMenu: [10, 25, 50, 100],
+            info: true,
+            lengthChange: true,
+            searching: true,
+            ordering: true,
+            autoWidth: false,
+            language: {
+                emptyTable: "Sin registros.",
+                zeroRecords: "Sin registros.",
+                search: "Buscar:",
+                lengthMenu: "Mostrar _MENU_ registros",
+                info: "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                infoEmpty: "Mostrando 0 registros",
+                paginate: {
+                    first: '<i class="bi bi-chevron-double-left" aria-hidden="true"></i>',
+                    last: '<i class="bi bi-chevron-double-right" aria-hidden="true"></i>',
+                    next: '<i class="bi bi-chevron-right" aria-hidden="true"></i>',
+                    previous: '<i class="bi bi-chevron-left" aria-hidden="true"></i>'
                 }
-            });
+            }
+        };
+        if (table.dataset.scrollY) {
+            options.scrollY = table.dataset.scrollY;
+            options.scrollCollapse = table.dataset.scrollCollapse !== 'false';
+        }
+        if (table.dataset.scrollX === 'true') {
+            options.scrollX = true;
+        }
+        try {
+            $(table).DataTable(options);
         } catch (error) {
             console.warn('No se pudo inicializar DataTable', table, error);
         }
@@ -257,6 +625,28 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
     numberObserver.observe(document.body, { childList: true, characterData: true, subtree: true });
+});
+</script>
+
+<script>
+document.addEventListener('click', function (event) {
+    const cell = event.target.closest('.copy-cell');
+    if (!cell) return;
+
+    const text = cell.dataset.copy || cell.textContent.trim();
+    if (!text || !navigator.clipboard) return;
+
+    navigator.clipboard.writeText(text).then(function () {
+        cell.classList.add('copied');
+
+        const originalTitle = cell.getAttribute('title');
+        cell.setAttribute('title', 'Copiado');
+
+        setTimeout(function () {
+            cell.classList.remove('copied');
+            cell.setAttribute('title', originalTitle);
+        }, 800);
+    });
 });
 </script>
 

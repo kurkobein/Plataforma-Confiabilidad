@@ -33,6 +33,11 @@
         <strong>{{ equipment_count }}</strong>
         <div class="muted">De la empresa del servicio</div>
     </div>
+    <div class="stat">
+        <small>Familias</small>
+        <strong>{{ family_count }}</strong>
+        <div class="muted">Grupos para análisis</div>
+    </div>
 </div>
 
 <div class="grid-22">
@@ -88,22 +93,80 @@
             </div>
         </div>
     </div>
+    {% if permission.can_manage_access %}
+<div class="card">
+    <h3 class="card-title">Accesos del servicio</h3>
+    <div class="service-access-layout">
+        <div class="service-access-tools">
+            <form class="service-access-form" method="post" action="{% url 'service_access_manage' service.pk %}">
+                {% csrf_token %}
+                <div class="service-access-form-stack">
+                    <div class="form-field">
+                        <label for="{{ access_form.usuario.id_for_label }}">{{ access_form.usuario.label }}</label>
+                        {{ access_form.usuario }}
+                        {% if access_form.usuario.help_text %}<small class="muted">{{ access_form.usuario.help_text }}</small>{% endif %}
+                    </div>
+                    <div class="form-field service-access-permission-field">
+                        <label for="{{ access_form.nivel.id_for_label }}">{{ access_form.nivel.label }}</label>
+                        {{ access_form.nivel }}
+                        {% if access_form.nivel.help_text %}<small class="muted">{{ access_form.nivel.help_text }}</small>{% endif %}
+                    </div>
+                    <div class="actions service-access-actions">
+                        <button class="btn btn-primary" type="submit"><i class="bi bi-person-add"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="table-wrap-2">
+                <table id="service-access-table" class="display no-datatable" data-page-length="5">
+                    <thead><tr><th>Usuario</th><th>Empresa</th><th>Cargo</th><th>Permiso</th><th></th></tr></thead>
+                    <tbody>
+                        {% for row in access_rows %}
+                            <tr>
+                                <td>{{ row.usuario.nombre_completo }}</td>
+                                <td>{{ row.usuario.empresa.sigla|default:'—' }}</td>
+                                <td>{{ row.usuario.cargo|default:'—' }}</td>
+                                <td>{% if row.puede_editar %}<span class="pill">Editar</span>{% else %}<span class="pill-soft">Ver</span>{% endif %}</td>
+                                <td>
+                                    <form method="post" action="{% url 'service_access_manage' service.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="remove">
+                                        <input type="hidden" name="access_id" value="{{ row.pk }}">
+                                        <button class="btn" type="submit"><i class="bi bi-person-dash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="5" class="muted">Todavía no hay usuarios asignados a este servicio.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+    </div>
+</div>
+{% endif %}
 </div>
 
 <div class="card">
     <h3 class="card-title">Equipos del servicio</h3>
-    <p class="muted">Se muestran los equipos asociados directamente al servicio o pertenecientes a la misma empresa por su ubicaci&oacute;n t&eacute;cnica.</p>
-    <div class="form-grid" id="service-equipment-level-filters"></div>
-    <div class="form-grid" style="margin-top:12px;">
-        <div class="form-field">
+    <div class="service-equipment-intro">
+        <p class="muted">Se muestran los equipos asociados directamente al servicio o pertenecientes a la misma empresa por su ubicaci&oacute;n t&eacute;cnica.</p>
+        <a class="btn" href="{% url 'service_equipment_families' service.pk %}">
+            Gestionar familias
+        </a>
+    </div>
+    <div class="service-equipment-tools">
+        <div class="service-equipment-inline-field">
             <label for="service-equipment-search">Buscar</label>
             <input id="service-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
         </div>
-        <div class="form-field">
-            <label>Resultados</label>
+        <div class="service-equipment-inline-field service-equipment-count-field">
+            <label for="service-equipment-count">Resultados</label>
             <input id="service-equipment-count" class="input-control" type="text" readonly value="">
         </div>
     </div>
+    <div class="form-grid" id="service-equipment-level-filters"></div>
+    
     <div class="table-wrap" style="margin-top:12px;">
         <table>
             <thead>
@@ -199,61 +262,7 @@
     {% endif %}
 </div>
 
-{% if permission.can_manage_access %}
-<div class="card">
-    <h3 class="card-title">Accesos del servicio</h3>
-    <p class="muted" style="margin-top:-4px;">Solo los usuarios agregados en esta sección podrán ver este servicio. Los que tengan permiso "Editar" también podrán registrar y modificar información del servicio.</p>
-    <div class="service-access-layout">
-        <div>
-            <form method="post" action="{% url 'service_access_manage' service.pk %}">
-                {% csrf_token %}
-                <div class="service-access-form-stack">
-                    <div class="form-field">
-                        <label for="{{ access_form.nivel.id_for_label }}">{{ access_form.nivel.label }}</label>
-                        {{ access_form.nivel }}
-                        {% if access_form.nivel.help_text %}<small class="muted">{{ access_form.nivel.help_text }}</small>{% endif %}
-                    </div>
-                    <div class="form-field">
-                        <label for="{{ access_form.usuario.id_for_label }}">{{ access_form.usuario.label }}</label>
-                        {{ access_form.usuario }}
-                        {% if access_form.usuario.help_text %}<small class="muted">{{ access_form.usuario.help_text }}</small>{% endif %}
-                    </div>
-                </div>
-                <div class="actions" style="margin-top:12px;">
-                    <button class="btn btn-primary" type="submit">Agregar o actualizar acceso</button>
-                </div>
-            </form>
-            <div>
-        </div>
-        </div>
-        <div class="table-wrap-2">
-                <table id="service-access-table" class="display no-datatable" data-page-length="5">
-                    <thead><tr><th>Usuario</th><th>Empresa</th><th>Cargo</th><th>Permiso</th><th></th></tr></thead>
-                    <tbody>
-                        {% for row in access_rows %}
-                            <tr>
-                                <td>{{ row.usuario.nombre_completo }}</td>
-                                <td>{{ row.usuario.empresa.sigla|default:'—' }}</td>
-                                <td>{{ row.usuario.cargo|default:'—' }}</td>
-                                <td>{% if row.puede_editar %}<span class="pill">Editar</span>{% else %}<span class="pill-soft">Ver</span>{% endif %}</td>
-                                <td>
-                                    <form method="post" action="{% url 'service_access_manage' service.pk %}">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="remove">
-                                        <input type="hidden" name="access_id" value="{{ row.pk }}">
-                                        <button class="btn" type="submit">Quitar</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        {% empty %}
-                            <tr><td colspan="5" class="muted">Todavía no hay usuarios asignados a este servicio.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-    </div>
-</div>
-{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}
@@ -445,10 +454,10 @@ document.addEventListener("DOMContentLoaded", function () {
             emptyTable: "Sin registros.",
             zeroRecords: "Sin registros.",
             paginate: {
-                first: "Primero",
-                last: "Ultimo",
-                next: "Siguiente",
-                previous: "Anterior"
+                first: '<i class="bi bi-chevron-double-left" aria-hidden="true"></i>',
+                last: '<i class="bi bi-chevron-double-right" aria-hidden="true"></i>',
+                next: '<i class="bi bi-chevron-right" aria-hidden="true"></i>',
+                previous: '<i class="bi bi-chevron-left" aria-hidden="true"></i>'
             }
         }
     });

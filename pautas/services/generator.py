@@ -166,12 +166,6 @@ def _is_primary_task(task):
     return True
 
 
-def _rule_value(regla, field, default):
-    if regla is None:
-        return default
-    return getattr(regla, field, default)
-
-
 @dataclass
 class RuntimeRule:
     agrupar_por_equipo: bool = True
@@ -183,16 +177,16 @@ class RuntimeRule:
     incluir_tareas_secundarias: bool = False
 
 
-def build_runtime_rule(form_cleaned=None, regla=None):
+def build_runtime_rule(form_cleaned=None):
     form_cleaned = form_cleaned or {}
     return RuntimeRule(
-        agrupar_por_equipo=_rule_value(regla, 'agrupar_por_equipo', True),
-        agrupar_por_ubicacion=_rule_value(regla, 'agrupar_por_ubicacion', True),
-        agrupar_por_frecuencia=_rule_value(regla, 'agrupar_por_frecuencia', True),
-        agrupar_por_especialidad=_rule_value(regla, 'agrupar_por_especialidad', True),
-        agrupar_por_estado_equipo=_rule_value(regla, 'agrupar_por_estado_equipo', True),
-        incluir_tareas_primarias=bool(form_cleaned.get('incluir_tareas_primarias', _rule_value(regla, 'incluir_tareas_primarias', True))),
-        incluir_tareas_secundarias=bool(form_cleaned.get('incluir_tareas_secundarias', _rule_value(regla, 'incluir_tareas_secundarias', False))),
+        agrupar_por_equipo=True,
+        agrupar_por_ubicacion=True,
+        agrupar_por_frecuencia=True,
+        agrupar_por_especialidad=True,
+        agrupar_por_estado_equipo=True,
+        incluir_tareas_primarias=bool(form_cleaned.get('incluir_tareas_primarias', True)),
+        incluir_tareas_secundarias=bool(form_cleaned.get('incluir_tareas_secundarias', False)),
     )
 
 

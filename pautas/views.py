@@ -303,8 +303,7 @@ def service_pautas_generate(request, pk):
     if request.method == 'POST' and form.is_valid():
         estrategia = form.cleaned_data.get('estrategia') or servicio.estrategia
         plantilla = form.cleaned_data.get('plantilla')
-        regla_obj = form.cleaned_data.get('regla')
-        regla = build_runtime_rule(form.cleaned_data, regla_obj)
+        regla = build_runtime_rule(form.cleaned_data)
         generar_una_pauta = bool(form.cleaned_data.get('generar_una_pauta'))
         filtros = _pauta_filters_from_form(form)
         preview, groups = preview_pautas_desde_rcm(

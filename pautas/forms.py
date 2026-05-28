@@ -84,12 +84,6 @@ class GenerarPautasForm(forms.Form):
         label='Plantilla Excel',
         empty_label='Generar sin plantilla',
     )
-    regla = forms.ModelChoiceField(
-        queryset=app_models.ReglaGeneracionPauta.objects.none(),
-        required=False,
-        label='Regla de generacion',
-        empty_label='Regla estandar',
-    )
     incluir_tareas_primarias = forms.BooleanField(
         required=False,
         initial=True,
@@ -132,14 +126,6 @@ class GenerarPautasForm(forms.Form):
                 | Q(servicio__isnull=True, estrategia=service.estrategia)
                 | Q(servicio__isnull=True, empresa__isnull=True, estrategia__isnull=True)
             ).distinct().order_by('nombre')
-            self.fields['regla'].queryset = app_models.ReglaGeneracionPauta.objects.filter(
-                activa=True,
-            ).filter(
-                Q(servicio=service)
-                | Q(servicio__isnull=True, estrategia=service.estrategia)
-                | Q(servicio__isnull=True, estrategia__isnull=True)
-            ).distinct().order_by('nombre')
-
         for _, field in self.fields.items():
             widget = field.widget
             if isinstance(field, forms.BooleanField):
