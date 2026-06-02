@@ -1,0 +1,73 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Desarrollo ACA | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Desarrollo ACA</h2>
+        <p>Accesos operativos para desarrollar ACA por servicio.</p>
+    </div>
+</div>
+
+<div class="card aca-global-card">
+    <form method="get" class="aca-global-selector">
+        <label for="aca-service-select">Servicio</label>
+        <select id="aca-service-select" name="service" class="input-control">
+            <option value="">Selecciona un servicio</option>
+            {% for service in services %}
+                <option value="{{ service.pk }}" {% if selected_service and selected_service.pk == service.pk %}selected{% endif %}>
+                    {{ service.codigo_servicio }}{% if service.descripcion %} - {{ service.descripcion }}{% endif %}
+                </option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Entrar</button>
+    </form>
+</div>
+
+{% if selected_service %}
+    <div class="card">
+        <h3 class="card-title">ACA | {{ selected_service.codigo_servicio }}</h3>
+        <div class="stats-grid aca-global-stats">
+            <div class="stat"><small>Total registros</small><strong>{{ selected_summary.total_records }}</strong></div>
+            <div class="stat"><small>Avance</small><strong>{{ selected_summary.average_progress_label }}</strong></div>
+            <div class="stat"><small>Finalizados</small><strong>{{ selected_summary.complete_records }}</strong></div>
+            <div class="stat"><small>En desarrollo</small><strong>{{ selected_summary.incomplete_records }}</strong></div>
+            <div class="stat"><small>Mayor brecha</small><strong>{{ selected_summary.major_gap.name|default:'-' }}</strong></div>
+        </div>
+        <div class="actions">
+            <a class="btn" href="{% url 'service_aca_list' selected_service.pk %}">Ver registros ACA</a>
+            <a class="btn btn-primary" href="{% url 'service_aca_new' selected_service.pk %}">Nuevo desarrollo ACA</a>
+            <a class="btn" href="{% url 'service_aca_bulk_new' selected_service.pk %}">Nueva carga masiva ACA</a>
+            <a class="btn" href="{% url 'aca_panel' %}?service={{ selected_service.pk }}">Ver panel</a>
+        </div>
+    </div>
+{% else %}
+    <div class="table-wrap">
+        <table class="datatable display compact-table">
+            <thead>
+                <tr>
+                    <th>Servicio</th>
+                    <th>Descripción</th>
+                    <th>Registros ACA</th>
+                    <th>Avance</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in service_rows %}
+                    <tr>
+                        <td><strong>{{ row.service.codigo_servicio }}</strong></td>
+                        <td>{{ row.service.descripcion|default:'-' }}</td>
+                        <td>{{ row.summary.total_records }}</td>
+                        <td>{{ row.summary.average_progress_label }}</td>
+                        <td><a class="btn" href="{% url 'aca_development' %}?service={{ row.service.pk }}">Entrar</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" class="muted">No hay servicios accesibles.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

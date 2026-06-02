@@ -359,13 +359,57 @@ class EquipoBulkUploadForm(forms.Form):
         label='Empresa',
         empty_label='Selecciona una empresa',
     )
+    servicio = forms.ModelChoiceField(
+        queryset=app_models.Servicio.objects.none(),
+        label='Servicio',
+        empty_label='Sin servicio',
+        required=False,
+        help_text='Opcional. Si se selecciona, vincula los equipos al servicio de la empresa elegida.',
+    )
     archivo = forms.FileField(
         label='Archivo Excel',
-        help_text='Columnas esperadas: TAG, Nombre, UT y Descripcion. La descripcion puede quedar vacia.',
+        help_text='Archivo .xlsx con formato Mindco simple o SAP/UTS.',
+    )
+    hoja = forms.CharField(
+        label='Hoja',
+        required=False,
+        help_text='Opcional. Si queda vacio se usara la hoja con encabezados reconocidos.',
+    )
+    formato = forms.ChoiceField(
+        label='Formato',
+        choices=(
+            ('auto', 'Detectar automaticamente'),
+            ('mindco_simple', 'Mindco simple'),
+            ('sap_uts', 'SAP / UTS'),
+        ),
+        initial='auto',
+    )
+    last_segment_is_equipment = forms.BooleanField(
+        label='Mindco: ultimo segmento de UT es equipo',
+        required=False,
+        help_text='Ejemplo MIN-CH-MOL-BOM-A001 con TAG A001 crea A001 como equipo bajo MIN-CH-MOL-BOM.',
+    )
+    last_level_is_equipment = forms.BooleanField(
+        label='SAP: ultimo nivel N es equipo',
+        required=False,
+        initial=True,
+        help_text='Si esta activo, el ultimo N se crea como equipo y no como nodo.',
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        empresa_id = ''
+        if self.is_bound:
+            empresa_id = (self.data.get('empresa') or '').strip()
+        elif self.initial.get('empresa'):
+            empresa_id = str(getattr(self.initial.get('empresa'), 'pk', self.initial.get('empresa')) or '')
+        if empresa_id:
+            self.fields['servicio'].queryset = (
+                app_models.Servicio.objects
+                .select_related('empresa')
+                .filter(empresa_id=empresa_id)
+                .order_by('codigo_servicio')
+            )
         for _, field in self.fields.items():
             field.widget.attrs['class'] = 'input-control'
 
@@ -377,6 +421,14 @@ class EquipoBulkUploadForm(forms.Form):
         if not name.endswith(('.xlsx', '.xlsm')):
             raise forms.ValidationError('Solo se permiten archivos Excel .xlsx o .xlsm.')
         return archivo
+
+    def clean(self):
+        cleaned = super().clean()
+        empresa = cleaned.get('empresa')
+        servicio = cleaned.get('servicio')
+        if empresa and servicio and servicio.empresa_id != empresa.pk:
+            self.add_error('servicio', 'El servicio seleccionado no pertenece a la empresa elegida.')
+        return cleaned
 
 
 class ServicioForm(BaseModelForm):
@@ -391,6 +443,10 @@ class ServicioForm(BaseModelForm):
         super().__init__(*args, **kwargs)
         self.creador_usuario = creador_usuario
         self.fields['creado_en'].input_formats = ['%Y-%m-%dT%H:%M']
+        self.fields['creado_por_usuario'].label = 'Administrador'
+        self.fields['creado_por_usuario'].help_text = 'Usuario administrador del servicio.'
+        self.fields['responsable_usuario'].label = 'Responsable'
+        self.fields['responsable_usuario'].help_text = 'Usuario responsable operativo del servicio.'
 
         if self.instance and self.instance.pk:
             self.fields['metodologias'].initial = self.instance.metodologias.all()
@@ -402,8 +458,6 @@ class ServicioForm(BaseModelForm):
             if creador_usuario:
                 self.fields['creado_por_usuario'].initial = creador_usuario.pk
                 self.initial['creado_por_usuario'] = creador_usuario.pk
-                self.fields['creado_por_usuario'].disabled = True
-                self.fields['creado_por_usuario'].help_text = 'Se asigna automáticamente al usuario de la sesión.'
 
     class Meta:
         model = Servicio
@@ -426,8 +480,6 @@ class ServicioForm(BaseModelForm):
         }
 
     def save(self, commit=True):
-        if not self.instance.pk and self.creador_usuario:
-            self.instance.creado_por_usuario = self.creador_usuario
         instance = super().save(commit=commit)
 
         if commit:

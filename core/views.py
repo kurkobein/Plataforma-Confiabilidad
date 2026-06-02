@@ -3,7 +3,6 @@ import re
 import html
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
-import base64
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
@@ -25,7 +24,7 @@ from .forms import (
 )
 from .registry import MODEL_REGISTRY, get_registered_model
 from . import models
-from technical_locations.equipment_import import import_equipment_excel
+from core.services.equipment_import import execute_equipment_import, preview_equipment_import
 
 MAX_LIST_COLUMNS = 6
 _RANGE_RE = re.compile(r'^\s*(-?\d+(?:[.,]\d+)?)\s*-\s*(-?\d+(?:[.,]\d+)?)\s*$')
@@ -487,15 +486,20 @@ def _active_subtree_ids(node):
 @login_required
 def dashboard(request):
     servicios = list(get_accessible_services(request.user)[:8])
+
     aca_total = models.Criticidad.objects.filter(aca_carga__servicio__in=servicios).count() if servicios else 0
+    activos_evaluados_ACA = models.Equipo.objects.filter(criticidades__aca_carga__servicio__in=servicios).distinct().count() if servicios else 0
+    activos_evaluados_FMECA = models.Equipo.objects.filter(registros_rcm__fmea_fmeca__isnull=False, registros_rcm__carga__servicio__in=servicios).distinct().count() if servicios else 0
     editable_services = [s for s in servicios if get_service_permission(request.user, s)['can_edit']]
     return render(request, 'core/dashboard.html', {
         'service_cards': servicios,
         'quick_stats': [
             {'label': 'Servicios accesibles', 'count': len(servicios)},
-            {'label': 'Registros', 'count': aca_total},
             {'label': 'Servicios editables', 'count': len(editable_services)},
-        ],
+            {'label': 'Activos evaluados', 'count': aca_total},
+            {'label': 'Activos evaluados en ACA', 'count': activos_evaluados_ACA},
+            {'label': 'Activos evaluados en FMECA', 'count': activos_evaluados_FMECA},
+        ]
     })
 
 
@@ -535,9 +539,23 @@ def model_list(request, model_key):
                 .values_list('nodo__empresa_id', flat=True)
                 .distinct()
             )
-            equipment_companies = models.Empresa.objects.filter(id__in=equipment_company_ids).order_by('nombre', 'sigla')
+            service_company_ids = (
+                models.ServicioEquipo.objects
+                .filter(servicio__empresa_id__isnull=False)
+                .values_list('servicio__empresa_id', flat=True)
+                .distinct()
+            )
+            equipment_companies = models.Empresa.objects.filter(
+                Q(id__in=equipment_company_ids) | Q(id__in=service_company_ids)
+            ).distinct().order_by('nombre', 'sigla')
             selected_empresa_id = (request.GET.get('empresa') or '').strip()
+            selected_service_id = (request.GET.get('servicio') or '').strip()
             selected_node_id = (request.GET.get('node_id') or '').strip()
+            selected_service = None
+            if selected_service_id:
+                selected_service = models.Servicio.objects.filter(pk=selected_service_id).select_related('empresa').first()
+                if selected_service and not selected_empresa_id:
+                    selected_empresa_id = str(selected_service.empresa_id)
             selected_node = None
             if selected_node_id:
                 selected_node = models.NodoJerarquia.objects.filter(pk=selected_node_id, activo=True).select_related('empresa').first()
@@ -547,7 +565,12 @@ def model_list(request, model_key):
             if selected_empresa_id:
                 selected_empresa = models.Empresa.objects.filter(pk=selected_empresa_id).first()
             if selected_empresa:
-                qs = qs.filter(nodo__empresa=selected_empresa)
+                qs = qs.filter(
+                    Q(nodo__empresa=selected_empresa)
+                    | Q(servicios_equipo__servicio__empresa=selected_empresa)
+                )
+            if selected_service:
+                qs = qs.filter(servicios_equipo__servicio=selected_service)
             if selected_node:
                 subtree_ids = _active_subtree_ids(selected_node)
                 node_ut = selected_node.ut
@@ -588,7 +611,9 @@ def model_list(request, model_key):
             equipment_filter_context = {
                 'equipment_filter_enabled': True,
                 'equipment_companies': equipment_companies,
+                'equipment_services': models.Servicio.objects.select_related('empresa').order_by('codigo_servicio'),
                 'equipment_selected_empresa_id': str(selected_empresa_id or ''),
+                'equipment_selected_service_id': str(selected_service_id or ''),
                 'equipment_selected_node_id': str(selected_node_id or ''),
                 'equipment_levels': selected_levels,
                 'equipment_levels_json': json.dumps([
@@ -625,6 +650,9 @@ def model_list(request, model_key):
         for field_name in config['search_fields']:
             clause |= Q(**{f'{field_name}__icontains': search})
         qs = qs.filter(clause)
+
+    if model_key == 'equipo':
+        qs = qs.distinct()
 
     total_count = qs.count()
     paginator = Paginator(qs, page_size)
@@ -674,19 +702,38 @@ def model_list(request, model_key):
 def equipment_bulk_upload(request):
     _ensure_admin_access(request)
     report = None
+    preview_only = True
     if request.method == 'POST':
         form = EquipoBulkUploadForm(request.POST, request.FILES)
         if form.is_valid():
             try:
-                with transaction.atomic():
-                    report = import_equipment_excel(
-                        form.cleaned_data['archivo'],
-                        form.cleaned_data['empresa'],
-                    )
-                if report.created:
-                    messages.success(request, f'Carga masiva completada: {report.created} equipos creados.')
+                preview = preview_equipment_import(
+                    form.cleaned_data['archivo'],
+                    form.cleaned_data['empresa'],
+                    servicio=form.cleaned_data.get('servicio'),
+                    sheet_name=form.cleaned_data.get('hoja') or None,
+                    format=form.cleaned_data.get('formato') or 'auto',
+                    last_segment_is_equipment=True if form.cleaned_data.get('last_segment_is_equipment') else None,
+                    last_level_is_equipment=form.cleaned_data.get('last_level_is_equipment'),
+                )
+                if request.POST.get('action') == 'confirm':
+                    preview_only = False
+                    report = execute_equipment_import(preview, user=request.user)
                 else:
-                    messages.warning(request, 'No se crearon equipos. Revisa las observaciones de la carga.')
+                    report = preview
+
+                if preview_only:
+                    if report.errors:
+                        messages.warning(request, 'La previsualizacion encontro errores. Corrige el archivo antes de confirmar.')
+                    else:
+                        messages.info(request, 'Previsualizacion lista. Para cargar datos, vuelve a enviar el archivo con "Confirmar carga".')
+                elif report.equipment_created or report.equipment_updated:
+                    messages.success(
+                        request,
+                        f'Carga masiva completada: {report.equipment_created} equipos creados y {report.equipment_updated} actualizados.',
+                    )
+                else:
+                    messages.warning(request, 'No se crearon ni actualizaron equipos. Revisa las observaciones de la carga.')
             except ValueError as exc:
                 messages.error(request, str(exc))
     else:
@@ -695,6 +742,13 @@ def equipment_bulk_upload(request):
     return render(request, 'core/equipment_bulk_upload.html', {
         'form': form,
         'report': report,
+        'preview_only': preview_only,
+        'equipment_upload_services': list(
+            models.Servicio.objects
+            .select_related('empresa')
+            .order_by('empresa__nombre', 'codigo_servicio')
+            .values('id', 'codigo_servicio', 'descripcion', 'empresa_id', 'empresa__sigla')
+        ),
     })
 
 
@@ -704,24 +758,11 @@ def model_detail(request, model_key, pk):
     _ensure_direct_crud_allowed(config)
 
     if model_key == 'servicio':
-        obj, permission = _service_or_404(request, pk, edit=False)
-    else:
-        _ensure_admin_access(request)
-        obj = get_object_or_404(config['model'], pk=pk)
-        permission = None
+        _service_or_404(request, pk, edit=False)
+        return redirect('service_detail', pk=pk)
 
-    logo_base64 = None
-    if model_key == 'empresa' and obj.logo:
-        logo_base64 = base64.b64encode(obj.logo).decode('utf-8')
-
-    return render(request, 'core/model_detail.html', {
-        'logo_base64': logo_base64,
-        'config': config,
-        'model_key': model_key,
-        'object': obj,
-        'detail_fields': _detail_fields(config['model']),
-        'permission': permission,
-    })
+    _ensure_admin_access(request)
+    return redirect('model_list', model_key=model_key)
 
 
 @login_required
@@ -742,10 +783,10 @@ def model_create(request, model_key):
     if request.method == 'POST':
         form = FormClass(request.POST, request.FILES, **form_kwargs)
         if form.is_valid():
-            if model_key == 'servicio' and form_kwargs.get('creador_usuario'):
-                form.instance.creado_por_usuario = form_kwargs['creador_usuario']
             obj = form.save()
-            return redirect('model_detail', model_key=model_key, pk=obj.pk)
+            if model_key == 'servicio':
+                return redirect('service_detail', pk=obj.pk)
+            return redirect('model_list', model_key=model_key)
     else:
         form = FormClass(**form_kwargs)
 
@@ -780,7 +821,7 @@ def model_update(request, model_key, pk):
             obj = form.save()
             if model_key == 'servicio':
                 return redirect('service_detail', pk=obj.pk)
-            return redirect('model_detail', model_key=model_key, pk=obj.pk)
+            return redirect('model_list', model_key=model_key)
     else:
         form = FormClass(instance=obj)
 

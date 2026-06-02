@@ -154,6 +154,11 @@
                     {% if form.componente.errors %}<div class="form-error">{{ form.componente.errors }}</div>{% endif %}
                 </div>
                 <div class="form-field full">
+                    <label for="{{ form.funcion.id_for_label }}">{{ form.funcion.label }}</label>
+                    {{ form.funcion }}
+                    {% if form.funcion.errors %}<div class="form-error">{{ form.funcion.errors }}</div>{% endif %}
+                </div>
+                <div class="form-field full">
                     <label for="{{ form.falla_funcional.id_for_label }}">{{ form.falla_funcional.label }}</label>
                     {{ form.falla_funcional }}
                     {% if form.falla_funcional.errors %}<div class="form-error">{{ form.falla_funcional.errors }}</div>{% endif %}
@@ -162,11 +167,6 @@
                     <label for="{{ form.modo_de_falla.id_for_label }}">{{ form.modo_de_falla.label }}</label>
                     {{ form.modo_de_falla }}
                     {% if form.modo_de_falla.errors %}<div class="form-error">{{ form.modo_de_falla.errors }}</div>{% endif %}
-                </div>
-                <div class="form-field full">
-                    <label for="{{ form.causa.id_for_label }}">{{ form.causa.label }}</label>
-                    {{ form.causa }}
-                    {% if form.causa.errors %}<div class="form-error">{{ form.causa.errors }}</div>{% endif %}
                 </div>
                 <div class="form-field full">
                     <label for="{{ form.efecto.id_for_label }}">{{ form.efecto.label }}</label>

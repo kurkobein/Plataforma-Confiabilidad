@@ -11,8 +11,8 @@ class RCMAdjuntoInline(admin.TabularInline):
 
 @admin.register(models.RCM)
 class RCMAdmin(admin.ModelAdmin):
-    list_display = ('id', 'carga', 'equipo', 'componente', 'tipo_analisis', 'criticidad', 'estado', 'fecha_analisis')
-    search_fields = ('equipo__tag_equipo', 'equipo__nombre_equipo', 'equipo__ut', 'componente', 'falla_funcional', 'modo_de_falla', 'causa', 'efecto', 'observacion')
+    list_display = ('id', 'carga', 'equipo', 'componente', 'funcion', 'tipo_analisis', 'criticidad', 'estado', 'fecha_analisis')
+    search_fields = ('equipo__tag_equipo', 'equipo__nombre_equipo', 'equipo__ut', 'componente', 'funcion', 'falla_funcional', 'modo_de_falla', 'efecto', 'observacion')
     list_filter = ('estado', 'fecha_analisis', 'criticidad')
     inlines = (RCMAdjuntoInline,)
 

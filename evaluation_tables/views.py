@@ -697,6 +697,112 @@ def dimension_tables_editor(request, pk):
     return render(request, 'core/evaluation_tables/dimension_table_editor.html', _dimension_editor_context(estrategia))
 
 
+def _axis_dimension_level_count(estrategia_dimension):
+    if not estrategia_dimension:
+        return 0
+    scale_count = estrategia_dimension.escalas_valor.count()
+    if scale_count:
+        return scale_count
+    try:
+        return estrategia_dimension.catalogo.filas.count()
+    except models.DimensionCatalogo.DoesNotExist:
+        return 0
+
+
+def _axis_dimension_requires_threshold(estrategia_dimension):
+    if not estrategia_dimension:
+        return False
+    dimension = estrategia_dimension.dimension
+    is_calculated = bool((getattr(dimension, 'tipo_calculo', '') or '').strip())
+    return is_calculated and _axis_dimension_level_count(estrategia_dimension) == 0
+
+
+def _matrix_mode_for_selected_axes(mode, prob_dimension, impact_dimension, request=None):
+    mode = mode or models.MatrizRiesgo.RESOLUCION_EXACTA
+    if (
+        mode == models.MatrizRiesgo.RESOLUCION_EXACTA
+        and (
+            _axis_dimension_requires_threshold(prob_dimension)
+            or _axis_dimension_requires_threshold(impact_dimension)
+        )
+    ):
+        if request is not None:
+            messages.warning(
+                request,
+                'La matriz usa una dimension calculada como eje. Se guardara en modo "Umbral inferior por resultado" para poder resolver valores calculados que no coincidan exactamente con un nivel.',
+            )
+        return models.MatrizRiesgo.RESOLUCION_UMBRAL_RESULTADO
+    return mode
+
+
+def _matrix_axis_dimension_options(builder_form):
+    dimension_ids = set()
+    for field_name in ('dimension_probabilidad', 'dimension_impacto'):
+        queryset = builder_form.fields[field_name].queryset
+        dimension_ids.update(queryset.values_list('id', flat=True))
+
+    if not dimension_ids:
+        return {}
+
+    dimensions = (
+        models.EstrategiaDimension.objects.filter(pk__in=dimension_ids)
+        .select_related('dimension')
+        .prefetch_related(
+            'escalas_valor',
+            'catalogo__filas__celdas__columna',
+            'catalogo__columnas',
+        )
+    )
+
+    payload = {}
+    for estrategia_dimension in dimensions:
+        source_count = _axis_dimension_level_count(estrategia_dimension)
+        level_count = max(2, source_count or 5)
+        try:
+            catalogo = estrategia_dimension.catalogo
+        except models.DimensionCatalogo.DoesNotExist:
+            catalogo = None
+        is_calculated = bool((estrategia_dimension.dimension.tipo_calculo or '').strip())
+        has_scale = estrategia_dimension.escalas_valor.exists()
+        has_catalog_levels = bool(catalogo and source_count)
+        if has_scale:
+            source_type = 'escala'
+        elif has_catalog_levels:
+            source_type = 'catalogo'
+        elif is_calculated:
+            source_type = 'calculada'
+        else:
+            source_type = 'manual'
+
+        payload[str(estrategia_dimension.pk)] = {
+            'id': estrategia_dimension.pk,
+            'label': estrategia_dimension.dimension.nombre,
+            'source_type': source_type,
+            'has_levels': has_scale or has_catalog_levels,
+            'is_calculated': is_calculated,
+            'requires_threshold': _axis_dimension_requires_threshold(estrategia_dimension),
+            'level_count': level_count,
+            'prob_levels': _json_safe(
+                _level_defs_from_strategy_dimension(estrategia_dimension, level_count, 'p')
+            ),
+            'impact_levels': _json_safe(
+                _level_defs_from_strategy_dimension(estrategia_dimension, level_count, 'i')
+            ),
+        }
+    return payload
+
+
+def _matrix_builder_context(is_create, matriz, builder_form, matrix_preview, display_legend):
+    return {
+        'is_create': is_create,
+        'matriz': matriz,
+        'builder_form': builder_form,
+        'matrix_preview': matrix_preview,
+        'matrix_ui_state': _matrix_ui_payload(matrix_preview, stored_legend=display_legend or []),
+        'matrix_axis_options': _matrix_axis_dimension_options(builder_form),
+    }
+
+
 @transaction.atomic
 def matriz_builder_new(request):
     _ensure_admin_access(request)
@@ -716,8 +822,16 @@ def matriz_builder_new(request):
             y_count = cd['y_count']
             prob_count = y_count if selected_axis == 'impacto' else x_count
             impact_count = x_count if selected_axis == 'impacto' else y_count
-            fallback_prob = _matrix_level_dicts([], prob_count, 'p')
-            fallback_impact = _matrix_level_dicts([], impact_count, 'i')
+            selected_prob = cd.get('dimension_probabilidad')
+            selected_impact = cd.get('dimension_impacto')
+            mode = _matrix_mode_for_selected_axes(
+                cd.get('modo_resolucion'),
+                selected_prob,
+                selected_impact,
+                request if action == 'save' else None,
+            )
+            fallback_prob = _level_defs_from_strategy_dimension(selected_prob, prob_count, 'p')
+            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'i')
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
@@ -745,7 +859,7 @@ def matriz_builder_new(request):
                     dimension_probabilidad=prob_dim,
                     dimension_impacto=impact_dim,
                     leyenda_json=json.dumps(
-                        _matrix_legend_payload(legend_items, cd.get('modo_resolucion')),
+                        _matrix_legend_payload(legend_items, mode),
                         ensure_ascii=False,
                     ),
                 )
@@ -755,22 +869,22 @@ def matriz_builder_new(request):
         else:
             matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'i'))
     else:
+        initial_strategy = request.GET.get('estrategia') or None
         builder_form = MatrizBuilderForm(initial={
             'fecha_creado': timezone.localdate(),
+            'estrategia': initial_strategy,
             'eje_horizontal': 'impacto',
             'modo_resolucion': models.MatrizRiesgo.RESOLUCION_EXACTA,
             'x_count': 5,
             'y_count': 5,
-        })
+        }, strategy=initial_strategy)
         matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'i'))
 
-    return render(request, 'core/evaluation_tables/matrix_builder.html', {
-        'is_create': True,
-        'matriz': None,
-        'builder_form': builder_form,
-        'matrix_preview': matrix_preview,
-        'matrix_ui_state': _matrix_ui_payload(matrix_preview, stored_legend=display_legend),
-    })
+    return render(
+        request,
+        'core/evaluation_tables/matrix_builder.html',
+        _matrix_builder_context(True, None, builder_form, matrix_preview, display_legend),
+    )
 
 
 @transaction.atomic
@@ -799,8 +913,16 @@ def matriz_builder_edit(request, pk):
             y_count = cd['y_count']
             prob_count = y_count if selected_axis == 'impacto' else x_count
             impact_count = x_count if selected_axis == 'impacto' else y_count
-            fallback_prob = _level_defs_from_strategy_dimension(matriz.dimension_probabilidad, prob_count, 'p')
-            fallback_impact = _level_defs_from_strategy_dimension(matriz.dimension_impacto, impact_count, 'i')
+            selected_prob = cd.get('dimension_probabilidad') or matriz.dimension_probabilidad
+            selected_impact = cd.get('dimension_impacto') or matriz.dimension_impacto
+            mode = _matrix_mode_for_selected_axes(
+                cd.get('modo_resolucion'),
+                selected_prob,
+                selected_impact,
+                request if action == 'save' else None,
+            )
+            fallback_prob = _level_defs_from_strategy_dimension(selected_prob, prob_count, 'p')
+            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'i')
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
@@ -808,7 +930,7 @@ def matriz_builder_edit(request, pk):
             raw_legend_items = _json_payload(request, 'legend_items_json', []) or []
             legend_items, legend_error = _validate_legend_items(raw_legend_items, min_value, max_value, result_values)
             display_legend = legend_items or _safe_legend_items(raw_legend_items)
-            matrix_preview = _matrix_preview_from_defs(selected_axis, prob_defs, impact_defs, cell_payload, cd['estrategia'], matriz.dimension_probabilidad, matriz.dimension_impacto, legend_items or display_legend)
+            matrix_preview = _matrix_preview_from_defs(selected_axis, prob_defs, impact_defs, cell_payload, cd['estrategia'], selected_prob, selected_impact, legend_items or display_legend)
             if legend_error:
                 messages.error(request, legend_error)
             if action == 'save' and not legend_error:
@@ -829,7 +951,7 @@ def matriz_builder_edit(request, pk):
                 matriz.dimension_probabilidad = prob_dim
                 matriz.dimension_impacto = impact_dim
                 matriz.leyenda_json = json.dumps(
-                    _matrix_legend_payload(legend_items, cd.get('modo_resolucion')),
+                    _matrix_legend_payload(legend_items, mode),
                     ensure_ascii=False,
                 )
                 matriz.save()
@@ -870,10 +992,8 @@ def matriz_builder_edit(request, pk):
             'y_count': len(matrix_preview['rows']),
         }, strategy=matriz.estrategia)
 
-    return render(request, 'core/evaluation_tables/matrix_builder.html', {
-        'is_create': False,
-        'matriz': matriz,
-        'builder_form': builder_form,
-        'matrix_preview': matrix_preview,
-        'matrix_ui_state': _matrix_ui_payload(matrix_preview, stored_legend=display_legend or []),
-    })
+    return render(
+        request,
+        'core/evaluation_tables/matrix_builder.html',
+        _matrix_builder_context(False, matriz, builder_form, matrix_preview, display_legend),
+    )

@@ -160,8 +160,8 @@ class Servicio(BaseUnmanagedModel):
     creado_en = models.DateTimeField()
     empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='servicios')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='servicios')
-    creado_por_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='creado_por_usuario_id', blank=True, null=True, related_name='servicios_creados')
-    responsable_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='responsable_usuario_id', blank=True, null=True, related_name='servicios_responsables')
+    creado_por_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='creado_por_usuario_id', blank=True, null=True, related_name='servicios_creados', verbose_name='Administrador')
+    responsable_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='responsable_usuario_id', blank=True, null=True, related_name='servicios_responsables', verbose_name='Responsable')
     metodologias = models.ManyToManyField(Metodologia, through='ServicioMetodologia', related_name='servicios', blank=True,)
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_servicio'
@@ -572,6 +572,7 @@ class RCM(BaseUnmanagedModel):
     fecha_analisis = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=Carga.STATUS_INCOMPLETO)
     componente = models.CharField('Componente', max_length=255, blank=True, null=True)
+    funcion = models.TextField('Función', blank=True, default='')
     falla_funcional = models.TextField()
     modo_de_falla = models.TextField()
     causa = models.TextField(blank=True, null=True)

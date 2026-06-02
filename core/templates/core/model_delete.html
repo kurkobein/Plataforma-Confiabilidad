@@ -15,14 +15,14 @@
     <p class="muted">No aparecerá más en listados ni opciones, pero sus referencias históricas seguirán funcionando.</p>
     <div class="actions">
         <button class="btn btn-danger" type="submit">Confirmar archivado</button>
-        <a class="btn" href="{% url 'model_detail' model_key object.pk %}">Cancelar</a>
+        <a class="btn" href="{% url 'model_list' model_key %}">Cancelar</a>
     </div>
     {% else %}
     <p>Se eliminará el registro <strong>{{ object }}</strong>.</p>
     <p class="muted">Si existen restricciones FK en la base, MySQL impedirá la eliminación.</p>
     <div class="actions">
         <button class="btn btn-danger" type="submit">Confirmar eliminación</button>
-        <a class="btn" href="{% url 'model_detail' model_key object.pk %}">Cancelar</a>
+        <a class="btn" href="{% url 'model_list' model_key %}">Cancelar</a>
     </div>
     {% endif %}
 </form>

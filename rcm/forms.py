@@ -422,9 +422,9 @@ class RCMRegistroForm(forms.Form):
         help_text='Si queda vacío, el análisis corresponde a FMEA; si tiene valor, corresponde a FMECA.',
     )
     componente = forms.CharField(required=False, max_length=255, label='Componente')
+    funcion = forms.CharField(label='Función', widget=forms.Textarea(attrs={'rows': 3}))
     falla_funcional = forms.CharField(label='Falla funcional', widget=forms.Textarea(attrs={'rows': 3}))
     modo_de_falla = forms.CharField(label='Modo de falla', widget=forms.Textarea(attrs={'rows': 3}))
-    causa = forms.CharField(label='Causa', widget=forms.Textarea(attrs={'rows': 3}), required=False)
     efecto = forms.CharField(label='Efecto', widget=forms.Textarea(attrs={'rows': 3}))
     observacion = forms.CharField(
         required=False,

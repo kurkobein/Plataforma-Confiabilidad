@@ -2,19 +2,16 @@
 {% block title %}{{ service.codigo_servicio }} | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
-    <div>
-        <h2>{{ service.codigo_servicio }}</h2>
-        <p>{{ service.descripcion|default:'Sin descripción' }}</p>
+    <div style="display: flex; gap: 4px;">
+        <div class="actions">
+            <a class="btn" href="{% url 'model_list' 'servicio' %}">Volver</a>
+        </div>
+        <div>
+            <h2>{{ service.codigo_servicio }}</h2>
+            <p>{{ service.descripcion|default:'Sin descripción' }}</p>
+        </div>
     </div>
-    <div class="actions">
-        <a class="btn" href="{% url 'model_list' 'servicio' %}">Volver</a>
-        {% if permission.can_edit %}
-            <a class="btn btn-primary" href="{% url 'model_update' 'servicio' service.pk %}">Editar servicio</a>
-        {% endif %}
-        {% if service.estrategia_id %}
-            {% if permission.can_edit %}<a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>{% endif %}
-        {% endif %}
-    </div>
+    
 </div>
 
 <div class="grid-3">
@@ -45,8 +42,8 @@
         <h3 class="card-title">Información del servicio</h3>
         <div class="detail-grid">
             <div class="muted">Estrategia</div><div>{{ service.estrategia|default:'—' }}</div>
+            <div class="muted">Administrador</div><div>{{ service.creado_por_usuario|default:'—' }}</div>
             <div class="muted">Responsable</div><div>{{ service.responsable_usuario|default:'—' }}</div>
-            <div class="muted">Creado por</div><div>{{ service.creado_por_usuario|default:'—' }}</div>
             <div class="muted">Fecha inicio</div><div>{{ service.fecha_inicio|default:'—' }}</div>
             <div class="muted">Fecha fin</div><div>{{ service.fecha_fin|default:'—' }}</div>
             <div class="muted">Estado</div><div>{{ service.status }}</div>
@@ -59,36 +56,27 @@
                 <small>ACA</small>
                 <strong style="font-size:18px;">{{ aca_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
-                    <a class="btn" href="{% url 'service_aca_list' service.pk %}">
-                        Ver registros
-                    </a>{% if permission.can_edit %}
-                    <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">
-                        Registrar
-                    </a>{% endif %}
+                    <a class="btn btn-primary" href="{% url 'service_aca_list' service.pk %}">
+                        Desarrollo
+                    </a>
                 </div>
             </div>
             <div class="stat">
-                <small>RCM/FMEA</small>
+                <small>FMECA</small>
                 <strong style="font-size:18px;">{{ rcm_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
-                    <a class="btn" href="{% url 'service_rcm_list' service.pk %}">
-                        Ver registros
-                    </a>{% if permission.can_edit %}
-                    <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">
-                        Registrar
-                    </a>{% endif %}
+                    <a class="btn btn-primary" href="{% url 'service_rcm_list' service.pk %}">
+                        Desarrollo
+                    </a>
                 </div>
             </div>
             <div class="stat">
-                <small>PAUTAS</small>
+                <small>PLANES</small>
                 <strong style="font-size:18px;">{{ pauta_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
-                    <a class="btn" href="{% url 'service_pautas_list' service.pk %}">
-                        Gestionar
-                    </a>{% if permission.can_edit %}
-                    <a class="btn btn-primary" href="{% url 'service_pautas_generate' service.pk %}">
-                        Generar
-                    </a>{% endif %}
+                    <a class="btn btn-primary" href="{% url 'service_pautas_list' service.pk %}">
+                        Desarrollo
+                    </a>
                 </div>
             </div>
         </div>
@@ -150,11 +138,21 @@
 <div class="card">
     <h3 class="card-title">Equipos del servicio</h3>
     <div class="service-equipment-intro">
-        <p class="muted">Se muestran los equipos asociados directamente al servicio o pertenecientes a la misma empresa por su ubicaci&oacute;n t&eacute;cnica.</p>
-        <a class="btn" href="{% url 'service_equipment_families' service.pk %}">
-            Gestionar familias
-        </a>
+        <p class="muted">Se muestran los equipos asociados directamente al servicio.</p>
+        <div class="actions">
+            {% if request.user.is_superuser %}
+            <a class="btn" href="{% url 'model_create' 'equipo' %}">Registrar equipo</a>
+            {% endif %}
+            <a class="btn" href="{% url 'service_equipment_families' service.pk %}">
+                Gestionar familias
+            </a>
+        </div>
     </div>
+    <div class="segmented-control service-equipment-mode" aria-label="Tipo de busqueda">
+        <label><input type="radio" name="service_equipment_mode" value="equipment" checked> Equipos</label>
+        <label><input type="radio" name="service_equipment_mode" value="family"> Familias</label>
+    </div>
+    
     <div class="service-equipment-tools">
         <div class="service-equipment-inline-field">
             <label for="service-equipment-search">Buscar</label>
@@ -165,6 +163,7 @@
             <input id="service-equipment-count" class="input-control" type="text" readonly value="">
         </div>
     </div>
+    <hr>
     <div class="form-grid" id="service-equipment-level-filters"></div>
     
     <div class="table-wrap" style="margin-top:12px;">
@@ -184,82 +183,157 @@
     </div>
 </div>
 
-<div class="card">
-    <h3 class="card-title">Tablas y dimensiones de evaluación</h3>
-    {% if dimension_rows %}
-        <p class="muted">Estas son las dimensiones activas que se usarán para este servicio.</p>
-        <div class="table-wrap">
-            <table class="datatable display">
-                <thead>
-                    <tr>
-                        <th>Orden</th>
-                        <th>Dimensión</th>
-                        <th>Uso</th>
-                        <th>Tipo funcional</th>
-                        <th>Tipo dato</th>
-                        <th>Origen</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in dimension_rows %}
-                        <tr>
-                            <td>{{ item.orden }}</td>
-                            <td>{{ item.dimension.nombre }}</td>
-                            <td>{{ item.proceso_uso_display }}</td>
-                            <td>{{ item.dimension.tipo_funcional }}</td>
-                            <td>{{ item.dimension.tipo_dato }}</td>
-                            <td>
-                                {% if item.has_catalog %}Tabla{% elif item.has_scale %}Escala{% else %}Directo{% endif %}
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <div class="actions" style="margin-top:12px;">
-            <a class="btn" href="{% url 'service_dimensions' service.pk %}">Ver tablas completas</a>
-            {% if request.user.is_superuser and service.estrategia_id %}<a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}">Editar tablas</a>{% endif %}
-        </div>
-    {% else %}
-        <p class="muted">La estrategia del servicio todavía no tiene dimensiones configuradas.</p>
-    {% endif %}
-</div>
-
-<div class="card">
-    <h3 class="card-title">Matrices de riesgo asociadas</h3>
-    {% if matrices %}
-        <p class="muted">
-            {% if mindco_viewer %}
-                Como usuario Mindco puedes revisar la matriz original del cliente y su proyección homologada 5x5.
-            {% else %}
-                Como usuario cliente verás siempre la matriz original configurada para tu servicio.
+<div style="display: flex; gap: 16px;">
+    <div class="card">
+        <div class="service-equipment-intro">
+            <h3 class="card-title">Tablas y dimensiones de evaluación</h3>
+            {% if dimension_rows and request.user.is_superuser and service.estrategia_id %}
+                <a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}?service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                    Crear / gestionar tablas
+                </a>
             {% endif %}
-        </p>
-        <div class="table-wrap">
-            <table class="datatable display">
-                <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Acciones</th></tr></thead>
-                <tbody>
-                    {% for matriz in matrices %}
-                        <tr>
-                            <td>{{ matriz.nombre }}</td>
-                            <td>{{ matriz.niveles_probabilidad.count }}x{{ matriz.niveles_impacto.count }}</td>
-                            <td>{{ matriz.fecha_creado }}</td>
-                            <td>
-                                <div class="actions">
-                                    <a class="btn" href="{% url 'service_matrix_view' service.pk matriz.pk %}">
-                                        {% if mindco_viewer %}Ver original + homologada{% else %}Ver matriz original{% endif %}
-                                    </a>
-                                    {% if request.user.is_superuser %}<a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Abrir editor</a>{% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
         </div>
-    {% else %}
-        <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
-    {% endif %}
+        {% if dimension_rows %}
+            <p class="muted">Estas son las dimensiones activas que se usarán para este servicio.</p>
+            <div class="table-wrap">
+                <table class="datatable display" data-dt-controls="paging-only">
+                    <thead>
+                        <tr>
+                            <th>Dimensión</th>
+                            <th>Uso</th>
+                            <th>Tipo funcional</th>
+                            <th>Tipo dato</th>
+                            <th>Origen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in dimension_rows %}
+                            <tr>
+                                <td>{{ item.dimension.nombre }}</td>
+                                <td>{{ item.proceso_uso_display }}</td>
+                                <td>{{ item.dimension.tipo_funcional }}</td>
+                                <td>{{ item.dimension.tipo_dato }}</td>
+                                <td class="origin-popover-cell">
+                                    <button
+                                        class="origin-popover-trigger"
+                                        type="button"
+                                        data-origin-popover="dimension-origin-{{ forloop.counter }}"
+                                        aria-expanded="false"
+                                    >
+                                        <span>{{ item.origin.label }}</span>
+                                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                    </button>
+                                    <div id="dimension-origin-{{ forloop.counter }}" class="origin-popover-source" hidden>
+                                        {% if item.origin.calculation %}
+                                            <div class="origin-calc-preview">
+                                                {% for step in item.origin.calculation.steps %}
+                                                    <div class="origin-calc-step">
+                                                        <span>Paso {{ step.order }} · {{ step.operation }}</span>
+                                                        <strong>{{ step.expression }}</strong>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                        {% if item.origin.table_preview %}
+                                            <div class="origin-table-preview">
+                                                <table>
+                                                    <thead>
+                                                        <tr>
+                                                            {% for column in item.origin.table_preview.columns %}
+                                                                <th>{{ column }}</th>
+                                                            {% endfor %}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for row in item.origin.table_preview.rows %}
+                                                            <tr>
+                                                                {% for cell in row.cells %}
+                                                                    <td>{{ cell }}</td>
+                                                                {% endfor %}
+                                                            </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        {% endif %}
+                                        {% if item.origin.description %}
+                                            <p class="muted">{{ item.origin.description }}</p>
+                                        {% endif %}
+                                        {% if not item.origin.calculation and not item.origin.table_preview and not item.origin.description %}
+                                            <p class="muted">Ingreso directo sin tabla, escala ni cálculo asociado.</p>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions" style="margin-top:12px;">
+            </div>
+        {% else %}
+            <p class="muted">La estrategia del servicio todavía no tiene dimensiones configuradas.</p>
+            {% if request.user.is_superuser and service.estrategia_id %}
+                <div class="actions" style="margin-top:12px;">
+                    <a class="btn btn-primary" href="{% url 'dimension_tables_editor' service.estrategia_id %}?service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                        Crear tablas de evaluación
+                    </a>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <div id="dimension-origin-popover" class="dimension-origin-popover" role="tooltip" hidden></div>
+
+    <div class="card">
+        <div class="service-equipment-intro">
+            <h3 class="card-title">Matrices de riesgo asociadas</h3>
+            {% if request.user.is_superuser and service.estrategia_id %}
+                {% if matrices %}
+                    <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}">
+                        Crear / gestionar matrices
+                    </a>
+                {% else %}
+                    <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}?estrategia={{ service.estrategia_id }}&service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                        Crear matriz de riesgo
+                    </a>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% if matrices %}
+            <p class="muted">
+                {% if mindco_viewer %}
+                    Como usuario Mindco puedes revisar la matriz original del cliente y su proyección homologada 5x5.
+                {% else %}
+                    Como usuario cliente verás siempre la matriz original configurada para tu servicio.
+                {% endif %}
+            </p>
+            <div class="table-wrap">
+                <table class="datatable display">
+                    <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Acciones</th></tr></thead>
+                    <tbody>
+                        {% for matriz in matrices %}
+                            <tr>
+                                <td>{{ matriz.nombre }}</td>
+                                <td>{{ matriz.niveles_probabilidad.count }}x{{ matriz.niveles_impacto.count }}</td>
+                                <td>{{ matriz.fecha_creado }}</td>
+                                <td>
+                                    <div class="actions">
+                                        <a class="btn" href="{% url 'service_matrix_view' service.pk matriz.pk %}">
+                                            {% if mindco_viewer %}Ver original + homologada{% else %}Ver matriz original{% endif %}
+                                        </a>
+                                        {% if request.user.is_superuser %}<a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Abrir editor</a>{% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
+        {% endif %}
+    </div>
 </div>
 
 
@@ -267,15 +341,20 @@
 
 {% block extra_js %}
 {{ service_equipment_payload|json_script:"service-equipment-data" }}
+{{ service_family_payload|json_script:"service-family-data" }}
 <script>
 (function () {
     const dataNode = document.getElementById('service-equipment-data');
+    const familyDataNode = document.getElementById('service-family-data');
     const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+    const familyItems = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
     const levels = payload.levels || [];
     const filtersBox = document.getElementById('service-equipment-level-filters');
     const searchInput = document.getElementById('service-equipment-search');
     const countInput = document.getElementById('service-equipment-count');
     const tableBody = document.getElementById('service-equipment-table');
+    const modeInputs = Array.from(document.querySelectorAll('input[name="service_equipment_mode"]'));
+    const tableHead = tableBody ? tableBody.closest('table')?.querySelector('thead tr') : null;
     const endpoints = {
         nodes: "{% url 'service_equipment_nodes' service.pk %}",
         search: "{% url 'service_equipment_search' service.pk %}"
@@ -283,6 +362,11 @@
     const nodeCache = new Map();
     let searchTimer = null;
     let activeRequest = 0;
+
+    function currentMode() {
+        const checked = modeInputs.find(input => input.checked);
+        return checked ? checked.value : 'equipment';
+    }
 
     function escapeHtml(value) {
         return String(value || '')
@@ -303,6 +387,26 @@
 
     function setTableMessage(message) {
         if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(message)}</td></tr>`;
+    }
+
+    function setEquipmentHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th>Ubicaci&oacute;n T&eacute;cnica</th>
+            <th>Descripci&oacute;n U.T&eacute;cnica</th>
+            <th>Equipo</th>
+            <th>TAG</th>
+        `;
+    }
+
+    function setFamilyHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th>Familia</th>
+            <th>Descripci&oacute;n</th>
+            <th>Equipos</th>
+            <th>Detalle</th>
+        `;
     }
 
     async function fetchJson(url) {
@@ -357,6 +461,11 @@
     }
 
     async function renderTable() {
+        if (currentMode() === 'family') {
+            renderFamilies();
+            return;
+        }
+        setEquipmentHeader();
         const requestId = ++activeRequest;
         const query = searchInput ? searchInput.value.trim() : '';
         const nodeId = selectedNodeId();
@@ -401,6 +510,50 @@
         `).join('');
     }
 
+    function familyMatchesQuery(family, query) {
+        if (!query) return true;
+        const haystack = [
+            family.nombre,
+            family.descripcion,
+            ...(family.equipos || []).flatMap(item => [item.ut, item.descripcion_ut, item.equipo, item.tag])
+        ].join(' ').toLowerCase();
+        return haystack.includes(query.toLowerCase());
+    }
+
+    function renderFamilies() {
+        activeRequest += 1;
+        setFamilyHeader();
+        const query = searchInput ? searchInput.value.trim() : '';
+        const matches = familyItems.filter(family => familyMatchesQuery(family, query));
+        if (filtersBox) filtersBox.style.display = 'none';
+        if (searchInput) searchInput.placeholder = 'Nombre de familia, UT, TAG o equipo';
+        if (countInput) countInput.value = `${matches.length} familias`;
+        if (!tableBody) return;
+        if (!matches.length) {
+            setTableMessage('No hay familias para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = matches.map(family => {
+            const equipos = family.equipos || [];
+            const detailRows = equipos.length
+                ? equipos.map(item => `<div class="family-equipment-mini-row"><strong>${escapeHtml(item.tag || '-')}</strong><span>${escapeHtml(item.equipo || '')}</span><span>${escapeHtml(item.ut || '')}</span></div>`).join('')
+                : '<div class="muted">Esta familia no tiene equipos.</div>';
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(family.nombre)}</strong></td>
+                    <td>${escapeHtml(family.descripcion || '')}</td>
+                    <td>${equipos.length}</td>
+                    <td>
+                        <details class="service-family-details">
+                            <summary>Ver detalles</summary>
+                            <div class="family-equipment-mini-list">${detailRows}</div>
+                        </details>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
     function scheduleRenderTable() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(renderTable, 250);
@@ -422,11 +575,95 @@
             });
         });
         if (searchInput) searchInput.addEventListener('input', scheduleRenderTable);
+        modeInputs.forEach(function (input) {
+            input.addEventListener('change', function () {
+                if (filtersBox) filtersBox.style.display = currentMode() === 'family' ? 'none' : '';
+                if (searchInput) searchInput.placeholder = currentMode() === 'family'
+                    ? 'Nombre de familia, UT, TAG o equipo'
+                    : 'UT, TAG o nombre del equipo';
+                renderTable();
+            });
+        });
         repopulateFilters(-1).then(renderTable);
     }
 
     initFilters();
 })();
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const popover = document.getElementById('dimension-origin-popover');
+    if (!popover) return;
+
+    let activeTrigger = null;
+
+    function closeOriginPopover() {
+        if (activeTrigger) activeTrigger.setAttribute('aria-expanded', 'false');
+        activeTrigger = null;
+        popover.hidden = true;
+        popover.innerHTML = '';
+    }
+
+    function positionOriginPopover(trigger) {
+        const rect = trigger.getBoundingClientRect();
+        const spacing = 8;
+        const maxWidth = Math.min(340, window.innerWidth - 24);
+        popover.style.maxWidth = maxWidth + 'px';
+        popover.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - maxWidth - 12)) + 'px';
+        popover.style.top = (rect.bottom + spacing) + 'px';
+
+        requestAnimationFrame(function () {
+            const popRect = popover.getBoundingClientRect();
+            let left = rect.left;
+            let top = rect.bottom + spacing;
+
+            if (left + popRect.width > window.innerWidth - 12) {
+                left = window.innerWidth - popRect.width - 12;
+            }
+            if (left < 12) left = 12;
+
+            if (top + popRect.height > window.innerHeight - 12) {
+                top = rect.top - popRect.height - spacing;
+            }
+            if (top < 12) top = 12;
+
+            popover.style.left = left + 'px';
+            popover.style.top = top + 'px';
+        });
+    }
+
+    function openOriginPopover(trigger) {
+        const source = document.getElementById(trigger.dataset.originPopover || '');
+        if (!source) return;
+        if (activeTrigger === trigger && !popover.hidden) {
+            closeOriginPopover();
+            return;
+        }
+        if (activeTrigger) activeTrigger.setAttribute('aria-expanded', 'false');
+        activeTrigger = trigger;
+        trigger.setAttribute('aria-expanded', 'true');
+        popover.innerHTML = source.innerHTML;
+        popover.hidden = false;
+        positionOriginPopover(trigger);
+    }
+
+    document.addEventListener('click', function (event) {
+        const trigger = event.target.closest('.origin-popover-trigger');
+        if (trigger) {
+            event.preventDefault();
+            event.stopPropagation();
+            openOriginPopover(trigger);
+            return;
+        }
+        if (!event.target.closest('.dimension-origin-popover')) closeOriginPopover();
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeOriginPopover();
+    });
+
+    window.addEventListener('resize', closeOriginPopover);
+});
 </script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {

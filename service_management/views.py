@@ -1,3 +1,5 @@
+import json
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -13,6 +15,7 @@ from service_management.forms import FamiliaEquipoForm, ServiceAccessGrantForm
 from core.views import (
     _catalog_preview,
     _equipment_items_payload,
+    _is_generated_matrix_axis_dimension,
     _service_equipment_browser_payload,
     _service_equipment_count,
     _service_equipment_endpoints,
@@ -20,6 +23,249 @@ from core.views import (
     _service_or_404,
     _strategy_dimensions,
 )
+
+
+_CALC_OPERATION_LABELS = {
+    'suma': 'Suma',
+    'resta': 'Resta',
+    'multiplicacion': 'Multiplicacion',
+    'division': 'Division',
+    'maximo': 'Maximo',
+    'máximo': 'Maximo',
+    'minimo': 'Minimo',
+    'mínimo': 'Minimo',
+}
+
+_CALC_OPERATION_SYMBOLS = {
+    'suma': ' + ',
+    'resta': ' - ',
+    'multiplicacion': ' x ',
+    'division': ' / ',
+    'maximo': ', ',
+    'máximo': ', ',
+    'minimo': ', ',
+    'mínimo': ', ',
+}
+
+
+def _service_family_payload(servicio):
+    familias = (
+        models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True)
+        .prefetch_related('items__equipo')
+        .order_by('nombre')
+    )
+    payload = []
+    for familia in familias:
+        equipos = [item.equipo for item in familia.items.all()]
+        payload.append({
+            'id': familia.pk,
+            'nombre': familia.nombre,
+            'descripcion': familia.descripcion,
+            'equipos': _equipment_items_payload(equipos),
+        })
+    return payload
+
+
+def _safe_calc_config(value):
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _calc_steps(tipo_calculo, config):
+    config = _safe_calc_config(config)
+    raw_steps = config.get('pasos') or config.get('steps')
+    if isinstance(raw_steps, list) and raw_steps:
+        steps = []
+        for step in raw_steps:
+            if not isinstance(step, dict):
+                continue
+            operation = (
+                step.get('operacion')
+                or step.get('tipo_calculo')
+                or step.get('operation')
+                or tipo_calculo
+                or ''
+            )
+            operands = step.get('operandos') or step.get('campos') or step.get('sources') or []
+            if operation and isinstance(operands, list):
+                steps.append({'operation': str(operation).strip().lower(), 'operands': operands})
+        if steps:
+            return steps
+    operands = config.get('operandos') or config.get('campos') or config.get('sources') or []
+    return [{'operation': str(tipo_calculo or '').strip().lower(), 'operands': operands if isinstance(operands, list) else []}]
+
+
+def _calc_operand_label(operand, estrategia):
+    if isinstance(operand, dict):
+        estrategia_dimension_id = operand.get('estrategia_dimension_id') or operand.get('estrategiaDimensionId')
+        dimension_id = operand.get('dimension_id') or operand.get('dimensionId')
+        if estrategia_dimension_id:
+            item = (
+                models.EstrategiaDimension.objects.filter(
+                    pk=estrategia_dimension_id,
+                    estrategia=estrategia,
+                )
+                .select_related('dimension')
+                .first()
+            )
+            if item:
+                return item.dimension.nombre
+        if dimension_id:
+            item = (
+                models.EstrategiaDimension.objects.filter(
+                    dimension_id=dimension_id,
+                    estrategia=estrategia,
+                )
+                .select_related('dimension')
+                .first()
+            )
+            if item:
+                return item.dimension.nombre
+        for key in ('nombre', 'campo', 'source', 'fuente', 'dependencia', 'depende_de'):
+            if operand.get(key):
+                return str(operand.get(key))
+        return 'Valor'
+    operand_text = str(operand or '').strip()
+    if operand_text in {'$resultado', '__resultado__', 'resultado_anterior'}:
+        return 'Resultado anterior'
+    return operand_text or 'Valor'
+
+
+def _calculation_preview(estrategia_dimension):
+    dimension = estrategia_dimension.dimension
+    tipo_calculo = (getattr(dimension, 'tipo_calculo', '') or '').strip().lower()
+    if not tipo_calculo:
+        return None
+    steps = _calc_steps(tipo_calculo, getattr(dimension, 'config_calculo', None))
+    preview_steps = []
+    for idx, step in enumerate(steps, start=1):
+        operation = step.get('operation') or tipo_calculo
+        operands = [
+            _calc_operand_label(operand, estrategia_dimension.estrategia)
+            for operand in step.get('operands', [])
+        ]
+        if operation in {'maximo', 'máximo'}:
+            expression = f"Maximo({', '.join(operands)})"
+        elif operation in {'minimo', 'mínimo'}:
+            expression = f"Minimo({', '.join(operands)})"
+        else:
+            expression = _CALC_OPERATION_SYMBOLS.get(operation, ' ? ').join(operands)
+        preview_steps.append({
+            'order': idx,
+            'operation': _CALC_OPERATION_LABELS.get(operation, operation or 'Calculo'),
+            'expression': expression or 'Sin operandos configurados',
+        })
+    return {
+        'operation': _CALC_OPERATION_LABELS.get(tipo_calculo, tipo_calculo),
+        'steps': preview_steps,
+    }
+
+
+def _catalog_table_preview(catalogo):
+    if not catalogo:
+        return None
+    columns = list(catalogo.columnas.all().order_by('orden', 'id'))
+    rows = []
+    for row in catalogo.filas.prefetch_related('celdas__columna').all().order_by('orden', 'id'):
+        values = row.values_map()
+        rows.append({
+            'label': row.etiqueta,
+            'cells': [
+                values.get(column.clave_interna, row.etiqueta if column.clave_interna == 'etiqueta' else '')
+                for column in columns
+            ],
+        })
+    return {
+        'columns': [column.nombre_columna for column in columns],
+        'rows': rows,
+        'extra_rows': 0,
+    }
+
+
+def _scale_table_preview(estrategia_dimension):
+    rows = []
+    valores = estrategia_dimension.escalas_valor.select_related('escala_unificada').order_by('nivel_ordinal', 'id')
+    for item in valores:
+        rows.append({
+            'cells': [
+                item.nivel_ordinal,
+                item.codigo or '',
+                item.descripcion or '',
+                item.valor_numerico,
+                str(item.escala_unificada) if item.escala_unificada_id else '',
+            ],
+        })
+    return {
+        'columns': ['Nivel', 'Codigo', 'Descripcion', 'Valor', 'Escala unificada'],
+        'rows': rows,
+        'extra_rows': 0,
+    }
+
+
+def _dimension_origin_info(estrategia_dimension):
+    dimension = estrategia_dimension.dimension
+    tipo_calculo = (getattr(dimension, 'tipo_calculo', '') or '').strip()
+    try:
+        catalogo = estrategia_dimension.catalogo
+    except models.DimensionCatalogo.DoesNotExist:
+        catalogo = None
+
+    scale_count = estrategia_dimension.escalas_valor.count()
+    calculation = _calculation_preview(estrategia_dimension)
+    if tipo_calculo:
+        return {
+            'label': 'Calculo',
+            'title': dimension.nombre,
+            'kind': 'Dimension calculada',
+            'field': catalogo.campo if catalogo else '',
+            'rows': catalogo.filas.count() if catalogo else 0,
+            'columns': catalogo.columnas.count() if catalogo else 0,
+            'description': dimension.descripcion or (catalogo.descripcion if catalogo else ''),
+            'calculation': calculation,
+            'table_preview': _catalog_table_preview(catalogo) if catalogo else None,
+        }
+    if catalogo:
+        return {
+            'label': 'Tabla',
+            'title': catalogo.nombre or dimension.nombre,
+            'kind': catalogo.get_tipo_display() if hasattr(catalogo, 'get_tipo_display') else catalogo.tipo,
+            'field': catalogo.campo or '',
+            'rows': catalogo.filas.count(),
+            'columns': catalogo.columnas.count(),
+            'description': catalogo.descripcion or dimension.descripcion or '',
+            'calculation': None,
+            'table_preview': _catalog_table_preview(catalogo),
+        }
+    if scale_count:
+        return {
+            'label': 'Escala',
+            'title': dimension.nombre,
+            'kind': 'Escala',
+            'field': '',
+            'rows': scale_count,
+            'columns': 0,
+            'description': dimension.descripcion or '',
+            'calculation': None,
+            'table_preview': _scale_table_preview(estrategia_dimension),
+        }
+    return {
+        'label': 'Directo',
+        'title': dimension.nombre,
+        'kind': 'Ingreso directo',
+        'field': '',
+        'rows': 0,
+        'columns': 0,
+        'description': dimension.descripcion or '',
+        'calculation': None,
+        'table_preview': None,
+    }
 
 
 @login_required
@@ -49,6 +295,11 @@ def service_detail(request, pk):
     estrategia_dims = _strategy_dimensions(servicio.estrategia)
     dimension_rows = []
     for item in estrategia_dims:
+        if _is_generated_matrix_axis_dimension(item):
+            continue
+        origin = _dimension_origin_info(item)
+        if origin.get('label') == 'Directo':
+            continue
         dimension_rows.append({
             'orden': item.orden,
             'dimension': item.dimension,
@@ -56,6 +307,7 @@ def service_detail(request, pk):
             'proceso_uso_display': item.get_proceso_uso_display(),
             'has_catalog': hasattr(item, 'catalogo'),
             'has_scale': item.escalas_valor.exists(),
+            'origin': origin,
         })
     aca_count = models.Criticidad.objects.filter(aca_carga__servicio=servicio).count()
     rcm_count = models.RCM.objects.filter(carga__servicio=servicio).count()
@@ -85,6 +337,7 @@ def service_detail(request, pk):
         'dimension_count': len(estrategia_dims),
         'mindco_viewer': is_mindco_user(request.user),
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
+        'service_family_payload': _service_family_payload(servicio),
     })
 
 

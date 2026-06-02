@@ -35,9 +35,6 @@
                     <tr>
                         <th>#</th>
                         <th>Equipo</th>
-                        <th>UT</th>
-                        <th>Nombre equipo</th>
-                        <th>TAG</th>
                         <th>Escenario falla</th>
                         {% for dimension in dimension_payload %}
                             <th title="{{ dimension.nombre }}">{{ dimension.nombre }}</th>
@@ -443,14 +440,18 @@
         tr.innerHTML = `
             <td class="aca-bulk-index">${rowId}</td>
             <td class="aca-bulk-equipment-cell">
-                <input class="aca-bulk-search" data-row-id="${rowId}" type="search" placeholder="Buscar equipo" value="">
+                <div class="aca-bulk-equipment-control">
+                    <button class="btn aca-bulk-search-toggle" type="button" data-search-toggle="${rowId}" aria-label="Buscar equipo" title="Buscar equipo">
+                        <i class="bi bi-search"></i>
+                    </button>
+                    <div class="aca-bulk-search-popover" data-search-popover="${rowId}" hidden>
+                        <input class="aca-bulk-search" data-row-id="${rowId}" type="search" placeholder="Buscar equipo por UT, TAG o nombre" value="">
+                    </div>
+                </div>
                 <select class="aca-bulk-equipment-select" data-row-id="${rowId}">
                     ${equipmentOptionsHtml(row)}
                 </select>
             </td>
-            <td><span class="cell-ellipsis" title="${escapeHtml(equipment.ut || '')}">${escapeHtml(equipment.ut || '')}</span></td>
-            <td><span class="cell-ellipsis" title="${escapeHtml(equipment.equipo || '')}">${escapeHtml(equipment.equipo || '')}</span></td>
-            <td>${escapeHtml(equipment.tag || '')}</td>
             <td><input class="aca-bulk-scenario" data-row-id="${rowId}" value="${escapeHtml(row.escenario_falla || '')}" placeholder="Escenario"></td>
             ${dimensions.map(dimension => renderDimensionCell(row, dimension)).join('')}
             <td><span class="aca-bulk-crit">${escapeHtml(row.criticidad || '-')}</span></td>
@@ -603,6 +604,17 @@
     tbody.addEventListener('click', event => {
         const pick = event.target.closest('.aca-bulk-dimension-cell');
         if (pick) openDimensionPicker(Number(pick.dataset.rowId), pick.dataset.dimensionId);
+        const searchToggle = event.target.closest('[data-search-toggle]');
+        if (searchToggle) {
+            const rowId = searchToggle.dataset.searchToggle;
+            const popover = tbody.querySelector(`[data-search-popover="${rowId}"]`);
+            if (popover) {
+                const nextHidden = !popover.hidden ? true : false;
+                tbody.querySelectorAll('.aca-bulk-search-popover').forEach(node => { node.hidden = true; });
+                popover.hidden = nextHidden;
+                if (!popover.hidden) popover.querySelector('input')?.focus();
+            }
+        }
         const remove = event.target.closest('[data-remove-row]');
         if (remove) {
             delete rows[Number(remove.dataset.removeRow)];

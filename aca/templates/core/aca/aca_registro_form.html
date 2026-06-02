@@ -5,8 +5,8 @@
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-        <h2>{% if editing_crit %}Editar registro ACA{% else %}Nuevo registro ACA{% endif %}</h2>
-        <p>{{ service.codigo_servicio }} · {% if selected_strategy %}{{ selected_strategy.metodologias_display|default:"Sin metodología" }}{% endif %}</p>
+        <h2>{% if editing_crit %}Editar registro ACA{% else %}Desarrollar ACA individual{% endif %}</h2>
+        <p>{{ service.codigo_servicio }}</p>
     </div>
     </div>
     <div class="page-header-actions" style="display: flex;">
@@ -53,6 +53,14 @@
             </div>
             {% endif %}
             <div class="form-field full" id="aca-equipment-picker-field">
+                <div class="service-equipment-intro" style="margin-top:0;">
+                    <p class="muted">Selecciona el equipo del registro o crea uno nuevo si todav&iacute;a no existe.</p>
+                    {% if request.user.is_superuser %}
+                    <a class="btn" href="{% url 'model_create' 'equipo' %}">
+                        Añadir equipo
+                    </a>
+                    {% endif %}
+                </div>
                 <div class="form-grid" style="margin-top:12px;">
                     <div class="form-field">
                         <label for="aca-equipment-search">Buscar</label>
@@ -68,24 +76,29 @@
                 </div>
                 <input type="hidden" name="{{ base_form.equipo.html_name }}" id="{{ base_form.equipo.id_for_label }}" value="{{ base_form.equipo.value|default:'' }}">
                 <div class="form-grid" id="aca-equipment-level-filters"></div>
-                
+                <div class="form-error" id="aca-equipment-existing-warning" hidden></div>
                 {% if base_form.equipo.errors %}<div class="form-error">{{ base_form.equipo.errors }}</div>{% endif %}
             </div>
-            <div class="form-field aca-equipment-detail-field">
-                <label>Ubicaci&oacute;n T&eacute;cnica</label>
-                <input id="aca-equipment-ut" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
-            </div>
-            <div class="form-field aca-equipment-detail-field">
-                <label>Descripci&oacute;n U.T&eacute;cnica</label>
-                <input id="aca-equipment-description" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
-            </div>
-            <div class="form-field aca-equipment-detail-field">
-                <label>Equipo</label>
-                <input id="aca-equipment-name" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
-            </div>
-            <div class="form-field aca-equipment-detail-field">
-                <label>TAG</label>
-                <input id="aca-equipment-tag" class="input-control" type="text" readonly placeholder="Selecciona un equipo">
+            <div class="form-field full aca-equipment-detail-box" id="aca-equipment-detail-box" hidden>
+                <div class="aca-equipment-detail-title">Detalles del equipo seleccionado</div>
+                <div class="form-grid">
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Ubicaci&oacute;n T&eacute;cnica</label>
+                        <input id="aca-equipment-ut" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Descripci&oacute;n U.T&eacute;cnica</label>
+                        <input id="aca-equipment-description" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Equipo</label>
+                        <input id="aca-equipment-name" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>TAG</label>
+                        <input id="aca-equipment-tag" class="input-control" type="text" readonly>
+                    </div>
+                </div>
             </div>
             <div class="form-field full">
                 <label for="{{ base_form.escenario_falla.id_for_label }}">{{ base_form.escenario_falla.label }}</label>
@@ -107,8 +120,12 @@
     
 
     <div class="card">
-        <h3 class="card-title">Indicadores y tablas de evaluación</h3>
-
+        <div style="Display: Flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 class="card-title">Indicadores y tablas de evaluación</h3>
+            <a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}">
+                Gestionar tabllas de evaluación
+            </a>
+        </div>
         {{ dimension_formset.management_form }}
         <div class="dimension-grid">
         {% for form in dimension_formset %}
@@ -359,6 +376,7 @@
 {{ service_equipment_payload|json_script:"service-equipment-data" }}
 {{ service_equipment_endpoints|json_script:"service-equipment-endpoints" }}
 {{ service_family_payload|json_script:"service-family-data" }}
+{{ existing_aca_equipment_ids_json|json_script:"aca-existing-equipment-data" }}
 <script>
 (function () {
     const matrixHidden = document.getElementById('{{ base_form.matrix_celda.id_for_label }}');
@@ -378,9 +396,11 @@
     const equipmentDataNode = document.getElementById('service-equipment-data');
     const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
     const familyDataNode = document.getElementById('service-family-data');
+    const existingEquipmentDataNode = document.getElementById('aca-existing-equipment-data');
     const equipmentPayload = equipmentDataNode ? JSON.parse(equipmentDataNode.textContent || '{}') : {};
     const equipmentEndpoints = equipmentEndpointsNode ? JSON.parse(equipmentEndpointsNode.textContent || '{}') : {};
     const familyPayload = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
+    const existingAcaEquipmentIds = new Set((existingEquipmentDataNode ? JSON.parse(existingEquipmentDataNode.textContent || '[]') : []).map(String));
     const familyById = Object.fromEntries(familyPayload.map(item => [String(item.id), item]));
     const equipmentLevels = equipmentPayload.levels || [];
     const equipmentNodes = equipmentPayload.nodes || [];
@@ -398,6 +418,8 @@
     const familySummaryTitle = document.getElementById('aca-family-summary-title');
     const familyEquipmentList = document.getElementById('aca-family-equipment-list');
     const equipmentPickerField = document.getElementById('aca-equipment-picker-field');
+    const equipmentDetailBox = document.getElementById('aca-equipment-detail-box');
+    const equipmentExistingWarning = document.getElementById('aca-equipment-existing-warning');
     const equipmentDetailFields = Array.from(document.querySelectorAll('.aca-equipment-detail-field'));
     const scopeRadios = Array.from(document.querySelectorAll('input[name="aca_scope"]'));
     const scenarioSelect = document.getElementById('{{ base_form.escenario_falla.id_for_label }}');
@@ -554,12 +576,29 @@
         field.value = value || '';
     }
 
+    function syncEquipmentDetailVisibility(equipo) {
+        const hasEquipment = Boolean(equipo);
+        if (equipmentDetailBox) equipmentDetailBox.hidden = !hasEquipment;
+        equipmentDetailFields.forEach(function (field) {
+            field.hidden = !hasEquipment;
+        });
+        if (equipmentExistingWarning) {
+            const equipmentId = equipmentInput ? String(equipmentInput.value || '') : '';
+            const duplicated = equipmentId && existingAcaEquipmentIds.has(equipmentId);
+            equipmentExistingWarning.hidden = !duplicated;
+            equipmentExistingWarning.textContent = duplicated
+                ? 'Este equipo ya tiene un registro ACA realizado con anterioridad en este servicio.'
+                : '';
+        }
+    }
+
     function syncEquipmentInfo() {
         const equipo = equipmentInput ? equipmentById[String(equipmentInput.value || '')] : null;
         setEquipmentField(equipmentFields.ut, equipo ? equipo.ut : '');
         setEquipmentField(equipmentFields.description, equipo ? equipo.descripcion_ut : '');
         setEquipmentField(equipmentFields.name, equipo ? equipo.equipo : '');
         setEquipmentField(equipmentFields.tag, equipo ? equipo.tag : '');
+        syncEquipmentDetailVisibility(equipo);
     }
 
     function normalizeSearch(value) {
@@ -638,6 +677,8 @@
         const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
         for (let index = changedIndex + 1; index < selects.length; index += 1) {
             selects[index].value = '';
+            const wrapper = selects[index].closest('.form-field');
+            if (wrapper) wrapper.hidden = true;
         }
         selects.forEach(function (select, index) {
             const previous = index > 0 ? selects[index - 1].value : '';
@@ -753,6 +794,7 @@
         setEquipmentField(equipmentFields.description, item ? item.descripcion_ut : '');
         setEquipmentField(equipmentFields.name, item ? item.equipo : '');
         setEquipmentField(equipmentFields.tag, item ? item.tag : '');
+        syncEquipmentDetailVisibility(item);
     }
 
     async function lazyRefreshEquipmentResults(keepSelection) {
@@ -825,6 +867,8 @@
         for (const [index, select] of selects.entries()) {
             const previous = index > 0 ? selects[index - 1].value : '';
             const level = equipmentLevels[index];
+            const wrapper = select.closest('.form-field');
+            if (wrapper) wrapper.hidden = index > 0 && !previous;
             if (!level) continue;
             const selected = select.value;
             select.disabled = index > 0 && !previous;
@@ -833,6 +877,11 @@
                 continue;
             }
             select.innerHTML = '<option value="">Cargando...</option>';
+            if (index > changedIndex + 1) {
+                select.disabled = true;
+                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
+                continue;
+            }
             let options = [];
             try {
                 options = await lazyLoadEquipmentNodes(index === 0 ? '' : previous);

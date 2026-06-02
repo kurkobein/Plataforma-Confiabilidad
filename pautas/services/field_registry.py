@@ -124,7 +124,7 @@ def get_pauta_header_field_options(servicio=None, estrategia=None):
     estrategia = _strategy_from_context(servicio, estrategia)
     return [
         _group('Equipo', _equipment_options(servicio)),
-        _group('RCM', _model_field_options(models.RCM, 'rcm', 'RCM', exclude={'carga', 'equipo'})),
+        _group('RCM', _model_field_options(models.RCM, 'rcm', 'RCM', exclude={'carga', 'equipo', 'causa'})),
         _group('FMEA/FMECA', _model_field_options(models.FMEA_FMECA, 'fmea', 'FMEA/FMECA', exclude={'rcm'})),
         _group('Evaluaciones RCM', _evaluation_options(estrategia)),
         _group('Campos dinamicos tarea RCM', _dynamic_task_field_options(estrategia)),
@@ -135,6 +135,6 @@ def get_pauta_task_field_options(servicio=None, estrategia=None):
     estrategia = _strategy_from_context(servicio, estrategia)
     return [
         _group('Campos dinamicos tarea RCM', _dynamic_task_field_options(estrategia)),
-        _group('RCM asociado', _model_field_options(models.RCM, 'rcm', 'RCM asociado', exclude={'carga', 'equipo'})),
+        _group('RCM asociado', _model_field_options(models.RCM, 'rcm', 'RCM asociado', exclude={'carga', 'equipo', 'causa'})),
         _group('Equipo', _equipment_options(servicio)),
     ]

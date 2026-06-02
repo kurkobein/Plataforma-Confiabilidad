@@ -4,6 +4,8 @@ from . import views
 
 
 urlpatterns = [
+    path('aca/panel/', views.aca_panel, name='aca_panel'),
+    path('aca/desarrollo/', views.aca_development, name='aca_development'),
     path('aca/nuevo/', views.aca_registro_new, name='aca_registro_new'),
     path('servicios/<int:pk>/aca/', views.service_aca_list, name='service_aca_list'),
     path('servicios/<int:pk>/aca/progreso/', views.service_aca_progress_partial, name='service_aca_progress_partial'),

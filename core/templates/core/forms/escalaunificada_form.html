@@ -12,7 +12,6 @@
     <div class="actions">
         <a class="btn" href="{% url 'model_list' 'escalaunificada' %}">Volver</a>
         {% if mode == 'update' and object %}
-            <a class="btn" href="{% url 'model_detail' 'escalaunificada' object.pk %}">Ver detalle</a>
             
         {% endif %}
     </div>

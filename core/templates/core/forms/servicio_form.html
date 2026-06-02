@@ -12,7 +12,6 @@
     <div class="actions">
         <a class="btn" href="{% url 'model_list' 'servicio' %}">Volver</a>
         {% if mode == 'update' and object %}
-            <a class="btn" href="{% url 'model_detail' 'servicio' object.pk %}">Ver detalle</a>
             <a class="btn" href="{% url 'service_detail' object.pk %}">Ver detalle operativo</a>
             {% if request.user.is_superuser %}<a class="btn btn-danger" href="{% url 'model_delete' 'servicio' object.pk %}">Eliminar servicio</a>{% endif %}
         {% endif %}
@@ -82,12 +81,7 @@
             </div>
             <div><strong>{{ form.creado_por_usuario.label }}</strong></div>
             <div>
-                {% if mode == 'create' and form.creador_usuario %}
-                    <input type="text" class="input-control" value="{{ form.creador_usuario }}" readonly>
-                    <input type="hidden" name="{{ form.creado_por_usuario.html_name }}" value="{{ form.creador_usuario.pk }}">
-                {% else %}
-                    {{ form.creado_por_usuario }}
-                {% endif %}
+                {{ form.creado_por_usuario }}
                 {% if form.creado_por_usuario.help_text %}<small>{{ form.creado_por_usuario.help_text }}</small>{% endif %}
                 {{ form.creado_por_usuario.errors }}
             </div>

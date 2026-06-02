@@ -409,7 +409,7 @@ class Command(BaseCommand):
         return header_map
 
     def row_is_empty(self, row, header_map):
-        important = ['tag', 'ut', 'falla_funcional', 'modo_de_falla', 'efecto', 'descripcion_equipo']
+        important = ['tag', 'ut', 'funcion', 'falla_funcional', 'modo_de_falla', 'efecto', 'descripcion_equipo']
         return all(value_is_empty(self.get_cell(row, header_map, BASE_ALIASES[name])) for name in important)
 
     def raw_row_is_empty(self, row, header_map):
@@ -550,6 +550,7 @@ class Command(BaseCommand):
             fecha_analisis=analysis_date,
             estado=models.Carga.STATUS_COMPLETO,
             componente=clean_text(self.get_cell(row, header_map, BASE_ALIASES['componente'])),
+            funcion=clean_text(self.get_cell(row, header_map, BASE_ALIASES['funcion'])),
             falla_funcional=clean_text(self.get_cell(row, header_map, BASE_ALIASES['falla_funcional'])),
             modo_de_falla=clean_text(self.get_cell(row, header_map, BASE_ALIASES['modo_de_falla'])),
             causa='',

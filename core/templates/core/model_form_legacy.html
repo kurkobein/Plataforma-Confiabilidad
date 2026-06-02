@@ -28,7 +28,6 @@
             {% if model_key == 'servicio' %}
                 <a class="btn" href="{% url 'service_detail' object.pk %}">Ver detalle</a>
             {% else %}
-                <a class="btn" href="{% url 'model_detail' model_key object.pk %}">Ver detalle</a>
             {% endif %}
 
             {% if model_key == 'servicio' and request.user.is_superuser %}

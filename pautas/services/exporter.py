@@ -56,9 +56,9 @@ RCM_FIELDS = [
     'fecha_analisis',
     'estado',
     'criticidad',
+    'funcion',
     'falla_funcional',
     'modo_de_falla',
-    'causa',
     'efecto',
 ]
 

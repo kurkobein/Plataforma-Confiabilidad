@@ -12,6 +12,7 @@
     <div class="actions">
         <a class="btn" href="{% url 'service_rcm_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
         <a class="btn" href="{% url 'service_rcm_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
+        <a class="btn" href="" style="pointer-events: none; cursor: default;  opacity: 0.4;">Carga masiva</a>
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_rcm_task_config' service.pk %}">Configurar tareas</a>
             <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">Registrar</a>
@@ -40,6 +41,7 @@
                 <th>Equipo</th>
                 <th>TAG</th>
                 <th>Componente</th>
+                <th>Funci&oacute;n</th>
                 <th>Falla funcional</th>
                 <th>Modo de falla</th>
                 <th>Observación</th>
@@ -62,6 +64,7 @@
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.nombre_equipo }}" data-copy="{{ row.registro.equipo.nombre_equipo }}">{{ row.registro.equipo.nombre_equipo }}</span></td>
                     <td>{{ row.registro.equipo.tag_display }}</td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.componente|default:'' }}" data-copy="{{ row.registro.componente|default:'' }}">{{ row.registro.componente|default:'' }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.funcion|default:'' }}" data-copy="{{ row.registro.funcion|default:'' }}">{{ row.registro.funcion|default:'' }}</span></td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.falla_funcional }}" data-copy="{{ row.registro.falla_funcional }}">{{ row.registro.falla_funcional }}</span></td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.modo_de_falla }}" data-copy="{{ row.registro.modo_de_falla }}">{{ row.registro.modo_de_falla }}</span></td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.observacion|default:'' }}" data-copy="{{ row.registro.observacion|default:'' }}">{{ row.registro.observacion|default:'-' }}</span></td>
@@ -119,7 +122,7 @@
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="14" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+                <tr><td colspan="15" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
             {% endfor %}
         </tbody>
     </table>

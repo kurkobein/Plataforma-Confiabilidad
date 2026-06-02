@@ -4,3 +4,5 @@ whitenoise
 mysqlclient
 PyMySQL
 openpyxl
+Pillow
+django-storages[s3]

@@ -188,9 +188,7 @@ def get_service_equipment(servicio):
     if not servicio:
         return base_qs.none()
 
-    return base_qs.filter(
-        Q(servicios_equipo__servicio_id=servicio.pk) | Q(nodo__empresa_id=servicio.empresa_id)
-    ).distinct()
+    return base_qs.filter(servicios_equipo__servicio_id=servicio.pk).distinct()
 
 
 def get_users_for_service_access(servicio):

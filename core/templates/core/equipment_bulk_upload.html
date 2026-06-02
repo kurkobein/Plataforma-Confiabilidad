@@ -4,7 +4,7 @@
 <div class="page-header">
     <div>
         <h2>Carga masiva de equipos</h2>
-        <p>Importa equipos desde Excel validando la ubicacion tecnica contra la jerarquia registrada.</p>
+        <p>Importa ubicaciones tecnicas y equipos desde Excel, creando la jerarquia anidada cuando no exista.</p>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'model_list' 'equipo' %}">Volver</a>
@@ -23,54 +23,105 @@
                     {{ form.empresa.errors }}
                 </div>
                 <div class="form-field">
+                    <label>{{ form.servicio.label }}</label>
+                    {{ form.servicio }}
+                    {% if form.servicio.help_text %}<small class="muted">{{ form.servicio.help_text }}</small>{% endif %}
+                    {{ form.servicio.errors }}
+                </div>
+                <div class="form-field">
                     <label>{{ form.archivo.label }}</label>
                     {{ form.archivo }}
                     {% if form.archivo.help_text %}<small class="muted">{{ form.archivo.help_text }}</small>{% endif %}
                     {{ form.archivo.errors }}
                 </div>
+                <div class="form-field">
+                    <label>{{ form.hoja.label }}</label>
+                    {{ form.hoja }}
+                    {% if form.hoja.help_text %}<small class="muted">{{ form.hoja.help_text }}</small>{% endif %}
+                    {{ form.hoja.errors }}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.formato.label }}</label>
+                    {{ form.formato }}
+                    {{ form.formato.errors }}
+                </div>
+                <label class="check-option">
+                    {{ form.last_segment_is_equipment }}
+                    <span>{{ form.last_segment_is_equipment.label }}</span>
+                </label>
+                <label class="check-option">
+                    {{ form.last_level_is_equipment }}
+                    <span>{{ form.last_level_is_equipment.label }}</span>
+                </label>
             </div>
             <div class="actions" style="margin-top:16px;">
-                <button class="btn btn-primary" type="submit">Cargar equipos</button>
+                <button class="btn" type="submit" name="action" value="preview">Previsualizar</button>
+                <button class="btn btn-primary" type="submit" name="action" value="confirm">Confirmar carga</button>
             </div>
+            <p class="muted" style="margin-top:8px;">Para confirmar se debe volver a enviar el archivo. La previsualizacion no guarda datos.</p>
         </form>
     </div>
 
     <div class="card hierarchy-side-card">
-        <h3 class="card-title">Estructura esperada</h3>
-        <p class="muted">La primera hoja debe incluir estas columnas. Pueden tener nombres similares.</p>
+        <h3 class="card-title">Formatos soportados</h3>
+        <p class="muted">La primera hoja, o la hoja indicada, debe incluir columnas reconocibles.</p>
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Columna</th>
-                        <th>Obligatoria</th>
+                        <th>Formato</th>
+                        <th>Columnas clave</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>TAG</td><td>Si</td></tr>
-                    <tr><td>Nombre</td><td>Si</td></tr>
-                    <tr><td>UT</td><td>Si</td></tr>
-                    <tr><td>Descripcion</td><td>No</td></tr>
+                    <tr><td>Mindco simple</td><td>Empresa, Planta/Sitio, Area, Sistema, SubSistema, TAG, Ubicacion Tecnica, Equipo/Componente</td></tr>
+                    <tr><td>SAP / UTS</td><td>Ubicacion tecnica, Denominacion, N0, N0_nombre, N1, N1_nombre...</td></tr>
                 </tbody>
             </table>
         </div>
-        <p class="muted">Si una UT no existe en la jerarquia, o aparece repetida, esa fila se omite y la carga continua.</p>
+        <p class="muted">La carga crea niveles, nodos, equipos y relaciones ServicioEquipo si corresponde. No borra datos existentes.</p>
     </div>
 </div>
 
 {% if report %}
 <div class="card" style="margin-top:16px;">
-    <h3 class="card-title">Resultado de la carga</h3>
+    <h3 class="card-title">{% if preview_only %}Previsualizacion{% else %}Resultado de la carga{% endif %}</h3>
     <div class="stats-grid">
         <div class="stat"><small>Filas leidas</small><strong>{{ report.rows_read }}</strong></div>
-        <div class="stat"><small>Equipos creados</small><strong>{{ report.created }}</strong></div>
+        <div class="stat"><small>Filas validas</small><strong>{{ report.valid_rows }}</strong></div>
         <div class="stat"><small>Filas omitidas</small><strong>{{ report.skipped }}</strong></div>
-        <div class="stat"><small>Valores relacionados</small><strong>{{ report.materialized_nodes }}</strong></div>
-        <div class="stat"><small>UT invalidas</small><strong>{{ report.invalid_ut }}</strong></div>
-        <div class="stat"><small>UT repetidas archivo</small><strong>{{ report.duplicate_ut_file }}</strong></div>
-        <div class="stat"><small>UT ya existentes</small><strong>{{ report.duplicate_ut_db }}</strong></div>
-        <div class="stat"><small>TAG ya existentes</small><strong>{{ report.duplicate_tag_db }}</strong></div>
+        <div class="stat"><small>Formato</small><strong style="font-size:18px;">{{ report.format_detected|default:'-' }}</strong></div>
+        <div class="stat"><small>Nodos a crear</small><strong>{{ report.nodes_to_create }}</strong></div>
+        <div class="stat"><small>Nodos reutilizados</small><strong>{{ report.nodes_reused }}</strong></div>
+        <div class="stat"><small>Nodos creados</small><strong>{{ report.nodes_created }}</strong></div>
+        <div class="stat"><small>Equipos a crear</small><strong>{{ report.equipment_to_create }}</strong></div>
+        <div class="stat"><small>Equipos a actualizar</small><strong>{{ report.equipment_to_update }}</strong></div>
+        <div class="stat"><small>Equipos creados</small><strong>{{ report.equipment_created }}</strong></div>
+        <div class="stat"><small>Equipos actualizados</small><strong>{{ report.equipment_updated }}</strong></div>
+        <div class="stat"><small>ServicioEquipo a crear</small><strong>{{ report.service_equipment_to_create }}</strong></div>
+        <div class="stat"><small>ServicioEquipo creados</small><strong>{{ report.service_equipment_created }}</strong></div>
     </div>
+
+    {% if report.levels_detected %}
+        <h4>Niveles detectados</h4>
+        <p class="muted">{{ report.levels_detected|join:', ' }}</p>
+    {% endif %}
+
+    {% if report.errors %}
+        <h4>Errores</h4>
+        <div class="table-wrap">
+            <table class="datatable display" data-page-length="25">
+                <thead>
+                    <tr><th>Detalle</th></tr>
+                </thead>
+                <tbody>
+                    {% for error in report.errors %}
+                        <tr><td>{{ error }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
 
     {% if report.warnings %}
         <h4>Observaciones</h4>
@@ -89,4 +140,47 @@
     {% endif %}
 </div>
 {% endif %}
+{{ equipment_upload_services|json_script:"equipment-upload-services-data" }}
+<script>
+(function () {
+    const empresaSelect = document.getElementById('id_empresa');
+    const servicioSelect = document.getElementById('id_servicio');
+    const dataEl = document.getElementById('equipment-upload-services-data');
+    if (!empresaSelect || !servicioSelect || !dataEl) return;
+
+    const services = JSON.parse(dataEl.textContent || '[]');
+    const initialService = servicioSelect.value;
+
+    function renderServices(keepValue) {
+        const empresaId = empresaSelect.value;
+        const currentValue = keepValue ? servicioSelect.value : '';
+        const options = ['<option value="">Sin servicio</option>'];
+        services
+            .filter(item => empresaId && String(item.empresa_id) === String(empresaId))
+            .forEach(item => {
+                const labelParts = [item.codigo_servicio];
+                if (item.descripcion) labelParts.push(item.descripcion);
+                if (item.empresa__sigla) labelParts.push(item.empresa__sigla);
+                const label = labelParts.join(' - ');
+                options.push(`<option value="${item.id}">${label.replace(/[&<>"']/g, char => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                }[char]))}</option>`);
+            });
+        servicioSelect.innerHTML = options.join('');
+        if (currentValue && Array.from(servicioSelect.options).some(option => option.value === currentValue)) {
+            servicioSelect.value = currentValue;
+        }
+    }
+
+    renderServices(true);
+    if (initialService) servicioSelect.value = initialService;
+    empresaSelect.addEventListener('change', function () {
+        renderServices(false);
+    });
+})();
+</script>
 {% endblock %}

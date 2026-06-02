@@ -1,5 +1,5 @@
 {% load core_extras %}
-<tr>
+<tr{% if row_class %} class="{{ row_class }}"{% endif %}>
     <td>{{ row.id }}</td>
     {% for key, label in columns %}
         <td{% if key == 'valor_cons_total' or key == 'valor_criticidad_equipo' %} class="numeric"{% elif key == 'criticidad_final' and row.criticidad_final_color %} class="aca-criticality-final-cell"{% endif %}{% if key == 'criticidad_final' and row.criticidad_final_color %} style="--criticality-color: {{ row.criticidad_final_color }}; --criticality-text-color: {{ row.criticidad_final_text_color }};"{% endif %}{% if key == 'avance_aca' %} data-order="{{ row.avance_aca_order }}"{% endif %}>
@@ -19,13 +19,12 @@
                             -
                         {% endif %}
                     </div>
-                {% elif key == 'status' %}
-                    {% if row.status %}
-                        <span class="pill-success">{{ row.status }}</span>
-                    {% endif %}
                 {% elif key == 'avance_aca' %}
-                    <span class="aca-progress-pill" style="--progress-width: {{ row.avance_aca_width }}%;" title="{% if row.avance_aca_missing_label %}Faltantes: {{ row.avance_aca_missing_label }}{% else %}Sin faltantes{% endif %}">
-                        {{ cell_value }}
+                    <span class="aca-progress-pill"
+                          style="--progress-width: {{ row.avance_aca_width }}%; --progress-color: {{ row.avance_aca_color }};"
+                          title="{% if row.avance_aca_missing_label %}Faltantes: {{ row.avance_aca_missing_label }}{% else %}Sin faltantes{% endif %}">
+                        <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                        <span class="aca-progress-pill-label">{{ cell_value }}</span>
                     </span>
                 {% elif key == 'ubicacion_tecnica' or key == 'descripcion_ut' or key == 'equipo' or key == 'escenario_falla' or key == 'observacion' %}
                     <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ cell_value }}" data-copy="{{ cell_value }}">{{ cell_value }}</span>

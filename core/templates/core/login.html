@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="es">
   <head>
@@ -5,6 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Iniciar sesión | Mindco</title>
     <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
       body {
         margin: 0;
         font-family: Arial, Helvetica, sans-serif;
@@ -12,54 +19,87 @@
         color: #1f2937;
       }
       .wrap {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        width: 100%;
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
+        padding: clamp(10px, 2dvh, 22px);
+      }
+      .login-shell {
+        width: min(420px, 100%);
+        max-height: calc(100dvh - clamp(20px, 4dvh, 44px));
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+      }
+      .login-shell::-webkit-scrollbar {
+        width: 6px;
+      }
+      .login-shell::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 999px;
+      }
+      .login-brand {
+        text-align: center;
+        margin-bottom: clamp(10px, 2dvh, 20px);
+      }
+      .login-brand img {
+        height: clamp(52px, 10dvh, 92px);
+        max-width: 80%;
+        object-fit: contain;
+      }
+      .login-brand p {
+        margin: 0 !important;
+        color: #6b7280 !important;
+        font-size: clamp(14px, 2.4dvh, 20px) !important;
       }
       .card {
         width: 100%;
         max-width: 420px;
         background: white;
         border: 1px solid #d8deea;
-        border-radius: 16px;
-        padding: 24px;
+        border-radius: 14px;
+        padding: clamp(16px, 3dvh, 24px);
+        box-sizing: border-box;
       }
       h1 {
         margin: 0 0 8px;
-        font-size: 24px;
+        font-size: clamp(20px, 3dvh, 24px);
       }
       p {
-        margin: 0 0 20px;
+        margin: 0 0 clamp(12px, 2dvh, 18px);
         color: #6b7280;
       }
       .field {
-        margin-bottom: 14px;
+        margin-bottom: clamp(9px, 1.6dvh, 14px);
       }
       label {
         display: block;
-        margin-bottom: 6px;
+        margin-bottom: 5px;
         font-size: 14px;
       }
       .input-control {
         width: 100%;
-        padding: 10px 12px;
+        padding: 8px 10px;
         border: 1px solid #d8deea;
         border-radius: 8px;
+        box-sizing: border-box;
       }
 
       .input-control[id="id_correo"] {
-        width: 93%;
+        width: 100%;
       }
       
       .input-control[id="id_password"] {
-        width: 93%;
+        width: 100%;
       }
 
       .btn {
         width: 100%;
-        padding: 12px 14px;
+        padding: 10px 12px;
         border: none;
         border-radius: 8px;
         background: #6700d0;
@@ -90,31 +130,40 @@
   </head>
   <body>
     <div class="wrap">
-      <div class="card">
-        <h1>Iniciar sesión</h1>
-        <p>Accede con correo corporativo y contraseña del usuario.</p>
-        {% if form.non_field_errors %}
-        <div class="message">{{ form.non_field_errors }}</div>
-        {% endif %}
-        <form method="post" id="login-form">
-          {% csrf_token %}
-          <input type="hidden" name="latitud" id="login-latitud">
-          <input type="hidden" name="longitud" id="login-longitud">
-          <div class="field">
-            <label for="{{ form.correo.id_for_label }}"
-              >{{ form.correo.label }}</label
-            >
-            {{ form.correo }}
-          </div>
-          <div class="field">
-            <label for="{{ form.password.id_for_label }}"
-              >{{ form.password.label }}</label
-            >
-            {{ form.password }}
-          </div>
-          <button class="btn" type="submit">Entrar</button>
-          <div class="location-status" id="location-status"></div>
-        </form>
+      <div class="login-shell">
+        <div class="login-brand">
+          <img
+            src="{% static 'img/mindco.png' %}"
+            alt="Logo Mindco"
+          />
+          <p style="margin: 0; color: #6b7280; font-size: 21px;">Plataforma de gestión de confiabilidad</p>
+        </div>
+        <div class="card">
+          <h1>Iniciar sesión</h1>
+          <p>Accede con correo corporativo y contraseña del usuario.</p>
+          {% if form.non_field_errors %}
+          <div class="message">{{ form.non_field_errors }}</div>
+          {% endif %}
+          <form method="post" id="login-form">
+            {% csrf_token %}
+            <input type="hidden" name="latitud" id="login-latitud">
+            <input type="hidden" name="longitud" id="login-longitud">
+            <div class="field">
+              <label for="{{ form.correo.id_for_label }}"
+                >{{ form.correo.label }}</label
+              >
+              {{ form.correo }}
+            </div>
+            <div class="field">
+              <label for="{{ form.password.id_for_label }}"
+                >{{ form.password.label }}</label
+              >
+              {{ form.password }}
+            </div>
+            <button class="btn" type="submit">Entrar</button>
+            <div class="location-status" id="location-status"></div>
+          </form>
+        </div>
       </div>
     </div>
     <script>

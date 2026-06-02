@@ -6,13 +6,14 @@
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-            <h2>Registros ACA</h2>
+            <h2>Desarrollo ACA</h2>
             <p>{{ service.codigo_servicio }} - vista horizontal con equipo, dimensiones y criticidad.</p>
         </div>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
         <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
+        <a class="btn" href="" style="pointer-events: none; cursor: default;  opacity: 0.4;">Carga masiva</a>
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_aca_bulk_new' service.pk %}">Nueva carga grupal</a>
             <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>
@@ -49,8 +50,11 @@
                             <td{% if key == 'acciones' %} data-order="Configurar"{% endif %}>
                                 {% if key == 'cliente' %}
                                     {{ service.codigo_servicio }}
-                                {% elif key == 'status' %}
-                                    <span class="pill-soft">Grupo</span>
+                                {% elif key == 'avance_aca' %}
+                                    <span class="aca-progress-pill aca-progress-pill-group" style="--progress-width: 100%; --progress-color: #64748b;">
+                                        <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                                        <span class="aca-progress-pill-label">Grupo</span>
+                                    </span>
                                 {% elif key == 'fecha_analisis' %}
                                     {{ group.meta }}
                                 {% elif key == 'ubicacion_tecnica' %}
@@ -86,23 +90,9 @@
     {% if item.type == 'group' %}
         {% with group=item.group %}
             <template id="aca-group-template-{{ forloop.counter }}">
-                <div class="aca-group-frame">
-                    <div>
-                        <table class="compact-table no-datatable aca-folder-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    {% for key, label in columns %}<th>{{ label }}</th>{% endfor %}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in group.rows %}
-                                    {% include 'core/aca/partials/aca_list_row.html' with row=row columns=columns service=service permission=permission %}
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                {% for row in group.rows %}
+                    {% include 'core/aca/partials/aca_list_row.html' with row=row columns=columns service=service permission=permission row_class='aca-group-child-row' %}
+                {% endfor %}
             </template>
         {% endwith %}
     {% endif %}
@@ -325,69 +315,56 @@ if (applySavedAcaProgressValues(initialAcaProgressForm)) {
     updateAcaProgressSummary(initialAcaProgressForm);
 }
 
-function syncAcaGroupTableColumns(parentRow) {
-    const childRow = parentRow ? parentRow.nextElementSibling : null;
-    const childTable = childRow ? childRow.querySelector('.aca-folder-table') : null;
-    if (!parentRow || !childRow || !childTable) return;
-
-    const widths = Array.from(parentRow.cells).map(function (cell) {
-        return Math.ceil(cell.getBoundingClientRect().width);
-    });
-    if (!widths.length) return;
-
-    const childCell = childRow.cells && childRow.cells[0];
-    if (childCell) {
-        childCell.style.padding = '0';
-        childCell.style.borderTop = '0';
+function removeAcaGroupRows(parentRow) {
+    let nextRow = parentRow ? parentRow.nextElementSibling : null;
+    while (nextRow && nextRow.classList.contains('aca-group-child-row')) {
+        const rowToRemove = nextRow;
+        nextRow = nextRow.nextElementSibling;
+        rowToRemove.remove();
     }
-
-    let colgroup = childTable.querySelector('colgroup');
-    if (!colgroup) {
-        colgroup = document.createElement('colgroup');
-        childTable.insertBefore(colgroup, childTable.firstChild);
-    }
-    colgroup.innerHTML = widths.map(function (width) {
-        return '<col style="width:' + width + 'px; min-width:' + width + 'px;">';
-    }).join('');
-    childTable.style.width = widths.reduce(function (total, width) {
-        return total + width;
-    }, 0) + 'px';
 }
 
-window.addEventListener('resize', function () {
-    document.querySelectorAll('.aca-group-toggle[aria-expanded="true"]').forEach(function (button) {
-        syncAcaGroupTableColumns(button.closest('tr'));
+function closeAcaGroup(button) {
+    const parentRow = button.closest('tr');
+    const icon = button.querySelector('i');
+    removeAcaGroupRows(parentRow);
+    button.setAttribute('aria-expanded', 'false');
+    if (icon) icon.className = 'bi bi-folder2';
+}
+
+function openAcaGroup(button) {
+    const parentRow = button.closest('tr');
+    const template = document.getElementById(button.dataset.templateId);
+    const icon = button.querySelector('i');
+    if (!parentRow || !template) return;
+
+    const fragment = template.content.cloneNode(true);
+    const rows = Array.from(fragment.querySelectorAll('tr'));
+    rows.forEach(function (row) {
+        row.classList.add('aca-group-child-row');
     });
-});
+    parentRow.after(fragment);
+    button.setAttribute('aria-expanded', 'true');
+    if (icon) icon.className = 'bi bi-folder2-open';
+}
+
+if (window.jQuery) {
+    $(document).on('preDraw.dt', '.aca-records-table', function () {
+        document.querySelectorAll('.aca-group-toggle[aria-expanded="true"]').forEach(closeAcaGroup);
+    });
+}
 
 document.addEventListener('click', function (event) {
     const button = event.target.closest('[data-aca-group-toggle]');
     if (!button) return;
 
-    const table = button.closest('table');
     const parentRow = button.closest('tr');
-    const template = document.getElementById(button.dataset.templateId);
-    if (!table || !parentRow || !template || !window.jQuery || !$.fn || !$.fn.DataTable) return;
-    if (!$.fn.dataTable.isDataTable(table)) return;
-
-    const api = $(table).DataTable();
-    const row = api.row(parentRow);
-    const icon = button.querySelector('i');
-
-    if (row.child.isShown()) {
-        row.child.hide();
-        button.setAttribute('aria-expanded', 'false');
-        if (icon) icon.className = 'bi bi-folder2';
+    if (!parentRow) return;
+    if (button.getAttribute('aria-expanded') === 'true') {
+        closeAcaGroup(button);
         return;
     }
-
-    row.child(template.innerHTML).show();
-    syncAcaGroupTableColumns(parentRow);
-    window.setTimeout(function () {
-        syncAcaGroupTableColumns(parentRow);
-    }, 0);
-    button.setAttribute('aria-expanded', 'true');
-    if (icon) icon.className = 'bi bi-folder2-open';
+    openAcaGroup(button);
 });
 </script>
 {% endblock %}

@@ -316,9 +316,9 @@ def _service_rcm_export_data(servicio):
         ('equipo', 'Equipo'),
         ('tag', 'TAG'),
         ('componente', 'Componente'),
+        ('funcion', 'Función'),
         ('falla_funcional', 'Falla funcional'),
         ('modo_de_falla', 'Modo de falla'),
-        ('causa', 'Causa'),
         ('efecto', 'Efecto'),
         ('observacion', 'Observación'),
         ('criticidad', 'Criticidad'),
@@ -345,9 +345,9 @@ def _service_rcm_export_data(servicio):
             'equipo': registro.equipo.nombre_equipo if registro.equipo else '',
             'tag': registro.equipo.tag_display if registro.equipo else '',
             'componente': registro.componente or '',
+            'funcion': registro.funcion or '',
             'falla_funcional': registro.falla_funcional,
             'modo_de_falla': registro.modo_de_falla,
-            'causa': registro.causa,
             'efecto': registro.efecto,
             'observacion': registro.observacion,
             'criticidad': registro.criticidad,
@@ -411,9 +411,9 @@ def _rcm_form_initial_from_instance(rcm):
         'estado': rcm.estado,
         'criticidad': rcm.criticidad,
         'componente': rcm.componente or '',
+        'funcion': rcm.funcion or '',
         'falla_funcional': rcm.falla_funcional,
         'modo_de_falla': rcm.modo_de_falla,
-        'causa': rcm.causa,
         'efecto': rcm.efecto,
         'observacion': rcm.observacion,
     }
@@ -672,9 +672,10 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
         rcm.fecha_analisis = cleaned['fecha_analisis']
         rcm.estado = cleaned['estado']
         rcm.componente = cleaned.get('componente') or ''
+        rcm.funcion = cleaned.get('funcion') or ''
         rcm.falla_funcional = cleaned['falla_funcional']
         rcm.modo_de_falla = cleaned['modo_de_falla']
-        rcm.causa = cleaned['causa']
+        rcm.causa = ''
         rcm.efecto = cleaned['efecto']
         rcm.observacion = cleaned.get('observacion') or ''
         rcm.save(update_fields=[
@@ -683,6 +684,7 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
             'fecha_analisis',
             'estado',
             'componente',
+            'funcion',
             'falla_funcional',
             'modo_de_falla',
             'causa',
@@ -708,9 +710,10 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
             fecha_analisis=cleaned['fecha_analisis'],
             estado=cleaned['estado'],
             componente=cleaned.get('componente') or '',
+            funcion=cleaned.get('funcion') or '',
             falla_funcional=cleaned['falla_funcional'],
             modo_de_falla=cleaned['modo_de_falla'],
-            causa=cleaned['causa'],
+            causa='',
             efecto=cleaned['efecto'],
             observacion=cleaned.get('observacion') or '',
         )

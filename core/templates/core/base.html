@@ -19,10 +19,10 @@
 <body>
 <div class="layout">
     <aside class="sidebar">
-        <div class="brand-container" id="brandContainer">
+        <div class="brand-container{% if request.user.is_superuser or not empresa_usuario or not empresa_usuario.id or empresa_usuario.nombre == 'Mindco' or not empresa_usuario.logo %} brand-container-single{% endif %}" id="brandContainer">
             <img src="{% static 'img/mindco.png' %}" class="logo-mindco">
 
-            {% if empresa_usuario and empresa_usuario.id and empresa_usuario.nombre != "Mindco" and empresa_usuario.logo %}
+            {% if not request.user.is_superuser and empresa_usuario and empresa_usuario.id and empresa_usuario.nombre != "Mindco" and empresa_usuario.logo %}
                 <img
                     src="{% url 'empresa_logo' empresa_usuario.id %}"
                     class="logo-empresa"
@@ -31,18 +31,22 @@
                 >
             {% endif %}
         </div>
+        <div class="sidebar-main">
         <div class="nav-group">
             <div class="nav-group-title">General</div>
             <a class="nav-link" href="{% url 'dashboard' %}">Inicio</a>
             <a class="nav-link nav-link-main" href="/servicio/">Servicios</a>
             {% if request.user.is_superuser %}
-                <a class="nav-link" href="{% url 'matriz_builder_new' %}">Nueva matriz visual</a>
                 <a class="nav-link" href="{% url 'technical_location_index' %}">Ubicaciones técnicas</a>
             {% endif %}
-            {% if request.user.is_authenticated %}
-                <a class="nav-link" href="{% url 'logout' %}">Cerrar sesión</a>
-            {% endif %}
             
+        </div>
+
+
+        <div class="nav-group">
+            <div class="nav-group-title">ACA</div>
+            <a class="nav-link" href="{% url 'aca_panel' %}">Panel</a>
+            <a class="nav-link" href="{% url 'aca_development' %}">Desarrollo</a>
         </div>
 
 
@@ -55,19 +59,114 @@
                     {% endfor %}
                 </div>
             {% endfor %}
-        {% endif %}        
+        {% endif %}
+        </div>
+
+        {% if request.user.is_authenticated %}
+            <div class="sidebar-footer">
+                <button class="nav-link sidebar-logout-btn" type="button" data-logout-open>
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Cerrar sesión</span>
+                </button>
+            </div>
+        {% endif %}
     </aside>
     <main class="content">
         {% if messages %}
             {% for message in messages %}
-                <div class="message {{ message.tags|default:'info' }}">{{ message }}</div>
+                <div class="message {{ message.tags|default:'info' }}" role="status" data-auto-dismiss-message>
+                    <div class="message-text">{{ message }}</div>
+                    <div class="message-progress" aria-hidden="true"></div>
+                </div>
             {% endfor %}
         {% endif %}
         {% block content %}{% endblock %}
     </main>
 </div>
+{% if request.user.is_authenticated %}
+    <div class="logout-modal" id="logout-confirm-modal" hidden>
+        <div class="logout-modal-backdrop" data-logout-close></div>
+        <div class="logout-modal-card" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title">
+            <h3 id="logout-confirm-title">Cerrar sesión</h3>
+            <p class="muted">Confirma que quieres salir de la plataforma.</p>
+            <div class="actions">
+                <button class="btn" type="button" data-logout-close>Cancelar</button>
+                <a class="btn btn-danger" href="{% url 'logout' %}">Cerrar sesión</a>
+            </div>
+        </div>
+    </div>
+{% endif %}
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/2.3.8/js/dataTables.min.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const logoutModal = document.getElementById('logout-confirm-modal');
+    const logoutOpen = document.querySelector('[data-logout-open]');
+    const logoutClose = document.querySelectorAll('[data-logout-close]');
+
+    function openLogoutModal() {
+        if (!logoutModal) return;
+        logoutModal.hidden = false;
+        document.body.classList.add('modal-open');
+    }
+
+    function closeLogoutModal() {
+        if (!logoutModal) return;
+        logoutModal.hidden = true;
+        document.body.classList.remove('modal-open');
+    }
+
+    if (logoutOpen) logoutOpen.addEventListener('click', openLogoutModal);
+    logoutClose.forEach(function (node) {
+        node.addEventListener('click', closeLogoutModal);
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeLogoutModal();
+    });
+
+    const defaultDurations = {
+        success: 5200,
+        info: 5200,
+        warning: 7600,
+        error: 9000
+    };
+
+    document.querySelectorAll('[data-auto-dismiss-message]').forEach(function (message) {
+        const type = ['success', 'warning', 'error', 'info'].find(function (name) {
+            return message.classList.contains(name);
+        }) || 'info';
+        const duration = Number(message.dataset.duration || defaultDurations[type] || 5200);
+        let remaining = duration;
+        let startedAt = Date.now();
+        let dismissTimer = null;
+
+        message.style.setProperty('--message-duration', duration + 'ms');
+
+        function dismissMessage() {
+            message.classList.add('is-leaving');
+            window.setTimeout(function () {
+                message.remove();
+            }, 260);
+        }
+
+        function startTimer() {
+            startedAt = Date.now();
+            dismissTimer = window.setTimeout(dismissMessage, remaining);
+        }
+
+        function pauseTimer() {
+            if (dismissTimer) window.clearTimeout(dismissTimer);
+            remaining = Math.max(0, remaining - (Date.now() - startedAt));
+        }
+
+        message.addEventListener('mouseenter', pauseTimer);
+        message.addEventListener('mouseleave', startTimer);
+
+        startTimer();
+    });
+});
+</script>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -219,16 +318,12 @@ document.addEventListener("DOMContentLoaded", function () {
         header.insertBefore(nav, header.firstChild);
     }
 
-    document.querySelectorAll('.page-header').forEach(renderBreadcrumb);
+    // El breadcrumb definitivo se renderiza en el bloque siguiente con rutas fijas por vista.
 });
 </script>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const NAV_KEY = 'mindco_navigation_stack_v2';
-    const NAV_RESET_KEY = 'mindco_navigation_reset_target_v2';
-    const MAX_STACK = 12;
-
     function cleanLabel(value) {
         return String(value || '')
             .replace(/\s+/g, ' ')
@@ -240,10 +335,6 @@ document.addEventListener("DOMContentLoaded", function () {
         const header = document.querySelector('.page-header');
         const title = header ? header.querySelector('h1, h2') : null;
         return cleanLabel(title ? title.textContent : document.title.split('|')[0]) || 'Seccion';
-    }
-
-    function currentUrl() {
-        return window.location.pathname + window.location.search;
     }
 
     function pathOnly(url) {
@@ -263,69 +354,218 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    function readStack() {
-        try {
-            const parsed = JSON.parse(sessionStorage.getItem(NAV_KEY) || '[]');
-            return Array.isArray(parsed) ? parsed.filter(item => item && item.url && item.label) : [];
-        } catch (_error) {
-            return [];
+    function headerSubtitle() {
+        const header = document.querySelector('.page-header');
+        const subtitle = header ? header.querySelector('p') : null;
+        return cleanLabel(subtitle ? subtitle.textContent : '');
+    }
+
+    function fixedCrumb(crumbs, label, url) {
+        label = cleanLabel(label);
+        if (!label) return;
+        const previous = crumbs[crumbs.length - 1];
+        if (previous && previous.label.toLowerCase() === label.toLowerCase()) return;
+        crumbs.push({ label, url: url || '' });
+    }
+
+    function serviceLabelFromPage() {
+        const title = pageTitle();
+        const documentTitleParts = document.title.split('|').map(part => cleanLabel(part));
+        const documentServiceCode = documentTitleParts.length > 1 ? documentTitleParts[1] : '';
+        const subtitle = headerSubtitle();
+        const subtitleDashCode = cleanLabel((subtitle.split(/\s+(?:-|·|Â·|Ã‚Â·|–|—|\|)\s+/)[0] || ''));
+        const subtitleCode = cleanLabel((subtitle.split(/[·Â]+/)[0] || ''));
+        const ignoredTitles = [
+            'registros aca',
+            'registros rcm',
+            'pautas',
+            'plantillas de pauta',
+            'generar pautas',
+            'dimensiones y catalogos',
+            'dimensiones y catálogos',
+            'familias de equipos',
+            'nueva carga masiva',
+            'nuevo registro aca',
+            'nuevo registro rcm',
+            'editar registro aca',
+            'editar registro rcm'
+        ];
+        if (/^[A-Z0-9_-]{2,}$/i.test(title) && !ignoredTitles.includes(title.toLowerCase())) return title;
+        if (subtitleDashCode && /^[A-Z0-9_-]{2,}$/i.test(subtitleDashCode)) return subtitleDashCode;
+        if (subtitleCode && /^[A-Z0-9_-]{2,}$/i.test(subtitleCode)) return subtitleCode;
+        if (documentServiceCode && /^[A-Z0-9_-]{2,}$/i.test(documentServiceCode)) return documentServiceCode;
+        return 'Servicio';
+    }
+
+    function objectLabelFromPage(fallback) {
+        const subtitle = headerSubtitle();
+        if (subtitle && !/[·Â]/.test(subtitle)) return subtitle;
+        return fallback || pageTitle();
+    }
+
+    function serviceBaseFixedCrumbs(serviceId) {
+        const crumbs = [{ label: 'Inicio', url: '/' }];
+        fixedCrumb(crumbs, 'Servicios', '/servicio/');
+        fixedCrumb(crumbs, serviceLabelFromPage(), `/servicios/${serviceId}/`);
+        return crumbs;
+    }
+
+    function serviceFixedCrumbs(parts) {
+        const serviceId = parts[1];
+        const section = parts[2] || '';
+        const serviceHref = `/servicios/${serviceId}/`;
+        const crumbs = serviceBaseFixedCrumbs(serviceId);
+
+        if (!section) return crumbs;
+
+        if (section === 'aca') {
+            fixedCrumb(crumbs, 'Registros ACA', `${serviceHref}aca/`);
+            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro ACA');
+            else if (parts[3] === 'nuevo-masivo') fixedCrumb(crumbs, 'Nueva carga masiva');
+            else if (parts[3] === 'grupo') fixedCrumb(crumbs, 'Editar carga masiva');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro ACA');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro ACA');
+            else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar ACA');
+            return crumbs;
         }
-    }
 
-    function writeStack(stack) {
-        sessionStorage.setItem(NAV_KEY, JSON.stringify(stack.slice(-MAX_STACK)));
-    }
-
-    function registerSidebarNavigation() {
-        document.querySelectorAll('.sidebar a[href]').forEach(link => {
-            link.addEventListener('click', function () {
-                const target = internalPath(link.href);
-                if (target) sessionStorage.setItem(NAV_RESET_KEY, target);
-            });
-        });
-    }
-
-    function fallbackStack(label, url) {
-        return label.toLowerCase() === 'inicio'
-            ? [{ label: 'Inicio', url: '/' }]
-            : [{ label: 'Inicio', url: '/' }, { label, url }];
-    }
-
-    function navigationStack(label, url) {
-        const resetTarget = sessionStorage.getItem(NAV_RESET_KEY) || '';
-        if (resetTarget === url) {
-            sessionStorage.removeItem(NAV_RESET_KEY);
-            const resetStack = fallbackStack(label, url);
-            writeStack(resetStack);
-            return resetStack;
+        if (section === 'rcm') {
+            fixedCrumb(crumbs, 'Registros RCM', `${serviceHref}rcm/`);
+            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro RCM');
+            else if (parts[3] === 'tareas') fixedCrumb(crumbs, 'Configurar tareas');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro RCM');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro RCM');
+            else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar RCM');
+            return crumbs;
         }
 
-        let stack = readStack();
-        const currentPath = pathOnly(url);
-        const existingIndex = stack.findIndex(item => item.url === url || pathOnly(item.url) === currentPath);
-        if (existingIndex >= 0) {
-            stack = stack.slice(0, existingIndex + 1);
-            stack[stack.length - 1] = { label, url };
-        } else {
-            const referrerPath = internalPath(document.referrer);
-            const referrerPathOnly = pathOnly(referrerPath);
-            const referrerIndex = referrerPath ? stack.findIndex(item => item.url === referrerPath || pathOnly(item.url) === referrerPathOnly) : -1;
-            if (referrerIndex >= 0) {
-                stack = stack.slice(0, referrerIndex + 1);
-            } else if (!stack.length || !referrerPath) {
-                stack = fallbackStack(label, url).slice(0, -1);
+        if (section === 'pautas') {
+            fixedCrumb(crumbs, 'Pautas', `${serviceHref}pautas/`);
+            if (parts[3] === 'generar') fixedCrumb(crumbs, 'Generar pautas');
+            else if (parts[3] === 'plantillas') {
+                fixedCrumb(crumbs, 'Plantillas', `${serviceHref}pautas/plantillas/`);
+                if (/^\d+$/.test(parts[4] || '') && parts[5] === 'editar') fixedCrumb(crumbs, 'Editar plantilla');
+                else if (/^\d+$/.test(parts[4] || '') && parts[5] === 'eliminar') fixedCrumb(crumbs, 'Eliminar plantilla');
+                else if (/^\d+$/.test(parts[4] || '') && parts[5] === 'mapeo') fixedCrumb(crumbs, 'Mapeo de plantilla');
+            } else if (/^\d+$/.test(parts[3] || '')) {
+                fixedCrumb(crumbs, 'Detalle de pauta');
             }
-            const last = stack[stack.length - 1];
-            if (!last || pathOnly(last.url) !== currentPath) {
-                stack.push({ label, url });
-            } else {
-                stack[stack.length - 1] = { label, url };
-            }
+            return crumbs;
         }
-        if (!stack.length) stack = fallbackStack(label, url);
-        if (stack[0].url !== '/') stack.unshift({ label: 'Inicio', url: '/' });
-        writeStack(stack);
-        return stack;
+
+        if (section === 'dimensiones') {
+            fixedCrumb(crumbs, 'Dimensiones y catálogos', `${serviceHref}dimensiones/`);
+            return crumbs;
+        }
+
+        if (section === 'familias-equipos') {
+            fixedCrumb(crumbs, 'Familias de equipos', `${serviceHref}familias-equipos/`);
+            if (parts[3] === 'nueva') fixedCrumb(crumbs, 'Nueva familia');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar familia');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar familia');
+            return crumbs;
+        }
+
+        if (section === 'matrices') {
+            fixedCrumb(crumbs, 'Matrices');
+            return crumbs;
+        }
+
+        if (section === 'equipos') {
+            fixedCrumb(crumbs, 'Equipos', `${serviceHref}#equipos-del-servicio`);
+            if (/^\d+$/.test(parts[3] || '')) fixedCrumb(crumbs, 'Detalle de equipo');
+            return crumbs;
+        }
+
+        fixedCrumb(crumbs, pageTitle());
+        return crumbs;
+    }
+
+    function modelLabel(modelKey) {
+        const labels = {
+            servicio: 'Servicios',
+            equipo: 'Equipos',
+            usuario: 'Usuarios',
+            cargo: 'Cargos',
+            empresa: 'Empresas',
+            estrategia: 'Estrategias',
+            metodologia: 'Metodologías',
+            dimension: 'Dimensiones',
+            componente: 'Componentes',
+            escalaunificada: 'Escalas unificadas',
+            matrizriesgo: 'Matrices de riesgo',
+            criticidad: 'Criticidades',
+            acacarga: 'Cargas ACA',
+            accesousuario: 'Accesos de usuario'
+        };
+        return labels[modelKey] || modelKey.replace(/-/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    }
+
+    function genericFixedCrumbs(parts) {
+        const modelKey = parts[0];
+        const crumbs = [{ label: 'Inicio', url: '/' }];
+        fixedCrumb(crumbs, modelLabel(modelKey), `/${modelKey}/`);
+        if (parts[1] === 'nuevo') {
+            fixedCrumb(crumbs, pageTitle());
+        } else if (/^\d+$/.test(parts[1] || '') && parts[2] === 'editar') {
+            if (modelKey === 'servicio') fixedCrumb(crumbs, objectLabelFromPage(`Servicio ${parts[1]}`), `/servicios/${parts[1]}/`);
+            fixedCrumb(crumbs, pageTitle());
+        } else if (/^\d+$/.test(parts[1] || '') && parts[2] === 'eliminar') {
+            fixedCrumb(crumbs, pageTitle());
+        }
+        return crumbs;
+    }
+
+    function technicalLocationFixedCrumbs(parts) {
+        const crumbs = [{ label: 'Inicio', url: '/' }];
+        fixedCrumb(crumbs, 'Ubicaciones técnicas', '/ubicaciones-tecnicas/');
+        if (parts[0] === 'empresas' && parts[2] === 'jerarquia') {
+            fixedCrumb(crumbs, objectLabelFromPage(`Empresa ${parts[1]}`), `/empresas/${parts[1]}/jerarquia/`);
+            if (parts[3] === 'estructura') fixedCrumb(crumbs, 'Estructura');
+            else if (parts[3] === 'valores') fixedCrumb(crumbs, 'Valores');
+            else if (parts[3] === 'constructor') fixedCrumb(crumbs, 'Constructor');
+        } else if (parts[0] === 'jerarquia') {
+            fixedCrumb(crumbs, pageTitle());
+        }
+        return crumbs;
+    }
+
+    function evaluationFixedCrumbs(parts) {
+        const crumbs = [{ label: 'Inicio', url: '/' }];
+        if (parts[0] === 'estrategias' && parts[2] === 'tablas') {
+            fixedCrumb(crumbs, 'Servicios', '/servicio/');
+            const tableParams = new URLSearchParams(window.location.search);
+            const serviceParam = tableParams.get('service');
+            const serviceLabelParam = tableParams.get('service_label');
+            if (serviceParam) fixedCrumb(crumbs, serviceLabelParam || `Servicio ${serviceParam}`, `/servicios/${serviceParam}/`);
+            const header = document.querySelector('.page-header');
+            const serviceLink = header ? header.querySelector('.page-title-group a[href^="/servicios/"]') : null;
+            if (!serviceParam && serviceLink) fixedCrumb(crumbs, serviceLabelFromPage(), serviceLink.getAttribute('href'));
+            fixedCrumb(crumbs, 'Dimensiones y catálogos');
+            return crumbs;
+        }
+        fixedCrumb(crumbs, 'Matrices', '/matrices/nueva/');
+        if (parts[0] === 'matrices' && parts[1] === 'nueva') fixedCrumb(crumbs, 'Nueva matriz');
+        else if (parts[0] === 'matrices' && /^\d+$/.test(parts[1] || '')) fixedCrumb(crumbs, 'Editar matriz');
+        return crumbs;
+    }
+
+    function fixedNavigationStack() {
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        if (!parts.length) return [{ label: 'Inicio', url: '' }];
+        if (parts[0] === 'servicios') return serviceFixedCrumbs(parts);
+        if (parts[0] === 'ubicaciones-tecnicas' || parts[0] === 'empresas' || parts[0] === 'jerarquia') return technicalLocationFixedCrumbs(parts);
+        if (parts[0] === 'estrategias' || parts[0] === 'matrices') return evaluationFixedCrumbs(parts);
+        if (parts[0] === 'equipo' && parts[1] === 'carga-masiva') {
+            return [
+                { label: 'Inicio', url: '/' },
+                { label: 'Equipos', url: '/equipo/' },
+                { label: 'Carga masiva', url: '' }
+            ];
+        }
+        const crumbs = genericFixedCrumbs(parts);
+        if (crumbs.length === 1 && pageTitle().toLowerCase() !== 'inicio') fixedCrumb(crumbs, pageTitle());
+        return crumbs;
     }
 
     function renderBreadcrumb(stack) {
@@ -392,12 +632,9 @@ document.addEventListener("DOMContentLoaded", function () {
         return 0;
     }
 
-    function hasServiceContext(stack) {
-        return (stack || []).some(item => /^\/servicios\/\d+\/?$/.test(pathOnly(item.url)));
-    }
-
     function forcedSidebarPath(currentPath, stack) {
-        if (!hasServiceContext(stack)) return '';
+        const hasServiceContext = (stack || []).some(item => /^\/servicios\/\d+\/?$/.test(pathOnly(item.url)));
+        if (!hasServiceContext) return '';
         if (/^\/estrategias\/\d+\/tablas\/?$/.test(currentPath)) return '/servicio/';
         return '';
     }
@@ -419,10 +656,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (bestLink) bestLink.classList.add('active');
     }
 
-    const label = pageTitle();
-    const url = currentUrl();
-    registerSidebarNavigation();
-    const stack = navigationStack(label, url);
+    const stack = fixedNavigationStack();
     renderBreadcrumb(stack);
     normalizeBackButtons(stack);
     markActiveSidebarLink(stack);
@@ -440,6 +674,7 @@ document.addEventListener("DOMContentLoaded", function () {
         '.matrix-grid',
         '.matrix-compact',
         '.hierarchy-builder-table',
+        '.origin-table-preview table',
         '.excel-sheet table'
     ].join(',');
 
@@ -506,6 +741,17 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (table.dataset.scrollX === 'true') {
             options.scrollX = true;
+        }
+        if (table.dataset.dtControls === 'paging-only') {
+            options.lengthChange = false;
+            options.searching = false;
+            options.info = false;
+            options.layout = {
+                topStart: null,
+                topEnd: null,
+                bottomStart: null,
+                bottomEnd: 'paging'
+            };
         }
         try {
             $(table).DataTable(options);

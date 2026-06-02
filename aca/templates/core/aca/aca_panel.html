@@ -1,0 +1,181 @@
+{% extends 'core/base.html' %}
+{% load l10n %}
+
+{% block title %}Panel ACA | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Panel ACA</h2>
+        <p>Resumen global de avance ACA por servicio.</p>
+    </div>
+</div>
+
+{% if selected_service %}
+    <div class="card">
+        <div class="aca-progress-summary">
+            <div class="aca-progress-donut-block">
+                <div class="aca-progress-donut" style="--progress-degrees: {{ panel_progress_summary.average_progress_degrees|default:0|unlocalize }}deg;">
+                    <span>{{ panel_progress_summary.average_progress_label }}</span>
+                </div>
+                <small>Avance</small>
+            </div>
+            <div class="aca-progress-donut-block">
+                <div class="aca-progress-donut aca-progress-donut-status" style="--progress-degrees: {{ panel_progress_summary.complete_records_degrees|default:0|unlocalize }}deg;">
+                    <span>{{ panel_progress_summary.complete_records_label }}</span>
+                </div>
+                <small>Finalizados</small>
+            </div>
+            <div class="aca-progress-summary-copy">
+                <h3 class="card-title">Avance ACA | {{ selected_service.codigo_servicio }}</h3>
+                <p class="muted">
+                    {% if panel_progress_summary.progress_available %}
+                        {{ panel_progress_summary.dimension_count }} dimensiones consideradas para avance.
+                    {% else %}
+                        No hay dimensiones configuradas para avance ACA.
+                    {% endif %}
+                </p>
+                {% if panel_is_filtered %}
+                    <span class="aca-progress-filter-badge">Resumen filtrado</span>
+                {% endif %}
+            </div>
+            <div class="aca-progress-kpis">
+                <div class="stat"><small>Total registros</small><strong>{{ panel_progress_summary.total_records }}</strong></div>
+                <div class="stat"><small>Finalizados</small><strong>{{ panel_progress_summary.complete_records }}</strong></div>
+                <div class="stat"><small>En desarrollo</small><strong>{{ panel_progress_summary.incomplete_records }}</strong></div>
+            </div>
+            <div class="aca-progress-gap">
+                <small>Mayor brecha</small>
+                {% if panel_progress_summary.major_gap %}
+                    <strong>{{ panel_progress_summary.major_gap.name }}</strong>
+                    <span>{{ panel_progress_summary.major_gap.missing_count }} registros sin completar</span>
+                {% else %}
+                    <strong>Sin brechas</strong>
+                    <span>No hay faltantes en las dimensiones consideradas.</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="actions">
+            <a class="btn" href="{% url 'service_aca_list' selected_service.pk %}">Ver registros ACA</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Filtros jerárquicos</h3>
+        <form method="get" class="aca-panel-nested-filters">
+            <input type="hidden" name="service" value="{{ selected_service.pk }}">
+            <div class="aca-panel-filter-row">
+                {% for level in panel_hierarchy_levels %}
+                    <details class="aca-panel-filter-dropdown">
+                        <summary>
+                            <span>{{ level.name }}</span>
+                            <small>{{ level.selected_ids|length }} seleccionados</small>
+                        </summary>
+                        <div class="aca-panel-filter-menu">
+                            {% for node in level.nodes %}
+                                <label class="aca-panel-checkbox">
+                                    <input type="checkbox" name="panel_nodes" value="{{ node.pk }}" {% if node.pk in level.selected_ids %}checked{% endif %}>
+                                    <span>{{ node.codigo }}{% if node.nombre %} - {{ node.nombre }}{% endif %}</span>
+                                </label>
+                            {% empty %}
+                                <span class="muted">Sin valores disponibles para este nivel con el filtro actual.</span>
+                            {% endfor %}
+                        </div>
+                    </details>
+                {% endfor %}
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" type="submit">Aplicar filtros</button>
+                <a class="btn" href="{% url 'aca_panel' %}?service={{ selected_service.pk }}">Limpiar filtros</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Gráfico por {{ panel_table_level_name }}</h3>
+        {% if panel_chart_summary %}
+            <div class="aca-progress-level-chart-grid">
+                {% for group in panel_chart_summary %}
+                    <div class="aca-progress-level-card">
+                        <div class="aca-progress-donut aca-progress-donut-small" style="--progress-degrees: {{ group.average_progress_degrees|default:0|unlocalize }}deg;">
+                            <span>{{ group.average_progress_label }}</span>
+                        </div>
+                        <div class="aca-progress-level-copy">
+                            <strong title="{{ group.label }}">{{ group.display_label|default:group.label }}</strong>
+                            <span>{{ group.total_records }} registros · {{ group.complete_records }} completos · {{ group.incomplete_records }} incompletos</span>
+                            {% if group.major_gap %}
+                                <small>Brecha: {{ group.major_gap.name }} ({{ group.major_gap.missing_count }})</small>
+                            {% else %}
+                                <small>Sin brechas</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="muted">No hay datos suficientes para graficar este nivel.</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Registros filtrados</h3>
+        <div class="table-wrap">
+            <table class="datatable display compact-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>{{ panel_table_level_name }}</th>
+                        <th>UT</th>
+                        <th>Fecha creado</th>
+                        <th>Fecha último avance</th>
+                        <th>TAG</th>
+                        <th>Escenario de falla</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in panel_table_rows %}
+                        <tr>
+                            <td>{{ row.id }}</td>
+                            <td>{{ row.level_value }}</td>
+                            <td><span class="cell-ellipsis" title="{{ row.ut }}">{{ row.ut }}</span></td>
+                            <td>{{ row.created }}</td>
+                            <td>{{ row.updated }}</td>
+                            <td>{{ row.tag }}</td>
+                            <td><span class="cell-ellipsis" title="{{ row.escenario_falla }}">{{ row.escenario_falla }}</span></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="7" class="muted">No hay registros para los filtros seleccionados.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% else %}
+    <div class="table-wrap">
+        <table class="datatable display compact-table">
+            <thead>
+                <tr>
+                    <th>Servicio</th>
+                    <th>Descripción</th>
+                    <th>Registros ACA</th>
+                    <th>Avance</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in service_rows %}
+                    <tr>
+                        <td><strong>{{ row.service.codigo_servicio }}</strong></td>
+                        <td>{{ row.service.descripcion|default:'-' }}</td>
+                        <td>{{ row.summary.total_records }}</td>
+                        <td>{{ row.summary.average_progress_label }}</td>
+                        <td><a class="btn" href="{% url 'aca_panel' %}?service={{ row.service.pk }}">Ver panel</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" class="muted">No hay servicios accesibles.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

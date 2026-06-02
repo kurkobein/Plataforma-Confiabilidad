@@ -85,6 +85,27 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     display: block;
     margin-top: 4px;
   }
+  .matrix-axis-hint {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .matrix-axis-hint-item {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #ffffff;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .matrix-axis-hint-item strong {
+    color: var(--text);
+  }
+  .matrix-axis-hint-item.warning {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+  }
   @media (max-width: 1100px) {
     .matrix-shell {
       grid-template-columns: 1fr;
@@ -105,8 +126,8 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
   </div>
   <div class="actions">
     {% if matriz %}
-    <a class="btn" href="{% url 'model_detail' 'matrizriesgo' matriz.pk %}"
-      >Ver detalle</a
+    <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}"
+      >Volver a matrices</a
     >
     {% else %}
     <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}"
@@ -158,6 +179,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
             {% endif %}
           </div>
         </div>
+        <div class="matrix-axis-hint" id="matrixAxisHint"></div>
       </div>
       <div class="kpi-inline">
         <span class="pill" id="axisXLabel">Eje X</span>
@@ -199,6 +221,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
 </form>
 
 {{ matrix_ui_state|json_script:'matrix-ui-state' }} 
+{{ matrix_axis_options|json_script:'matrix-axis-options' }}
 {% endblock %} 
 {% block extra_js %}
 <script>
@@ -206,11 +229,18 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     const state = JSON.parse(
       document.getElementById("matrix-ui-state").textContent,
     );
+    const axisOptions = JSON.parse(
+      document.getElementById("matrix-axis-options").textContent,
+    );
     const form = document.getElementById("matrix-builder-form");
     const actionInput = document.getElementById("matrix-action-input");
     const xCountInput = document.getElementById("id_x_count");
     const yCountInput = document.getElementById("id_y_count");
     const axisSelect = document.getElementById("id_eje_horizontal");
+    const probDimensionSelect = document.getElementById("id_dimension_probabilidad");
+    const impactDimensionSelect = document.getElementById("id_dimension_impacto");
+    const resolutionSelect = document.getElementById("id_modo_resolucion");
+    const axisHint = document.getElementById("matrixAxisHint");
     const matrixGrid = document.getElementById("matrixGrid");
     const legendList = document.getElementById("legendList");
     const legendError = document.getElementById("legendError");
@@ -253,6 +283,78 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       return Number.isInteger(rounded)
         ? String(rounded)
         : String(rounded.toFixed(2)).replace(/0+$/, "").replace(/\.$/, "");
+    }
+    function cloneLevelDefs(defs, count, prefix) {
+      const source = Array.isArray(defs) ? defs : [];
+      const result = [];
+      for (let i = 0; i < count; i++) {
+        const item = source[i] || {};
+        result.push({
+          idx: i + 1,
+          nombre: item.nombre || `${prefix.toUpperCase()}${i + 1}`,
+          valor: decimalValue(item.valor ?? i + 1, i + 1),
+          descripcion: item.descripcion || "",
+        });
+      }
+      return result;
+    }
+    function axisLevelCount(axisName, option) {
+      const fallback = axisName === "probabilidad" ? probDefs.length : impactDefs.length;
+      const count = Number(option?.level_count || fallback || 5);
+      return Math.max(2, count);
+    }
+    function setAxisCount(axisName, count) {
+      if (axisSelect.value === "impacto") {
+        if (axisName === "probabilidad") yCountInput.value = count;
+        else xCountInput.value = count;
+      } else {
+        if (axisName === "probabilidad") xCountInput.value = count;
+        else yCountInput.value = count;
+      }
+      rows = Math.max(2, parseInt(yCountInput.value, 10) || rows);
+      cols = Math.max(2, parseInt(xCountInput.value, 10) || cols);
+    }
+    function describeAxisOption(axisName, option) {
+      const label = axisName === "probabilidad" ? "Probabilidad" : "Impacto";
+      if (!option) {
+        return `<div class="matrix-axis-hint-item"><strong>${label}:</strong> sin dimension seleccionada. Puedes editar los niveles manualmente.</div>`;
+      }
+      if (option.requires_threshold) {
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada sin tabla de niveles propia; se resolvera por umbral inferior usando el resultado calculado.</div>`;
+      }
+      if (option.has_levels) {
+        return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Niveles cargados desde ${option.source_type}.</div>`;
+      }
+      if (option.is_calculated) {
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada; define los niveles manualmente o usa umbral inferior por resultado.</div>`;
+      }
+      return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Sin escala/catalogo; los niveles quedan editables manualmente.</div>`;
+    }
+    function renderAxisDimensionHints() {
+      if (!axisHint) return;
+      const probOption = axisOptions[String(probDimensionSelect?.value || "")];
+      const impactOption = axisOptions[String(impactDimensionSelect?.value || "")];
+      axisHint.innerHTML = describeAxisOption("probabilidad", probOption) + describeAxisOption("impacto", impactOption);
+    }
+    function applyAxisDimension(axisName) {
+      const select = axisName === "probabilidad" ? probDimensionSelect : impactDimensionSelect;
+      const option = axisOptions[String(select?.value || "")];
+      const count = axisLevelCount(axisName, option);
+      setAxisCount(axisName, count);
+      if (axisName === "probabilidad") {
+        probDefs = option
+          ? cloneLevelDefs(option.prob_levels, count, "p")
+          : cloneLevelDefs([], count, "p");
+      } else {
+        impactDefs = option
+          ? cloneLevelDefs(option.impact_levels, count, "i")
+          : cloneLevelDefs([], count, "i");
+      }
+      if (option?.requires_threshold && resolutionSelect) {
+        resolutionSelect.value = "umbral_resultado";
+      }
+      renderAxisDimensionHints();
+      renderGrid();
     }
     function ensureDefinitions() {
       rows = Math.max(2, parseInt(yCountInput.value, 10) || rows);
@@ -613,12 +715,22 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
         refreshMatrixCellsOnly();
       },
     };
-    axisSelect.addEventListener("change", () => renderGrid());
+    axisSelect.addEventListener("change", () => {
+      renderAxisDimensionHints();
+      renderGrid();
+    });
     xCountInput.addEventListener("change", () => renderGrid());
     yCountInput.addEventListener("change", () => renderGrid());
+    if (probDimensionSelect) {
+      probDimensionSelect.addEventListener("change", () => applyAxisDimension("probabilidad"));
+    }
+    if (impactDimensionSelect) {
+      impactDimensionSelect.addEventListener("change", () => applyAxisDimension("impacto"));
+    }
     if (!legendItems.length) {
       legendItems = defaultLegend();
     }
+    renderAxisDimensionHints();
     renderLegend();
     renderGrid();
     window.submitBuilder = submitBuilder;

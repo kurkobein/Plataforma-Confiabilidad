@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, Prefetch
@@ -20,6 +21,7 @@ from aca.services.progress import (
     filter_criticidades_by_hierarchy,
     get_aca_criticidad_queryset,
     get_aca_progress_dimensions,
+    get_descendant_node_ids,
     get_hierarchy_filter_options,
     group_progress_by_hierarchy_level,
 )
@@ -52,6 +54,24 @@ from core.views import (
 # Helpers del flujo ACA
 # ---------------------------------------------------------------------------
 ACA_INITIAL_VERSION = Decimal('1.0')
+
+
+def _existing_aca_equipment_ids(servicio, exclude_ids=None):
+    qs = models.Criticidad.objects.filter(
+        aca_carga__servicio=servicio,
+        equipo_id__isnull=False,
+    )
+    exclude_ids = [pk for pk in (exclude_ids or []) if pk]
+    if exclude_ids:
+        qs = qs.exclude(pk__in=exclude_ids)
+    return set(qs.values_list('equipo_id', flat=True))
+
+
+def _duplicate_aca_equipment_message(equipo):
+    label = getattr(equipo, 'tag_display', '') or getattr(equipo, 'tag_equipo', '') or str(equipo)
+    nombre = getattr(equipo, 'nombre_equipo', '') or ''
+    detail = f'{label} - {nombre}'.strip(' -')
+    return f'El equipo {detail} ya tiene un registro ACA en este servicio.'
 
 
 def _next_service_aca_version(servicio):
@@ -1143,6 +1163,27 @@ def _sync_aca_carga_status(evaluacion, estrategia, requested_status):
         carga.save(update_fields=['status', 'actualizado'])
 
 
+def _progress_color(progress_percent):
+    if progress_percent is None:
+        return '#94a3b8'
+    try:
+        percent = max(0, min(100, float(progress_percent)))
+    except (TypeError, ValueError):
+        percent = 0
+    hue = int(percent * 1.2)
+    return f'hsl({hue}, 72%, 43%)'
+
+
+def _progress_width_css(progress_percent):
+    if progress_percent is None:
+        return '0'
+    try:
+        percent = max(0, min(100, float(progress_percent)))
+    except (TypeError, ValueError):
+        percent = 0
+    return f'{percent:.1f}'.rstrip('0').rstrip('.')
+
+
 def _contrast_text_color(color):
     value = (color or '').strip()
     if not value.startswith('#'):
@@ -1369,6 +1410,179 @@ def service_aca_progress_partial(request, pk):
     return render(request, 'core/aca/partials/aca_progress_summary.html', context)
 
 
+def _node_path_for_panel(node, node_by_id):
+    path = []
+    seen = set()
+    while node and node.pk not in seen:
+        seen.add(node.pk)
+        path.append(node)
+        node = node_by_id.get(node.parent_id)
+    return list(reversed(path))
+
+
+def _record_node_at_level(record, level_id, node_by_id):
+    equipo = getattr(record, 'equipo', None)
+    node = node_by_id.get(getattr(equipo, 'nodo_id', None))
+    for path_node in _node_path_for_panel(node, node_by_id):
+        if str(path_node.nivel_id) == str(level_id):
+            return path_node
+    return None
+
+
+def _aca_panel_progress_context(servicio, params):
+    hierarchy_filters = get_hierarchy_filter_options(servicio)
+    available_node_ids = {int(node['id']) for node in hierarchy_filters.get('nodes', []) if node.get('id')}
+    selected_node_ids = {
+        int(node_id)
+        for node_id in params.getlist('panel_nodes')
+        if str(node_id).isdigit() and int(node_id) in available_node_ids
+    }
+    levels = hierarchy_filters.get('levels', [])
+    level_order = {int(level['id']): index for index, level in enumerate(levels)}
+    available_nodes = list(
+        models.NodoJerarquia.objects.filter(pk__in=available_node_ids, activo=True)
+        .select_related('nivel')
+        .order_by('nivel__orden', 'orden', 'codigo', 'nombre')
+    )
+    node_by_id = {node.pk: node for node in available_nodes}
+    selected_nodes = [node_by_id[node_id] for node_id in selected_node_ids if node_id in node_by_id]
+    deepest_selected = None
+    if selected_nodes:
+        deepest_selected = max(
+            selected_nodes,
+            key=lambda node: level_order.get(node.nivel_id, -1),
+        )
+    deepest_level_id = deepest_selected.nivel_id if deepest_selected else None
+
+    filter_node_ids = []
+    if deepest_selected:
+        filter_node_ids = []
+        deepest_selected_ids = [
+            node.pk for node in selected_nodes if node.nivel_id == deepest_level_id
+        ]
+        for node_id in deepest_selected_ids:
+            filter_node_ids.extend(get_descendant_node_ids(node_id))
+
+    criticidades_queryset = get_aca_criticidad_queryset(servicio).order_by(
+        '-aca_carga__fecha_analisis',
+        'equipo__tag_equipo',
+        'id',
+    )
+    if filter_node_ids:
+        criticidades_queryset = criticidades_queryset.filter(equipo__nodo_id__in=filter_node_ids)
+    criticidades = list(criticidades_queryset)
+
+    all_company_nodes = list(
+        models.NodoJerarquia.objects.filter(empresa=servicio.empresa, activo=True)
+        .select_related('nivel')
+    )
+    all_node_by_id = {node.pk: node for node in all_company_nodes}
+
+    selected_by_level = {}
+    for node in selected_nodes:
+        selected_by_level.setdefault(node.nivel_id, set()).add(node.pk)
+
+    allowed_parent_ids = None
+    panel_levels = []
+    for level in levels:
+        level_id = int(level['id'])
+        level_nodes = [node for node in available_nodes if node.nivel_id == level_id]
+        if allowed_parent_ids:
+            level_nodes = [
+                node for node in level_nodes
+                if any(path_node.pk in allowed_parent_ids for path_node in _node_path_for_panel(node, all_node_by_id))
+            ]
+        level_nodes.sort(key=lambda node: (node.codigo or '', node.nombre or ''))
+        selected_in_level = selected_by_level.get(level_id, set())
+        panel_levels.append({
+            'id': level_id,
+            'name': level['name'],
+            'nodes': level_nodes,
+            'selected_ids': selected_in_level,
+        })
+        if selected_in_level:
+            allowed_parent_ids = selected_in_level
+
+    progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
+    progress_dimensions = get_aca_progress_dimensions(servicio.estrategia)
+    chart_level_id = deepest_level_id or (levels[0]['id'] if levels else '')
+    hierarchy_chart_summary = group_progress_by_hierarchy_level(
+        criticidades,
+        chart_level_id,
+        progress_dimensions,
+    )
+    table_level_name = next((level['name'] for level in levels if str(level['id']) == str(chart_level_id)), 'Nivel')
+
+    table_rows = []
+    for record in criticidades:
+        level_node = _record_node_at_level(record, chart_level_id, all_node_by_id) if chart_level_id else None
+        carga = getattr(record, 'aca_carga', None)
+        table_rows.append({
+            'id': record.pk,
+            'level_value': (level_node.nombre or level_node.codigo) if level_node else '-',
+            'ut': record.equipo.ut if record.equipo else '',
+            'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y') if carga and carga.creado_en else '',
+            'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y') if carga and carga.actualizado else '',
+            'tag': record.equipo.tag_display if record.equipo else '',
+            'escenario_falla': record.escenario_falla,
+        })
+
+    return {
+        'panel_progress_summary': progress_summary,
+        'panel_hierarchy_levels': panel_levels,
+        'panel_selected_node_ids': selected_node_ids,
+        'panel_chart_summary': hierarchy_chart_summary,
+        'panel_table_rows': table_rows,
+        'panel_table_level_name': table_level_name,
+        'panel_total_filtered': len(criticidades),
+        'panel_is_filtered': bool(selected_node_ids),
+    }
+
+
+def _aca_global_services_context(request, selected_service_id=None):
+    services = list(get_accessible_services(request.user))
+    selected_service = None
+    selected_summary = None
+    service_rows = []
+
+    for service in services:
+        summary = build_aca_service_progress_summary(service)
+        service_rows.append({
+            'service': service,
+            'summary': summary,
+            'permission': get_service_permission(request.user, service),
+        })
+        if selected_service_id and str(service.pk) == str(selected_service_id):
+            selected_service = service
+            selected_summary = summary
+
+    if selected_service_id and not selected_service:
+        raise PermissionDenied('No tienes acceso al servicio seleccionado.')
+
+    context = {
+        'services': services,
+        'service_rows': service_rows,
+        'selected_service': selected_service,
+        'selected_summary': selected_summary,
+        'selected_service_id': str(selected_service_id or ''),
+    }
+    if selected_service:
+        context.update(_aca_panel_progress_context(selected_service, request.GET))
+    return context
+
+
+@login_required
+def aca_panel(request):
+    context = _aca_global_services_context(request, request.GET.get('service'))
+    return render(request, 'core/aca/aca_panel.html', context)
+
+
+@login_required
+def aca_development(request):
+    context = _aca_global_services_context(request, request.GET.get('service'))
+    return render(request, 'core/aca/aca_development.html', context)
+
+
 def _aca_group_key_and_label(crit):
     carga = crit.aca_carga
     origen = (getattr(carga, 'origen', '') or '').strip()
@@ -1474,7 +1688,6 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
 
     columns = [
         ('cliente', 'Cliente'),
-        ('status', 'Estado'),
         ('avance_aca', 'Avance'),
         ('fecha_analisis', 'Fecha análisis'),
         ('ubicacion_tecnica', 'Ubicación Técnica'),
@@ -1521,7 +1734,8 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
             'status': status,
             'avance_aca': progress.get('progress_label', 'N/A'),
             'avance_aca_order': progress_percent if progress_percent is not None else -1,
-            'avance_aca_width': progress_percent if progress_percent is not None else 0,
+            'avance_aca_width': _progress_width_css(progress_percent),
+            'avance_aca_color': _progress_color(progress_percent),
             'avance_aca_missing_label': ', '.join(missing_names) if missing_names else 'Sin faltantes',
             'fecha_analisis': crit.aca_carga.fecha_analisis.strftime('%d/%m/%Y') if crit.aca_carga and crit.aca_carga.fecha_analisis else '',
             'ubicacion_tecnica': crit.equipo.ut if crit.equipo else '',
@@ -1697,6 +1911,9 @@ def _bulk_group_criticidades(servicio, carga_pk):
 def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excluded_dimension_ids, is_draft, existing_by_id=None):
     equipment_qs = get_service_equipment(servicio)
     existing_by_id = existing_by_id or {}
+    existing_allowed_ids = {item.pk for item in existing_by_id.values()}
+    existing_equipment_ids = _existing_aca_equipment_ids(servicio, exclude_ids=existing_allowed_ids)
+    submitted_equipment_ids = set()
     prepared_rows = []
     errors = []
 
@@ -1713,6 +1930,12 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
                 row_errors.append('equipo invÃ¡lido o no asociado al servicio.')
         else:
             row_errors.append('equipo requerido.')
+
+        if equipo:
+            if equipo.pk in existing_equipment_ids:
+                row_errors.append(_duplicate_aca_equipment_message(equipo))
+            elif equipo.pk in submitted_equipment_ids:
+                row_errors.append('este equipo ya fue incluido en otra fila de esta carga.')
 
         prepared, _source_values, dimension_errors = prepare_bulk_dimension_items(
             strategy,
@@ -1739,6 +1962,9 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
         if row_errors:
             errors.append(f"Fila {index}: " + ' '.join(row_errors))
             continue
+
+        if equipo:
+            submitted_equipment_ids.add(equipo.pk)
 
         criticidad_id = row.get('criticidad_id')
         existing = existing_by_id.get(int(criticidad_id)) if str(criticidad_id or '').isdigit() else None
@@ -1904,7 +2130,7 @@ def _bulk_render_context(
 def service_aca_bulk_new(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=True)
     if not servicio.estrategia_id:
-        messages.warning(request, 'El servicio no tiene estrategia asociada. Asigna una antes de registrar ACA.')
+        messages.warning(request, 'El servicio no tiene estrategia asociada. Asigna una antes de añadir ACA.')
         return redirect('service_detail', pk=servicio.pk)
 
     strategy = servicio.estrategia
@@ -1930,6 +2156,8 @@ def service_aca_bulk_new(request, pk):
         is_draft = request.POST.get('save_as') == 'draft'
         status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
         equipment_qs = get_service_equipment(servicio)
+        existing_equipment_ids = _existing_aca_equipment_ids(servicio)
+        submitted_equipment_ids = set()
         prepared_rows = []
 
         for index, row in enumerate(submitted_rows, start=1):
@@ -1945,6 +2173,12 @@ def service_aca_bulk_new(request, pk):
                     row_errors.append('equipo inválido o no asociado al servicio.')
             else:
                 row_errors.append('equipo requerido.')
+
+            if equipo:
+                if equipo.pk in existing_equipment_ids:
+                    row_errors.append(_duplicate_aca_equipment_message(equipo))
+                elif equipo.pk in submitted_equipment_ids:
+                    row_errors.append('este equipo ya fue incluido en otra fila de esta carga.')
 
             prepared, _source_values, dimension_errors = prepare_bulk_dimension_items(
                 strategy,
@@ -1971,6 +2205,9 @@ def service_aca_bulk_new(request, pk):
             if row_errors:
                 errors.append(f"Fila {index}: " + ' '.join(row_errors))
                 continue
+
+            if equipo:
+                submitted_equipment_ids.add(equipo.pk)
 
             prepared_rows.append({
                 'equipo': equipo,
@@ -2153,7 +2390,7 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
 def service_aca_new(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=True)
     if not servicio.estrategia_id:
-        messages.warning(request, 'El servicio no tiene estrategia asociada. Asigna una antes de registrar ACA.')
+        messages.warning(request, 'El servicio no tiene estrategia asociada. Asigna una antes de añadir ACA.')
         return redirect('service_detail', pk=servicio.pk)
 
     strategy = servicio.estrategia
@@ -2283,6 +2520,31 @@ def service_aca_new(request, pk):
             if familia:
                 equipos = [item.equipo for item in familia.items.select_related('equipo').order_by('orden', 'id')]
 
+            existing_equipment_ids = _existing_aca_equipment_ids(
+                servicio,
+                exclude_ids=[edit_crit.pk] if edit_crit else None,
+            )
+            duplicate_equipos = [equipo for equipo in equipos if equipo and equipo.pk in existing_equipment_ids]
+            if duplicate_equipos:
+                for equipo in duplicate_equipos:
+                    base_form.add_error('equipo', _duplicate_aca_equipment_message(equipo))
+                return render(request, 'core/aca/aca_registro_form.html', {
+                    'service': servicio,
+                    'permission': permission,
+                    'base_form': base_form,
+                    'dimension_formset': dimension_formset,
+                    'selected_strategy': strategy,
+                    'matrix_selector': matrix_selector,
+                    'service_equipment_payload': _service_equipment_browser_payload(servicio),
+                    'service_equipment_endpoints': _service_equipment_endpoints(servicio),
+                    'service_family_payload': _service_family_payload(servicio),
+                    'auto_version': edit_crit.aca_carga.version_carga if edit_crit and edit_crit.aca_carga else ACA_INITIAL_VERSION,
+                    'auto_fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit and edit_crit.aca_carga else timezone.localdate(),
+                    'editing_crit': edit_crit,
+                    'existing_attachments': edit_crit.adjuntos.all() if edit_crit else [],
+                    'existing_aca_equipment_ids_json': list(_existing_aca_equipment_ids(servicio, exclude_ids=[edit_crit.pk] if edit_crit else None)),
+                })
+
             version_carga = ACA_INITIAL_VERSION if familia else None
             created_count = 0
             for equipo in equipos:
@@ -2349,6 +2611,7 @@ def service_aca_new(request, pk):
         'auto_fecha_analisis': edit_crit.aca_carga.fecha_analisis if edit_crit and edit_crit.aca_carga else timezone.localdate(),
         'editing_crit': edit_crit,
         'existing_attachments': edit_crit.adjuntos.all() if edit_crit else [],
+        'existing_aca_equipment_ids_json': list(_existing_aca_equipment_ids(servicio, exclude_ids=[edit_crit.pk] if edit_crit else None)),
     })
 
 
@@ -2397,5 +2660,5 @@ def aca_registro_new(request):
     ] if request.user.is_authenticated else []
     if len(servicios_editables) == 1:
         return redirect('service_aca_new', pk=servicios_editables[0].pk)
-    messages.info(request, 'Selecciona primero un servicio para registrar un ACA.')
+    messages.info(request, 'Selecciona primero un servicio para añadir un ACA.')
     return redirect('service_list')

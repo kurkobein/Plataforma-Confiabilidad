@@ -13,7 +13,7 @@
             <div class="aca-progress-donut aca-progress-donut-status" style="--progress-degrees: {{ progress_summary.complete_records_degrees|default:0|unlocalize }}deg;">
                 <span>{{ progress_summary.complete_records_label }}</span>
             </div>
-            <small>Completos</small>
+            <small>Finalizados</small>
         </div>
         <div class="aca-progress-summary-copy">
             <h3 class="card-title">Avance ACA</h3>
@@ -29,10 +29,9 @@
             {% endif %}
         </div>
         <div class="aca-progress-kpis">
-            <div class="stat"><small>Avance promedio</small><strong>{{ progress_summary.average_progress_label }}</strong></div>
             <div class="stat"><small>Total registros</small><strong>{{ progress_summary.total_records }}</strong></div>
-            <div class="stat"><small>Completos</small><strong>{{ progress_summary.complete_records }}</strong></div>
-            <div class="stat"><small>Incompletos</small><strong>{{ progress_summary.incomplete_records }}</strong></div>
+            <div class="stat"><small>Finalizados</small><strong>{{ progress_summary.complete_records }}</strong></div>
+            <div class="stat"><small>En desarrollo</small><strong>{{ progress_summary.incomplete_records }}</strong></div>
         </div>
         <div class="aca-progress-gap">
             <small>Mayor brecha</small>
