@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+﻿{% extends 'core/base.html' %}
 {% block title %}{{ bulk_title|default:"Carga masiva ACA" }} | {{ service.codigo_servicio }}{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -34,8 +34,7 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Equipo</th>
-                        <th>Escenario falla</th>
+                        <th>Equipo / familia</th>
                         {% for dimension in dimension_payload %}
                             <th title="{{ dimension.nombre }}">{{ dimension.nombre }}</th>
                         {% endfor %}
@@ -57,7 +56,7 @@
                     <table class="matrix-compact aca-bulk-matrix-table">
                         <thead>
                             <tr>
-                                <th>Probabilidad \ Impacto</th>
+                                <th>Probabilidad \ Consecuencia</th>
                                 {% for col in matrix_selector.columns %}
                                     <th>{{ col.label }}<br><span class="muted">{{ col.value }}</span></th>
                                 {% endfor %}
@@ -124,13 +123,18 @@
 {{ dimension_payload|json_script:"aca-bulk-dimensions" }}
 {{ service_equipment_endpoints|json_script:"aca-bulk-equipment-endpoints" }}
 {{ initial_equipment_payload|json_script:"aca-bulk-initial-equipment" }}
+{{ service_family_payload|json_script:"aca-bulk-families" }}
+{{ existing_aca_equipment_ids_json|json_script:"aca-bulk-existing-equipment" }}
 {{ bulk_payload|default:""|json_script:"aca-bulk-initial-payload" }}
 <script>
 (function () {
     const dimensions = JSON.parse(document.getElementById('aca-bulk-dimensions').textContent || '[]');
     const endpoints = JSON.parse(document.getElementById('aca-bulk-equipment-endpoints').textContent || '{}');
     const initialEquipment = JSON.parse(document.getElementById('aca-bulk-initial-equipment').textContent || '[]');
+    const families = JSON.parse(document.getElementById('aca-bulk-families').textContent || '[]');
+    const existingAcaEquipmentIds = new Set(JSON.parse(document.getElementById('aca-bulk-existing-equipment').textContent || '[]').map(item => String(item)));
     const initialPayloadText = JSON.parse(document.getElementById('aca-bulk-initial-payload').textContent || '""');
+    const isGroupEdit = '{{ is_group_edit|yesno:"1,0" }}' === '1';
     const tbody = document.getElementById('aca-bulk-body');
     const payloadInput = document.getElementById('bulk-payload');
     const form = document.getElementById('aca-bulk-form');
@@ -162,6 +166,28 @@
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     }
+
+    function compareText(left, right) {
+        return String(left || '').localeCompare(String(right || ''), 'es', { sensitivity: 'base', numeric: true });
+    }
+
+    function sortEquipmentList(items) {
+        return Array.from(items || []).sort((a, b) => (
+            compareText(a && a.tag, b && b.tag)
+            || compareText(a && a.equipo, b && b.equipo)
+            || compareText(a && a.ut, b && b.ut)
+        ));
+    }
+
+    initialEquipment.sort((a, b) => (
+        compareText(a && a.tag, b && b.tag)
+        || compareText(a && a.equipo, b && b.equipo)
+        || compareText(a && a.ut, b && b.ut)
+    ));
+    families.sort((a, b) => compareText(a && a.nombre, b && b.nombre));
+    families.forEach(family => {
+        family.equipos = sortEquipmentList(family.equipos || []);
+    });
 
     function toNumber(value) {
         if (value === null || value === undefined || value === '') return null;
@@ -281,6 +307,10 @@
         return row.dimensions[String(dimension.estrategia_dimension_id)] || {};
     }
 
+    function dimensionAllowsComment(dimension) {
+        return Boolean(dimension && dimension.allows_empty_comment);
+    }
+
     function recalcRow(rowId) {
         const row = rows[rowId];
         if (!row) return;
@@ -394,16 +424,68 @@
 
     function addRow(initial) {
         const rowId = nextRowId++;
-        rows[rowId] = Object.assign({ id: rowId, criticidad_id: '', equipo_id: '', equipo: null, equipmentOptions: initialEquipment, escenario_falla: '', dimensions: {}, matrix_cell_id: '', criticidad: '' }, initial || {});
+        rows[rowId] = Object.assign({ id: rowId, criticidad_id: '', target_type: '', target_locked: false, equipo_id: '', equipo: null, family_id: '', family: null, equipmentOptions: initialEquipment, dimensions: {}, matrix_cell_id: '', criticidad: '' }, initial || {});
         if (!rows[rowId].equipmentOptions || !rows[rowId].equipmentOptions.length) rows[rowId].equipmentOptions = initialEquipment;
+        rows[rowId].equipmentOptions = sortEquipmentList(rows[rowId].equipmentOptions);
+        if (rows[rowId].family_id && !rows[rowId].family) rows[rowId].family = familyById(rows[rowId].family_id);
+        if (!rows[rowId].target_type && rows[rowId].family_id) rows[rowId].target_type = 'familia';
+        if (!rows[rowId].target_type && rows[rowId].equipo_id) rows[rowId].target_type = 'equipo';
+        if (!['familia', 'equipo'].includes(rows[rowId].target_type)) rows[rowId].target_type = '';
+        if ((rows[rowId].equipo_id || rows[rowId].family_id) && (initial || {}).target_locked === undefined) {
+            rows[rowId].target_locked = true;
+        }
         rows[rowId].id = rowId;
         renderRow(rowId, true);
         recalcRow(rowId);
     }
 
+    function clearRows() {
+        Object.keys(rows).forEach(key => delete rows[key]);
+        tbody.innerHTML = '';
+        nextRowId = 1;
+        updateMatrixCounters();
+    }
+
     function equipmentLabel(item) {
         if (!item) return 'Selecciona equipo';
         return (item.tag ? item.tag + ' · ' : '') + (item.equipo || 'Sin nombre') + (item.ut ? ' · ' + item.ut : '');
+    }
+
+    function familyById(id) {
+        return families.find(family => String(family.id) === String(id)) || null;
+    }
+
+    function familyLabel(family) {
+        if (!family) return 'Selecciona familia';
+        return `${family.nombre || 'Familia'} · ${(family.equipos || []).length} equipos`;
+    }
+
+    function familyOptionsHtml(row) {
+        const selectedId = String(row.family_id || '');
+        return '<option value="">Selecciona familia</option>' + families.map(function (family) {
+            const id = String(family.id || '');
+            const selected = id === selectedId ? 'selected' : '';
+            return `<option value="${escapeHtml(id)}" ${selected}>${escapeHtml(familyLabel(family))}</option>`;
+        }).join('');
+    }
+
+    function familyEquipmentListHtml(row) {
+        const family = row.family || familyById(row.family_id);
+        if (!family) return '<div class="muted">Selecciona una familia para ver sus equipos.</div>';
+        const items = sortEquipmentList(family.equipos || []);
+        if (!items.length) return '<div class="muted">Esta familia no tiene equipos asociados.</div>';
+        return `
+            <strong>${escapeHtml(family.nombre || 'Familia')}</strong>
+            <div class="aca-bulk-family-list">
+                ${items.map(item => {
+                    const hasAca = existingAcaEquipmentIds.has(String(item.id || ''));
+                    return `<div class="aca-bulk-family-list-item ${hasAca ? 'has-aca' : ''}">
+                        <span>${escapeHtml(equipmentLabel(item))}</span>
+                        ${hasAca ? '<small>ACA existente</small>' : ''}
+                    </div>`;
+                }).join('')}
+            </div>
+        `;
     }
 
     function equipmentOptionsHtml(row) {
@@ -420,11 +502,20 @@
             options.push(item);
             seen.add(id);
         });
-        return '<option value="">Selecciona equipo</option>' + options.map(function (item) {
+        return '<option value="">Selecciona equipo</option>' + sortEquipmentList(options).map(function (item) {
             const id = String(item.id || '');
             const selected = id === selectedId ? 'selected' : '';
             return `<option value="${escapeHtml(id)}" ${selected} data-item="${escapeHtml(JSON.stringify(item))}">${escapeHtml(equipmentLabel(item))}</option>`;
         }).join('');
+    }
+
+    function rowHasExistingAca(row) {
+        if (!row) return false;
+        if (row.target_type === 'familia') {
+            const family = row.family || familyById(row.family_id);
+            return Boolean(family && (family.equipos || []).some(item => existingAcaEquipmentIds.has(String(item.id || ''))));
+        }
+        return Boolean(row.equipo_id && existingAcaEquipmentIds.has(String(row.equipo_id)));
     }
 
     function renderRow(rowId, appendOnly) {
@@ -436,10 +527,36 @@
             tr.dataset.rowId = rowId;
             tbody.appendChild(tr);
         }
-        const equipment = row.equipo || {};
-        tr.innerHTML = `
-            <td class="aca-bulk-index">${rowId}</td>
-            <td class="aca-bulk-equipment-cell">
+        const hasExistingAca = rowHasExistingAca(row);
+        const hasTarget = row.target_type === 'familia' ? row.family_id : row.equipo_id;
+        const statusClass = hasExistingAca ? 'pill-danger' : (hasTarget ? 'pill-success' : 'pill-warning');
+        const statusText = hasExistingAca ? 'ACA existente' : (hasTarget ? (row.target_type === 'familia' ? 'Familia lista' : 'Lista') : 'Pendiente');
+        const targetIcon = row.target_type === 'familia' ? 'bi-people' : 'bi-hdd-rack';
+        const targetTitle = row.target_type === 'familia' ? 'Familia de equipos' : 'Equipo individual';
+        const targetOptions = row.target_locked && row.target_type
+            ? `<button class="btn aca-bulk-target-icon" type="button" data-target-unlock="${rowId}" title="${targetTitle}" aria-label="${targetTitle}">
+                    <i class="bi ${targetIcon}"></i>
+                </button>`
+            : `<select class="aca-bulk-target-type" data-row-id="${rowId}">
+                    <option value="">Tipo</option>
+                    <option value="equipo" ${row.target_type === 'equipo' ? 'selected' : ''}>Equipo individual</option>
+                    <option value="familia" ${row.target_type === 'familia' ? 'selected' : ''}>Familia de equipos</option>
+                </select>`;
+        const targetControl = !row.target_type
+            ? ''
+            : row.target_type === 'familia'
+                ? `
+                <button class="btn aca-bulk-family-toggle" type="button" data-family-toggle="${rowId}" aria-label="Ver equipos de la familia" title="Ver equipos">
+                    <i class="bi bi-people"></i>
+                </button>
+                <select class="aca-bulk-family-select" data-row-id="${rowId}">
+                    ${familyOptionsHtml(row)}
+                </select>
+                <div class="aca-bulk-family-popover" data-family-popover="${rowId}" hidden>
+                    ${familyEquipmentListHtml(row)}
+                </div>
+            `
+                : `
                 <div class="aca-bulk-equipment-control">
                     <button class="btn aca-bulk-search-toggle" type="button" data-search-toggle="${rowId}" aria-label="Buscar equipo" title="Buscar equipo">
                         <i class="bi bi-search"></i>
@@ -451,11 +568,17 @@
                 <select class="aca-bulk-equipment-select" data-row-id="${rowId}">
                     ${equipmentOptionsHtml(row)}
                 </select>
+            `;
+        tr.innerHTML = `
+            <td class="aca-bulk-index">${rowId}</td>
+            <td class="aca-bulk-equipment-cell">
+                ${targetOptions}
+                ${targetControl}
+                ${hasExistingAca ? `<small class="aca-bulk-equipment-warning">${row.target_type === 'familia' ? 'Uno o más equipos de esta familia ya tienen ACA en este servicio.' : 'Este equipo ya tiene un registro ACA en este servicio.'}</small>` : ''}
             </td>
-            <td><input class="aca-bulk-scenario" data-row-id="${rowId}" value="${escapeHtml(row.escenario_falla || '')}" placeholder="Escenario"></td>
             ${dimensions.map(dimension => renderDimensionCell(row, dimension)).join('')}
             <td><span class="aca-bulk-crit">${escapeHtml(row.criticidad || '-')}</span></td>
-            <td><span class="${row.equipo_id ? 'pill-success' : 'pill-warning'}">${row.equipo_id ? 'Lista' : 'Pendiente'}</span></td>
+            <td><span class="${statusClass}">${statusText}</span></td>
             <td class="actions">
                 <button class="btn" type="button" data-duplicate-row="${rowId}"><i class="bi bi-copy"></i></button>
                 <button class="btn btn-danger" type="button" data-remove-row="${rowId}"><i class="bi bi-trash3"></i></button>
@@ -466,15 +589,45 @@
     function renderDimensionCell(row, dimension) {
         const value = currentDimensionValue(row, dimension);
         const id = dimension.estrategia_dimension_id;
+        const commentOpen = value.comentario ? ' open' : '';
+        const commentInput = dimensionAllowsComment(dimension)
+            ? `<details class="aca-bulk-dim-comment-box"${commentOpen}><summary title="Comentario"><i class="bi bi-chat-left-text"></i></summary><input class="aca-bulk-dim-comment" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="comentario" maxlength="180" value="${escapeHtml(value.comentario || '')}" placeholder="Comentario si queda vacio"></details>`
+            : '';
         if (dimension.input_mode === 'numerico') {
-            return `<td><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_numerico" value="${escapeHtml(value.valor_numerico || '')}"></td>`;
+            return `<td><div class="aca-bulk-dim-stack"><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_numerico" value="${escapeHtml(value.valor_numerico || '')}">${commentInput}</div></td>`;
         }
         if (dimension.input_mode === 'texto' || dimension.input_mode === 'booleano') {
-            return `<td><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_texto" value="${escapeHtml(value.valor_texto || '')}"></td>`;
+            return `<td><div class="aca-bulk-dim-stack"><input class="aca-bulk-dim-input" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_texto" value="${escapeHtml(value.valor_texto || '')}">${commentInput}</div></td>`;
         }
         const label = value.display || value.valor_texto || (dimension.input_mode === 'calculado' ? 'Calculado' : 'Seleccionar');
         const disabled = dimension.input_mode === 'calculado' ? 'disabled' : '';
-        return `<td><button class="aca-bulk-dimension-cell" type="button" data-row-id="${row.id}" data-dimension-id="${id}" ${disabled}>${escapeHtml(label)}</button></td>`;
+        return `<td><div class="aca-bulk-dim-stack"><button class="aca-bulk-dimension-cell" type="button" data-row-id="${row.id}" data-dimension-id="${id}" ${disabled}>${escapeHtml(label)}</button>${commentInput}</div></td>`;
+    }
+
+    function positionFamilyPopover(toggle, popover) {
+        if (!toggle || !popover || popover.hidden) return;
+        const rect = toggle.getBoundingClientRect();
+        const margin = 8;
+        const popoverWidth = popover.offsetWidth || 360;
+        const popoverHeight = popover.offsetHeight || 280;
+        let left = rect.left;
+        let top = rect.bottom + 6;
+        if (left + popoverWidth > window.innerWidth - margin) {
+            left = window.innerWidth - popoverWidth - margin;
+        }
+        if (top + popoverHeight > window.innerHeight - margin) {
+            top = Math.max(margin, rect.top - popoverHeight - 6);
+        }
+        popover.style.left = `${Math.max(margin, left)}px`;
+        popover.style.top = `${Math.max(margin, top)}px`;
+    }
+
+    function repositionOpenFamilyPopovers() {
+        tbody.querySelectorAll('.aca-bulk-family-popover:not([hidden])').forEach(popover => {
+            const rowId = popover.dataset.familyPopover;
+            const toggle = tbody.querySelector(`[data-family-toggle="${rowId}"]`);
+            positionFamilyPopover(toggle, popover);
+        });
     }
 
     async function searchEquipment(rowId, query) {
@@ -490,7 +643,7 @@
         const data = await response.json();
         const select = tbody.querySelector(`.aca-bulk-equipment-select[data-row-id="${rowId}"]`);
         if (!select) return;
-        row.equipmentOptions = data.items || [];
+        row.equipmentOptions = sortEquipmentList(data.items || []);
         select.innerHTML = equipmentOptionsHtml(row);
     }
 
@@ -515,6 +668,21 @@
         const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(activePicker.dimensionId));
         const option = dimension && dimension.option_rows ? dimension.option_rows[optionIndex] : null;
         if (!row || !dimension || !option) return;
+        const current = currentDimensionValue(row, dimension);
+        const selectedKey = dimension.input_mode === 'escala' ? 'escala_valor_id' : 'catalogo_fila_id';
+        if (String(current[selectedKey] || '') === String(option.pk || '')) {
+            setDimensionValue(row, dimension, {
+                catalogo_fila_id: '',
+                escala_valor_id: '',
+                valor_numerico: '',
+                valor_texto: '',
+                display: '',
+            });
+            modal.hidden = true;
+            activePicker = null;
+            recalcRow(row.id);
+            return;
+        }
         const payload = {
             valor_numerico: option.value_numeric || '',
             valor_texto: optionDisplay(option),
@@ -544,10 +712,13 @@
     function buildPayload() {
         return {
             rows: Object.values(rows).map(row => ({
+                target_type: row.target_type || 'equipo',
+                target_locked: row.target_locked || false,
                 equipo_id: row.equipo_id,
+                family_id: row.family_id || '',
+                family: row.family || null,
                 criticidad_id: row.criticidad_id || '',
                 equipo: row.equipo || null,
-                escenario_falla: row.escenario_falla || '',
                 dimensions: row.dimensions || {},
                 matrix_cell_id: row.matrix_cell_id || '',
             }))
@@ -571,7 +742,12 @@
             clearTimeout(event.target._searchTimer);
             event.target._searchTimer = setTimeout(() => searchEquipment(rowId, event.target.value), 250);
         }
-        if (event.target.classList.contains('aca-bulk-scenario')) row.escenario_falla = event.target.value;
+        if (event.target.classList.contains('aca-bulk-dim-comment')) {
+            const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(event.target.dataset.dimensionId));
+            if (dimension) {
+                setDimensionValue(row, dimension, { comentario: event.target.value });
+            }
+        }
         if (event.target.classList.contains('aca-bulk-dim-input')) {
             const dimension = dimensions.find(item => String(item.estrategia_dimension_id) === String(event.target.dataset.dimensionId));
             if (dimension) {
@@ -583,22 +759,50 @@
     });
 
     tbody.addEventListener('change', event => {
-        if (!event.target.classList.contains('aca-bulk-equipment-select')) return;
         const row = rows[Number(event.target.dataset.rowId)];
-        const selected = event.target.options[event.target.selectedIndex];
-        if (!row || !selected) return;
-        row.equipo_id = selected.value;
-        if (!row.equipo_id) {
+        if (!row) return;
+
+        if (event.target.classList.contains('aca-bulk-target-type')) {
+            if (!event.target.value) return;
+            row.target_type = event.target.value === 'familia' ? 'familia' : 'equipo';
+            row.target_locked = true;
+            row.equipo_id = '';
+            row.equipo = null;
+            row.family_id = '';
+            row.family = null;
+            renderRow(row.id);
+            return;
+        }
+
+        if (event.target.classList.contains('aca-bulk-family-select')) {
+            row.family_id = event.target.value;
+            row.family = familyById(row.family_id);
+            row.target_locked = true;
+            row.equipo_id = '';
             row.equipo = null;
             renderRow(row.id);
             return;
         }
-        try {
-            row.equipo = selected.dataset.item ? JSON.parse(selected.dataset.item) : row.equipo;
-        } catch (e) {
-            row.equipo = row.equipo || {};
+
+        if (event.target.classList.contains('aca-bulk-equipment-select')) {
+            const selected = event.target.options[event.target.selectedIndex];
+            if (!selected) return;
+            row.equipo_id = selected.value;
+            row.target_locked = true;
+            row.family_id = '';
+            row.family = null;
+            if (!row.equipo_id) {
+                row.equipo = null;
+                renderRow(row.id);
+                return;
+            }
+            try {
+                row.equipo = selected.dataset.item ? JSON.parse(selected.dataset.item) : row.equipo;
+            } catch (e) {
+                row.equipo = row.equipo || {};
+            }
+            renderRow(row.id);
         }
-        renderRow(row.id);
     });
 
     tbody.addEventListener('click', event => {
@@ -615,6 +819,30 @@
                 if (!popover.hidden) popover.querySelector('input')?.focus();
             }
         }
+        const familyToggle = event.target.closest('[data-family-toggle]');
+        if (familyToggle) {
+            const rowId = familyToggle.dataset.familyToggle;
+            const popover = tbody.querySelector(`[data-family-popover="${rowId}"]`);
+            if (popover) {
+                const nextHidden = !popover.hidden ? true : false;
+                tbody.querySelectorAll('.aca-bulk-family-popover').forEach(node => { node.hidden = true; });
+                popover.hidden = nextHidden;
+                if (!popover.hidden) positionFamilyPopover(familyToggle, popover);
+            }
+        }
+        const targetUnlock = event.target.closest('[data-target-unlock]');
+        if (targetUnlock) {
+            const row = rows[Number(targetUnlock.dataset.targetUnlock)];
+            if (row) {
+                row.target_type = row.target_type === 'familia' ? 'equipo' : 'familia';
+                row.target_locked = true;
+                row.equipo_id = '';
+                row.equipo = null;
+                row.family_id = '';
+                row.family = null;
+                renderRow(row.id);
+            }
+        }
         const remove = event.target.closest('[data-remove-row]');
         if (remove) {
             delete rows[Number(remove.dataset.removeRow)];
@@ -624,9 +852,20 @@
         const duplicate = event.target.closest('[data-duplicate-row]');
         if (duplicate) {
             const source = rows[Number(duplicate.dataset.duplicateRow)];
-            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, { id: undefined, criticidad_id: '', equipo_id: '', equipo: null }))));
+            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, { id: undefined, criticidad_id: '', equipo_id: '', equipo: null, family_id: '', family: null, target_type: '', target_locked: false }))));
         }
     });
+
+    document.addEventListener('click', event => {
+        if (!event.target.closest('.aca-bulk-equipment-cell')) {
+            tbody.querySelectorAll('.aca-bulk-search-popover, .aca-bulk-family-popover').forEach(node => {
+                node.hidden = true;
+            });
+        }
+    });
+
+    window.addEventListener('resize', repositionOpenFamilyPopovers);
+    document.addEventListener('scroll', repositionOpenFamilyPopovers, true);
 
     modalBody.addEventListener('click', event => {
         const button = event.target.closest('[data-pick-option]');

@@ -334,7 +334,14 @@ class Equipo(BaseUnmanagedModel):
 
     @property
     def tag_display(self):
-        return _equipment_tag_from_ut(self.ut) or self.tag_equipo
+        return self.tag_equipo or _equipment_tag_from_ut(self.ut)
+
+    @property
+    def ut_display(self):
+        tag = _technical_segment(self.tag_equipo) if self.tag_equipo else ''
+        if self.nodo_id and tag:
+            return f'{self.nodo.ut}-{tag}'
+        return self.ut
 
     def __str__(self):
         return f'{self.tag_display} - {self.nombre_equipo}'
@@ -551,6 +558,7 @@ class EstrategiaDimension(BaseUnmanagedModel):
     obligatorio = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
     considerar_avance_aca = models.BooleanField('Considerar en avance ACA', default=True)
+    visible_en_listado_aca = models.BooleanField('Visible en listado ACA', default=True)
     proceso_uso = models.CharField(max_length=10, choices=PROCESO_USO_CHOICES, default=PROCESO_ACA)
     dimension = models.ForeignKey(Dimension, on_delete=models.DO_NOTHING, db_column='dimension_id', related_name='estrategias_dimension')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='dimensiones_estrategia')
@@ -1060,6 +1068,7 @@ class CriticidadDimension(BaseUnmanagedModel):
     valor_numerico = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     valor_booleano = models.BooleanField(blank=True, null=True)
     valor_texto = models.TextField(blank=True)
+    comentario = models.TextField(blank=True, verbose_name='Comentario')
     valor_secundario = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     criticidad = models.ForeignKey(Criticidad, on_delete=models.DO_NOTHING, db_column='criticidad_id', related_name='dimensiones')
     dimension = models.ForeignKey(Dimension, on_delete=models.DO_NOTHING, db_column='dimension_id', related_name='criticidades_dimension')
@@ -1144,7 +1153,7 @@ class MatrizRiesgo(BaseUnmanagedModel):
         (RESOLUCION_UMBRAL_RESULTADO, 'Umbral inferior por resultado'),
     ]
     EJE_HORIZONTAL_CHOICES = [
-        ('impacto', 'Impacto'),
+        ('impacto', 'Consecuencia'),
         ('probabilidad', 'Probabilidad'),
     ]
 

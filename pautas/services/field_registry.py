@@ -110,7 +110,7 @@ def _equipment_options(servicio):
         {'value': 'equipo.tag_equipo', 'label': 'Equipo > TAG'},
         {'value': 'equipo.tag_display', 'label': 'Equipo > TAG visible'},
         {'value': 'equipo.nombre_equipo', 'label': 'Equipo > Nombre'},
-        {'value': 'equipo.ut', 'label': 'Equipo > Ubicacion tecnica'},
+        {'value': 'equipo.ut_display', 'label': 'Equipo > Ubicacion tecnica'},
         {'value': 'equipo.descripcion_ut', 'label': 'Equipo > Descripcion UT'},
         *_equipment_ut_level_options(servicio),
     ]

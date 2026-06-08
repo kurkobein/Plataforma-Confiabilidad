@@ -14,6 +14,7 @@ urlpatterns = [
     path('', include('technical_locations.urls')),
     path('', include('evaluation_tables.urls')),
     path('equipo/carga-masiva/', views.equipment_bulk_upload, name='equipment_bulk_upload'),
+    path('equipo/carga-masiva/ejemplo/<str:formato>/', views.equipment_bulk_example, name='equipment_bulk_example'),
     path('<slug:model_key>/', views.model_list, name='model_list'),
     path('<slug:model_key>/nuevo/', views.model_create, name='model_create'),
     path('<slug:model_key>/<int:pk>/', views.model_detail, name='model_detail'),

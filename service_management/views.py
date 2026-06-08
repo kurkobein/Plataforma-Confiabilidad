@@ -13,6 +13,7 @@ from core import models
 from core.access import get_accessible_services, get_service_equipment, is_mindco_user
 from service_management.forms import FamiliaEquipoForm, ServiceAccessGrantForm
 from core.views import (
+    _active_subtree_ids,
     _catalog_preview,
     _equipment_items_payload,
     _is_generated_matrix_axis_dimension,
@@ -550,14 +551,6 @@ def service_equipment_search(request, pk):
             activo=True,
         )
 
-    if not node and len(query) < 2:
-        return JsonResponse({
-            'items': [],
-            'count': 0,
-            'requires_filter': True,
-            'message': 'Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.',
-        })
-
     qs = _service_equipment_search_queryset(servicio, node=node, query=query)
     total = qs.count()
     items = list(qs[:limit])
@@ -566,6 +559,129 @@ def service_equipment_search(request, pk):
         'count': total,
         'limit': limit,
         'truncated': total > limit,
+    })
+
+
+def _service_company_equipment_queryset(servicio, node=None, query=''):
+    qs = (
+        models.Equipo.objects
+        .select_related('nodo', 'nodo__empresa')
+        .filter(nodo__empresa=servicio.empresa)
+    )
+    if node:
+        subtree_ids = _active_subtree_ids(node)
+        node_ut = node.ut
+        qs = qs.filter(
+            Q(nodo_id__in=subtree_ids)
+            | Q(ut__iexact=node_ut)
+            | Q(ut__istartswith=f'{node_ut}-')
+        )
+
+    query = (query or '').strip()
+    if query:
+        qs = qs.filter(
+            Q(ut__icontains=query)
+            | Q(descripcion_ut__icontains=query)
+            | Q(nombre_equipo__icontains=query)
+            | Q(tag_equipo__icontains=query)
+        )
+    return qs.distinct().order_by('tag_equipo', 'nombre_equipo', 'ut')
+
+
+@login_required
+def service_equipment_available(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    query = (request.GET.get('q') or '').strip()
+    node_id = (request.GET.get('node_id') or '').strip()
+    try:
+        limit = min(max(int(request.GET.get('limit') or 200), 1), 1000)
+    except (TypeError, ValueError):
+        limit = 200
+
+    node = None
+    if node_id:
+        node = get_object_or_404(
+            models.NodoJerarquia,
+            pk=node_id,
+            empresa=servicio.empresa,
+            activo=True,
+        )
+
+    qs = _service_company_equipment_queryset(servicio, node=node, query=query)
+    total = qs.count()
+    items = list(qs[:limit])
+    linked_ids = set(
+        models.ServicioEquipo.objects
+        .filter(servicio=servicio, equipo_id__in=[item.pk for item in items])
+        .values_list('equipo_id', flat=True)
+    )
+    payload = _equipment_items_payload(items)
+    for item in payload:
+        item['linked'] = item['id'] in linked_ids
+    return JsonResponse({
+        'items': payload,
+        'count': total,
+        'limit': limit,
+        'truncated': total > limit,
+    })
+
+
+@login_required
+@transaction.atomic
+def service_equipment_link(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': 'Metodo no permitido.'}, status=405)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+    raw_ids = payload.get('equipment_ids') or request.POST.getlist('equipment_ids')
+    equipment_ids = []
+    for raw_id in raw_ids:
+        try:
+            equipment_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if equipment_id not in equipment_ids:
+            equipment_ids.append(equipment_id)
+
+    if not equipment_ids:
+        return JsonResponse({'ok': False, 'message': 'Selecciona al menos un equipo.'}, status=400)
+
+    valid_ids = list(
+        models.Equipo.objects
+        .filter(pk__in=equipment_ids, nodo__empresa=servicio.empresa)
+        .values_list('id', flat=True)
+    )
+    if not valid_ids:
+        return JsonResponse({
+            'ok': False,
+            'message': 'No se encontraron equipos validos para vincular a este servicio.',
+            'created': 0,
+            'already_linked': 0,
+            'invalid': len(equipment_ids),
+        }, status=400)
+    existing_ids = set(
+        models.ServicioEquipo.objects
+        .filter(servicio=servicio, equipo_id__in=valid_ids)
+        .values_list('equipo_id', flat=True)
+    )
+    new_ids = [equipment_id for equipment_id in valid_ids if equipment_id not in existing_ids]
+    models.ServicioEquipo.objects.bulk_create(
+        [
+            models.ServicioEquipo(servicio=servicio, equipo_id=equipment_id)
+            for equipment_id in new_ids
+        ],
+        ignore_conflicts=True,
+    )
+    return JsonResponse({
+        'ok': True,
+        'created': len(new_ids),
+        'already_linked': len(existing_ids),
+        'invalid': len(equipment_ids) - len(valid_ids),
+        'message': f'{len(new_ids)} equipos vinculados al servicio.',
     })
 
 

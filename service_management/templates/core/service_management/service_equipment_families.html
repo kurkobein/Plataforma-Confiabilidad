@@ -39,7 +39,7 @@
                                 <summary>Ver equipos</summary>
                                 <div class="family-equipment-list">
                                     {% for item in familia.items.all %}
-                                        <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ item.equipo.ut }}" data-copy="{{ item.equipo.ut }}">
+                                        <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ item.equipo.ut_display }}" data-copy="{{ item.equipo.ut_display }}">
                                             {{ item.equipo.tag_display }} · {{ item.equipo.nombre_equipo }}
                                         </span>
                                     {% empty %}

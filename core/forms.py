@@ -242,6 +242,12 @@ class EquipoForm(BaseModelForm):
         required=False,
         label='Empresa',
     )
+    servicio = forms.ModelChoiceField(
+        queryset=app_models.Servicio.objects.none(),
+        required=False,
+        label='Relacionar con servicio',
+        help_text='Opcional. Si se selecciona, el equipo quedara disponible para registros del servicio.',
+    )
 
     class Meta:
         model = app_models.Equipo
@@ -256,7 +262,12 @@ class EquipoForm(BaseModelForm):
         super().__init__(*args, **kwargs)
         self._resolved_node = None
         self.fields['empresa'].queryset = app_models.Empresa.objects.order_by('nombre')
+        self.fields['servicio'].queryset = app_models.Servicio.objects.select_related('empresa').order_by(
+            'empresa__nombre',
+            'codigo_servicio',
+        )
         self.fields['ut'].help_text = 'Puedes pegar la UT completa; se validara contra los valores registrados.'
+        self.fields['descripcion_ut'].required = False
         self.fields['nodo'].queryset = app_models.NodoJerarquia.objects.filter(
             activo=True,
         ).select_related(
@@ -273,12 +284,28 @@ class EquipoForm(BaseModelForm):
         self.fields['nodo'].label = 'Ubicacion tecnica jerarquica'
         if self.instance and getattr(self.instance, 'nodo_id', None):
             self.fields['empresa'].initial = self.instance.nodo.empresa_id
+        if self.instance and getattr(self.instance, 'pk', None):
+            service_link = (
+                app_models.ServicioEquipo.objects
+                .filter(equipo=self.instance)
+                .select_related('servicio')
+                .order_by('servicio__codigo_servicio')
+                .first()
+            )
+            if service_link:
+                self.fields['servicio'].initial = service_link.servicio_id
 
     def clean(self):
         cleaned = super().clean()
         empresa = cleaned.get('empresa')
+        servicio = cleaned.get('servicio')
         nodo = cleaned.get('nodo')
         ut = (cleaned.get('ut') or '').strip()
+        raw_tag = (cleaned.get('tag_equipo') or '').strip()
+        tag = app_models._technical_segment(raw_tag) if raw_tag else ''
+        cleaned['descripcion_ut'] = (cleaned.get('descripcion_ut') or '').strip()
+        if servicio and empresa and servicio.empresa_id != empresa.pk:
+            self.add_error('servicio', 'El servicio seleccionado debe pertenecer a la empresa del equipo.')
         if empresa and nodo and nodo.empresa_id != empresa.pk:
             self.add_error('nodo', 'La ubicacion tecnica debe pertenecer a la empresa seleccionada.')
 
@@ -286,12 +313,26 @@ class EquipoForm(BaseModelForm):
             if not empresa:
                 self.add_error('empresa', 'Selecciona una empresa para resolver la UT.')
                 return cleaned
-            resolved_node = self._resolve_node_from_ut(empresa, ut)
+            resolved_node, ut_tag = self._resolve_node_from_ut(empresa, ut)
             if resolved_node:
                 self._resolved_node = resolved_node
                 cleaned['nodo'] = resolved_node
+                if ut_tag:
+                    if tag and tag != ut_tag:
+                        self.add_error(
+                            'tag_equipo',
+                            f'El tag del equipo debe coincidir con el ultimo segmento de la UT ({ut_tag}).',
+                        )
+                    else:
+                        cleaned['tag_equipo'] = ut_tag
         elif not nodo:
             self.add_error('ut', 'Ingresa una UT o selecciona una ubicacion tecnica.')
+        raw_normalized_tag = (cleaned.get('tag_equipo') or '').strip()
+        normalized_tag = app_models._technical_segment(raw_normalized_tag) if raw_normalized_tag else ''
+        if normalized_tag:
+            cleaned['tag_equipo'] = normalized_tag
+        elif 'tag_equipo' not in self.errors:
+            self.add_error('tag_equipo', 'Ingresa el tag del equipo.')
         return cleaned
 
     def _resolve_node_from_ut(self, empresa, ut):
@@ -307,17 +348,22 @@ class EquipoForm(BaseModelForm):
 
         if not levels:
             self.add_error('ut', 'La empresa no tiene estructura de ubicacion tecnica configurada.')
-            return None
-        if len(codes) != len(levels):
+            return None, ''
+        ut_tag = ''
+        node_codes = codes
+        if len(codes) == len(levels) + 1:
+            ut_tag = codes[-1]
+            node_codes = codes[:-1]
+        elif len(codes) != len(levels):
             self.add_error(
                 'ut',
-                f'La UT tiene {len(codes)} componentes y la estructura de {empresa} requiere {len(levels)} niveles.',
+                f'La UT tiene {len(codes)} componentes y la estructura de {empresa} requiere {len(levels)} niveles mas el tag del equipo.',
             )
-            return None
+            return None, ''
 
         parent = None
         resolved = None
-        for index, (level, code) in enumerate(zip(levels, codes), start=1):
+        for index, (level, code) in enumerate(zip(levels, node_codes), start=1):
             candidates = app_models.NodoJerarquia.objects.filter(
                 empresa=empresa,
                 nivel=level,
@@ -337,18 +383,25 @@ class EquipoForm(BaseModelForm):
                     'ut',
                     f'No existe el codigo "{code}" para el nivel {index} ({level.nombre}){parent_label}.',
                 )
-                return None
+                return None, ''
             parent = node
             resolved = node
-        return resolved
+        return resolved, ut_tag
 
     def save(self, commit=True):
         instance = super().save(commit=False)
         nodo = self._resolved_node or self.cleaned_data.get('nodo')
         if nodo:
-            instance.ut = nodo.ut
+            tag = app_models._technical_segment(self.cleaned_data.get('tag_equipo') or instance.tag_equipo)
+            instance.ut = '-'.join(part for part in [nodo.ut, tag] if part)
         if commit:
             instance.save()
+            servicio = self.cleaned_data.get('servicio')
+            if servicio:
+                app_models.ServicioEquipo.objects.get_or_create(
+                    servicio=servicio,
+                    equipo=instance,
+                )
             self.save_m2m()
         return instance
 
@@ -368,6 +421,7 @@ class EquipoBulkUploadForm(forms.Form):
     )
     archivo = forms.FileField(
         label='Archivo Excel',
+        required=False,
         help_text='Archivo .xlsx con formato Mindco simple o SAP/UTS.',
     )
     hoja = forms.CharField(
@@ -384,18 +438,6 @@ class EquipoBulkUploadForm(forms.Form):
         ),
         initial='auto',
     )
-    last_segment_is_equipment = forms.BooleanField(
-        label='Mindco: ultimo segmento de UT es equipo',
-        required=False,
-        help_text='Ejemplo MIN-CH-MOL-BOM-A001 con TAG A001 crea A001 como equipo bajo MIN-CH-MOL-BOM.',
-    )
-    last_level_is_equipment = forms.BooleanField(
-        label='SAP: ultimo nivel N es equipo',
-        required=False,
-        initial=True,
-        help_text='Si esta activo, el ultimo N se crea como equipo y no como nodo.',
-    )
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         empresa_id = ''

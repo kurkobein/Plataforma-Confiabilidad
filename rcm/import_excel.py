@@ -26,10 +26,12 @@ PROCESS_RCM_VALUES = {'fmeca', 'rcm', 'rcm_fmea', 'global', 'ambos'}
 BASE_ALIASES = {
     'items': ['items', 'item'],
     'validado': ['validado'],
+    'empresa': ['empresa', 'cliente'],
+    'planta_sitio': ['planta sitio', 'planta / sitio', 'planta', 'sitio'],
     'area': ['area', 'área'],
     'proceso': ['proceso'],
     'descripcion_equipo': ['descripcion del equipo', 'descripción del equipo', 'equipo'],
-    'tag': ['tag'],
+    'tag': ['tag', 'tag equipo'],
     'ut': ['ubicac tecnica', 'ubicac.técnica', 'ubicacion tecnica', 'ubicación técnica', 'ut'],
     'sistema': ['sistema'],
     'sub_sistema': ['sub sistema', 'subsistema', 'sub-sistema'],
@@ -50,6 +52,14 @@ BASE_ALIASES = {
     'npr': ['npr'],
 }
 
+BASE_ALIASES['descripcion_equipo'].extend([
+    'nombre equipo',
+    'equipo componente',
+    'equipo / componente',
+    'equipo/componente',
+])
+BASE_ALIASES['deteccion'].extend(['detencion', 'detención'])
+
 DIMENSION_ALIASES = {
     'impacto operacion': ['op', 'operacion', 'impacto operacion'],
     'impacto seguridad': ['sld', 'seguridad', 'impacto seguridad'],
@@ -62,6 +72,8 @@ DIMENSION_ALIASES = {
     'criticidad': ['criticidad', 'criticidad rcm', 'criticidad fmea'],
     'rango npr': ['rango npr', 'rango', 'clasificacion npr', 'clasificación npr'],
 }
+
+DIMENSION_ALIASES['deteccion'].extend(['detencion', 'detención'])
 
 STRUCTURAL_FILL_DOWN_ALIASES = {
     'Area': BASE_ALIASES['area'],
@@ -170,6 +182,9 @@ class ImportStats:
     dependientes_minimo_cero: int = 0
     tareas_creadas: int = 0
     filas_omitidas_npr_cero: int = 0
+    header_row: int | None = None
+    start_row: int | None = None
+    sheet_name: str = ''
     warnings: list[str] = field(default_factory=list)
     unresolved_dimensions: Counter = field(default_factory=Counter)
     fill_down_stats: dict[str, Counter] = field(default_factory=dict)
@@ -297,9 +312,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--file', required=True, help='Ruta del Excel RCM.xlsx.')
         parser.add_argument('--service', required=True, help='ID, codigo o descripcion del servicio.')
-        parser.add_argument('--sheet', default='RCM', help='Hoja del Excel. Default: RCM.')
-        parser.add_argument('--header-row', type=int, default=6, help='Fila de encabezados. Default: 6.')
-        parser.add_argument('--start-row', type=int, default=7, help='Primera fila de datos. Default: 7.')
+        parser.add_argument('--sheet', default='RCM', help='Hoja del Excel. Default: RCM. Si no existe, intenta RCM-FMECA.')
+        parser.add_argument('--header-row', type=int, default=None, help='Fila de encabezados. Si se omite, se autodetecta.')
+        parser.add_argument('--start-row', type=int, default=None, help='Primera fila de datos. Si se omite, usa la siguiente al encabezado.')
         parser.add_argument('--limit', type=int, help='Limita la cantidad de filas procesadas.')
         parser.add_argument('--dry-run', action='store_true', help='Ejecuta y revierte todos los cambios.')
         parser.add_argument('--replace', action='store_true', help='Reemplaza cargas previas del mismo archivo y servicio.')
@@ -324,17 +339,28 @@ class Command(BaseCommand):
         analysis_date = parse_date(options.get('date') or '') or timezone.localdate()
         origin = f'RCM Excel: {path.name}'
         wb = load_workbook(path, data_only=True, read_only=True)
-        if options['sheet'] not in wb.sheetnames:
+        sheet_name = options['sheet']
+        if sheet_name not in wb.sheetnames and sheet_name == 'RCM' and 'RCM-FMECA' in wb.sheetnames:
+            sheet_name = 'RCM-FMECA'
+        if sheet_name not in wb.sheetnames:
             raise CommandError(f'El archivo no tiene hoja "{options["sheet"]}". Hojas: {", ".join(wb.sheetnames)}')
-        ws = wb[options['sheet']]
-        header_map = self.build_header_map(ws, options['header_row'])
+        ws = wb[sheet_name]
+
+        header_row = options.get('header_row') or self.detect_header_row(ws)
+        if not header_row:
+            raise CommandError('No se detecto una fila de encabezados compatible con RCM/FMECA.')
+        start_row = options.get('start_row') or header_row + 1
+        header_map = self.build_header_map(ws, header_row)
         if not header_map:
             raise CommandError('No se detectaron encabezados validos.')
 
         stats = ImportStats()
+        stats.header_row = header_row
+        stats.start_row = start_row
+        stats.sheet_name = sheet_name
         dims = self.get_active_rcm_dimensions(strategy)
         if options.get('debug_mapping') or options.get('dry_run'):
-            self.print_debug_mapping(dims, header_map, ws, options['start_row'])
+            self.print_debug_mapping(dims, header_map, ws, start_row)
         task_types = self.resolve_task_types(strategy, options['create_task_types'], stats)
 
         with transaction.atomic():
@@ -343,7 +369,7 @@ class Command(BaseCommand):
 
             processed = 0
             last_values = {}
-            for row_number in range(options['start_row'], ws.max_row + 1):
+            for row_number in range(start_row, ws.max_row + 1):
                 if options.get('limit') and processed >= options['limit']:
                     break
                 raw_row = ws[row_number]
@@ -408,8 +434,55 @@ class Command(BaseCommand):
             self.header_labels.setdefault(cell.column, label)
         return header_map
 
+    def detect_header_row(self, ws, max_rows=30):
+        best_row = None
+        best_score = 0
+        alias_groups = list(BASE_ALIASES.values())
+        for aliases in TASK_ALIASES.values():
+            alias_groups.extend(aliases.values())
+        alias_groups.extend(DIMENSION_ALIASES.values())
+        normalized_aliases = {normalize_key(alias) for group in alias_groups for alias in group}
+        critical_aliases = {
+            normalize_key(alias)
+            for key in ['tag', 'ut', 'funcion', 'falla_funcional', 'modo_de_falla', 'efecto', 'descripcion_equipo']
+            for alias in BASE_ALIASES[key]
+        }
+        hierarchy_aliases = {
+            normalize_key(alias)
+            for key in ['empresa', 'planta_sitio', 'area', 'sistema', 'sub_sistema', 'tag']
+            for alias in BASE_ALIASES[key]
+        }
+
+        for row_number in range(1, min(ws.max_row, max_rows) + 1):
+            labels = [normalize_key(cell.value) for cell in ws[row_number] if clean_text(cell.value)]
+            if not labels:
+                continue
+            label_set = set(labels)
+            score = sum(3 for label in label_set if label in normalized_aliases)
+            score += sum(2 for label in label_set if label in critical_aliases)
+            score += sum(1 for label in label_set if label in hierarchy_aliases)
+            has_rcm_signal = bool(label_set & critical_aliases)
+            has_hierarchy_signal = len(label_set & hierarchy_aliases) >= 3
+            if (has_rcm_signal or has_hierarchy_signal) and score > best_score:
+                best_row = row_number
+                best_score = score
+        return best_row
+
     def row_is_empty(self, row, header_map):
-        important = ['tag', 'ut', 'funcion', 'falla_funcional', 'modo_de_falla', 'efecto', 'descripcion_equipo']
+        important = [
+            'tag',
+            'ut',
+            'empresa',
+            'planta_sitio',
+            'area',
+            'sistema',
+            'sub_sistema',
+            'funcion',
+            'falla_funcional',
+            'modo_de_falla',
+            'efecto',
+            'descripcion_equipo',
+        ]
         return all(value_is_empty(self.get_cell(row, header_map, BASE_ALIASES[name])) for name in important)
 
     def raw_row_is_empty(self, row, header_map):
@@ -519,7 +592,7 @@ class Command(BaseCommand):
             stats.filas_omitidas += 1
             return
 
-        equipment, created = self.get_or_create_equipment(row, header_map)
+        equipment, created = self.get_or_create_equipment(row, header_map, service, stats)
         if created:
             stats.equipos_creados += 1
         else:
@@ -576,10 +649,13 @@ class Command(BaseCommand):
         self.create_tasks(fmea, row, header_map, task_types, stats)
         stats.filas_importadas += 1
 
-    def get_or_create_equipment(self, row, header_map):
+    def get_or_create_equipment(self, row, header_map, service=None, stats=None):
         tag = clean_text(self.get_cell(row, header_map, BASE_ALIASES['tag']))
         ut = clean_text(self.get_cell(row, header_map, BASE_ALIASES['ut'])).upper()
+        if not ut and service is not None:
+            ut = self.build_ut_from_hierarchy(row, header_map, service, stats)
         name = clean_text(self.get_cell(row, header_map, BASE_ALIASES['descripcion_equipo'])) or tag or ut
+        nodo = self.find_node_by_ut(ut, service) if service is not None else None
         equipo = None
         if ut:
             equipo = models.Equipo.objects.filter(ut__iexact=ut).first()
@@ -593,6 +669,9 @@ class Command(BaseCommand):
             if ut and equipo.ut != ut:
                 equipo.ut = ut
                 changed.append('ut')
+            if nodo and equipo.nodo_id != nodo.pk:
+                equipo.nodo = nodo
+                changed.append('nodo')
             if changed:
                 equipo.save(update_fields=changed)
             return equipo, False
@@ -601,7 +680,90 @@ class Command(BaseCommand):
             nombre_equipo=name or 'Equipo importado RCM',
             ut=ut or tag or 'SIN-UT',
             descripcion_ut='',
+            nodo=nodo,
         ), True
+
+    def build_ut_from_hierarchy(self, row, header_map, service, stats=None):
+        segments = []
+        parent = None
+        hierarchy = [
+            ('empresa', 1),
+            ('planta_sitio', 2),
+            ('area', 3),
+            ('sistema', 4),
+            ('sub_sistema', 5),
+        ]
+        for key, level_order in hierarchy:
+            raw = clean_text(self.get_cell(row, header_map, BASE_ALIASES[key]))
+            if not raw:
+                continue
+            node = self.match_hierarchy_node(service, level_order, raw, parent)
+            if node:
+                segments.append(self.technical_segment(node.codigo))
+                parent = node
+                continue
+            fallback = self.technical_segment(raw)
+            if fallback:
+                segments.append(fallback)
+            if stats:
+                stats.warn(f'No se encontro nodo jerarquico para "{raw}" en nivel {level_order}; se uso "{fallback}" como codigo.')
+
+        tag = self.technical_segment(clean_text(self.get_cell(row, header_map, BASE_ALIASES['tag'])))
+        if tag and (not segments or segments[-1] != tag):
+            segments.append(tag)
+        return '-'.join(segment for segment in segments if segment)
+
+    def match_hierarchy_node(self, service, level_order, raw, parent=None):
+        raw_norm = normalize_key(raw)
+        if not raw_norm:
+            return None
+        qs = models.NodoJerarquia.objects.filter(
+            empresa=service.empresa,
+            activo=True,
+            nivel__orden=level_order,
+        ).select_related('nivel', 'parent')
+        if parent is not None:
+            preferred = list(qs.filter(parent=parent))
+            fallback = list(qs)
+            nodes = preferred or fallback
+        else:
+            nodes = list(qs)
+        for node in nodes:
+            candidates = [
+                node.codigo,
+                node.nombre,
+                f'{node.codigo} {node.nombre}',
+                f'{node.codigo} - {node.nombre}',
+            ]
+            if raw_norm in {normalize_key(candidate) for candidate in candidates}:
+                return node
+        for node in nodes:
+            if normalize_key(node.nombre) in raw_norm or raw_norm in normalize_key(node.nombre):
+                return node
+        return None
+
+    def find_node_by_ut(self, ut, service):
+        if not ut or service is None:
+            return None
+        parts = [self.technical_segment(part) for part in clean_text(ut).split('-') if clean_text(part)]
+        if not parts:
+            return None
+        candidates = models.NodoJerarquia.objects.filter(
+            empresa=service.empresa,
+            activo=True,
+            codigo__iexact=parts[-2] if len(parts) > 1 else parts[-1],
+        ).select_related('nivel', 'parent')
+        for node in candidates:
+            if node.ut.upper() == '-'.join(parts[:len(node.path_nodes())]).upper():
+                return node
+        return None
+
+    def technical_segment(self, value):
+        text = clean_text(value).upper()
+        text = unicodedata.normalize('NFD', text)
+        text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn')
+        text = re.sub(r'[^A-Z0-9]+', '', text)
+        return text
 
     def tag_from_ut(self, ut):
         last = clean_text(ut).split('-')[-1] if ut else ''
@@ -1082,7 +1244,7 @@ class Command(BaseCommand):
         lowest_lower = None
         for row in rows:
             values = row.values_map()
-            lower = self.catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mÃ­nimo'])
+            lower = self.catalog_bound(values, ['limite_inferior', 'desde', 'min', 'minimo', 'mí­nimo'])
             if lower is None:
                 continue
             if lowest_lower is None or lower < lowest_lower:
@@ -1163,7 +1325,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f'Servicio detectado: {service}'))
         self.stdout.write(self.style.NOTICE(f'Estrategia usada: {strategy}'))
         self.stdout.write(self.style.NOTICE(f'Archivo: {path}'))
-        self.stdout.write(self.style.NOTICE(f'Hoja: {options["sheet"]}'))
+        self.stdout.write(self.style.NOTICE(f'Hoja: {stats.sheet_name or options["sheet"]}'))
+        if stats.header_row:
+            self.stdout.write(self.style.NOTICE(f'Fila encabezados: {stats.header_row}'))
+        if stats.start_row:
+            self.stdout.write(self.style.NOTICE(f'Primera fila datos: {stats.start_row}'))
         self.stdout.write(self.style.NOTICE(f'Filas leidas: {stats.filas_leidas}'))
         self.stdout.write(self.style.NOTICE(f'Filas importadas: {stats.filas_importadas}'))
         self.stdout.write(self.style.NOTICE(f'Filas omitidas: {stats.filas_omitidas}'))

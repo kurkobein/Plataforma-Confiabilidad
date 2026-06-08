@@ -74,8 +74,16 @@
     <main class="content">
         {% if messages %}
             {% for message in messages %}
-                <div class="message {{ message.tags|default:'info' }}" role="status" data-auto-dismiss-message>
-                    <div class="message-text">{{ message }}</div>
+                <div class="message {{ message.tags|default:'info' }}" role="status" data-auto-dismiss-message{% if 'aca-undo-delete' in message.tags %} data-duration="10400"{% endif %}>
+                    <div class="message-text">
+                        {{ message }}
+                        {% if 'aca-undo-delete' in message.tags and request.session.aca_deleted_restore_url %}
+                            <form class="message-inline-action" method="post" action="{{ request.session.aca_deleted_restore_url }}">
+                                {% csrf_token %}
+                                <button class="btn" type="submit">Deshacer</button>
+                            </form>
+                        {% endif %}
+                    </div>
                     <div class="message-progress" aria-hidden="true"></div>
                 </div>
             {% endfor %}
@@ -419,7 +427,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!section) return crumbs;
 
         if (section === 'aca') {
-            fixedCrumb(crumbs, 'Registros ACA', `${serviceHref}aca/`);
+            fixedCrumb(crumbs, 'Desarrollo ACA', `${serviceHref}aca/`);
             if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro ACA');
             else if (parts[3] === 'nuevo-masivo') fixedCrumb(crumbs, 'Nueva carga masiva');
             else if (parts[3] === 'grupo') fixedCrumb(crumbs, 'Editar carga masiva');
@@ -430,7 +438,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (section === 'rcm') {
-            fixedCrumb(crumbs, 'Registros RCM', `${serviceHref}rcm/`);
+            fixedCrumb(crumbs, 'Desarrollo RCM', `${serviceHref}rcm/`);
             if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro RCM');
             else if (parts[3] === 'tareas') fixedCrumb(crumbs, 'Configurar tareas');
             else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro RCM');
@@ -571,7 +579,9 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderBreadcrumb(stack) {
         const header = document.querySelector('.page-header');
         if (!header) return;
+        stack = (stack || []).filter((crumb, index) => index !== 0 || cleanLabel(crumb.label).toLowerCase() !== 'inicio');
         header.querySelectorAll('.page-location').forEach(node => node.remove());
+        if (!stack.length) return;
         const nav = document.createElement('nav');
         nav.className = 'page-location';
         nav.setAttribute('aria-label', 'Ubicacion actual');

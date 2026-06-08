@@ -184,7 +184,7 @@ def get_service_permission(user, servicio):
 
 
 def get_service_equipment(servicio):
-    base_qs = models.Equipo.objects.select_related('nodo', 'nodo__empresa').order_by('tag_equipo', 'nombre_equipo')
+    base_qs = models.Equipo.objects.select_related('nodo', 'nodo__empresa').order_by('tag_equipo', 'nombre_equipo', 'ut')
     if not servicio:
         return base_qs.none()
 

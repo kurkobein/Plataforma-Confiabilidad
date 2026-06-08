@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+﻿{% extends 'core/base.html' %}
 {% load core_extras %}
 {% block title %}ACA | {{ service.codigo_servicio }}{% endblock %}
 {% block content %}
@@ -13,8 +13,8 @@
     <div class="actions">
         <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
         <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
-        <a class="btn" href="" style="pointer-events: none; cursor: default;  opacity: 0.4;">Carga masiva</a>
         {% if permission.can_edit %}
+            <a class="btn" href="{% url 'service_aca_excel_upload' service.pk %}">Carga masiva</a>
             <a class="btn" href="{% url 'service_aca_bulk_new' service.pk %}">Nueva carga grupal</a>
             <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>
         {% endif %}
@@ -28,12 +28,18 @@
 </div>
 
 {% if aca_list_items %}
+<div class="aca-table-tools">
+    <label class="check-option aca-comment-toggle">
+        <input type="checkbox" data-aca-toggle-dimension-comments checked>
+        <span>Mostrar comentarios de evaluaciones vacías</span>
+    </label>
+</div>
 <div class="table-wrap aca-datatable-wrap">
-    <table class="compact-table aca-records-table" data-page-length="25" data-scroll-y="52vh" data-scroll-x="true" data-scroll-collapse="false">
+    <table class="compact-table aca-records-table" data-page-length="25" data-scroll-y="52vh" data-scroll-x="true" data-scroll-collapse="false" data-aca-records-table>
         <thead>
             <tr>
                 <th>ID</th>
-                {% for key, label in columns %}<th>{{ label }}</th>{% endfor %}
+                {% for key, label in columns %}<th class="aca-col-{{ key }}">{{ label }}</th>{% endfor %}
             </tr>
         </thead>
         <tbody>
@@ -47,7 +53,7 @@
                             </button>
                         </td>
                         {% for key, label in columns %}
-                            <td{% if key == 'acciones' %} data-order="Configurar"{% endif %}>
+                            <td class="aca-col-{{ key }}"{% if key == 'acciones' %} data-order="Configurar"{% endif %}>
                                 {% if key == 'cliente' %}
                                     {{ service.codigo_servicio }}
                                 {% elif key == 'avance_aca' %}
@@ -55,7 +61,7 @@
                                         <span class="aca-progress-pill-fill" aria-hidden="true"></span>
                                         <span class="aca-progress-pill-label">Grupo</span>
                                     </span>
-                                {% elif key == 'fecha_analisis' %}
+                                {% elif key == 'fecha_creado' or key == 'ultimo_avance' %}
                                     {{ group.meta }}
                                 {% elif key == 'ubicacion_tecnica' %}
                                     <span class="cell-ellipsis" title="{{ group.label }}">{{ group.label }}</span>
@@ -64,9 +70,14 @@
                                 {% elif key == 'equipo' %}
                                     Carga grupal
                                 {% elif key == 'acciones' %}
+                                    {% if group.anchor %}
+                                        <button class="btn" type="button" data-aca-group-toggle data-template-id="aca-group-template-{{ forloop.parentloop.counter }}" aria-expanded="false">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    {% endif %}
                                     {% if permission.can_edit and group.anchor %}
                                         <a class="btn" href="{% url 'service_aca_bulk_group_edit' service.pk group.anchor %}">
-                                            <i class="bi bi-sliders"></i> Configurar grupo
+                                            <i class="bi bi-sliders"></i>
                                         </a>
                                     {% else %}
                                         -
@@ -97,6 +108,7 @@
         {% endwith %}
     {% endif %}
 {% endfor %}
+
 {% else %}
 <div class="card">
     <p class="muted">No hay registros ACA asociados a este servicio.</p>
@@ -324,47 +336,300 @@ function removeAcaGroupRows(parentRow) {
     }
 }
 
-function closeAcaGroup(button) {
-    const parentRow = button.closest('tr');
-    const icon = button.querySelector('i');
-    removeAcaGroupRows(parentRow);
-    button.setAttribute('aria-expanded', 'false');
-    if (icon) icon.className = 'bi bi-folder2';
+function acaGroupButtons(templateId) {
+    if (!templateId) return [];
+    return Array.from(document.querySelectorAll('[data-aca-group-toggle][data-template-id="' + templateId + '"]'));
 }
 
-function openAcaGroup(button) {
-    const parentRow = button.closest('tr');
-    const template = document.getElementById(button.dataset.templateId);
-    const icon = button.querySelector('i');
+function acaGroupParentRow(templateId) {
+    const primaryButton = document.querySelector('.aca-group-toggle[data-template-id="' + templateId + '"]');
+    const fallbackButton = acaGroupButtons(templateId)[0];
+    return (primaryButton || fallbackButton)?.closest('tr') || null;
+}
+
+function isAcaGroupOpen(templateId) {
+    const parentRow = acaGroupParentRow(templateId);
+    return Boolean(parentRow?.nextElementSibling?.classList.contains('aca-group-child-row'));
+}
+
+function setAcaGroupButtonState(templateId, expanded) {
+    acaGroupButtons(templateId).forEach(function (button) {
+        const icon = button.querySelector('i');
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (!icon) return;
+        if (button.classList.contains('aca-group-toggle')) {
+            icon.className = expanded ? 'bi bi-folder2-open' : 'bi bi-folder2';
+        } else {
+            icon.className = expanded ? 'bi bi-eye-slash' : 'bi bi-eye';
+        }
+    });
+}
+
+function closeAcaGroupByTemplate(templateId) {
+    const parentRow = acaGroupParentRow(templateId);
+    removeAcaGroupRows(parentRow);
+    setAcaGroupButtonState(templateId, false);
+}
+
+function openAcaGroupByTemplate(templateId) {
+    const parentRow = acaGroupParentRow(templateId);
+    const template = document.getElementById(templateId);
     if (!parentRow || !template) return;
 
+    removeAcaGroupRows(parentRow);
     const fragment = template.content.cloneNode(true);
     const rows = Array.from(fragment.querySelectorAll('tr'));
-    rows.forEach(function (row) {
+    rows.forEach(function (row, index) {
         row.classList.add('aca-group-child-row');
+        if (index === 0) row.classList.add('aca-group-child-row-first');
+        if (index === rows.length - 1) row.classList.add('aca-group-child-row-last');
     });
     parentRow.after(fragment);
-    button.setAttribute('aria-expanded', 'true');
-    if (icon) icon.className = 'bi bi-folder2-open';
+    setAcaGroupButtonState(templateId, true);
 }
 
 if (window.jQuery) {
     $(document).on('preDraw.dt', '.aca-records-table', function () {
-        document.querySelectorAll('.aca-group-toggle[aria-expanded="true"]').forEach(closeAcaGroup);
+        document.querySelectorAll('.aca-group-toggle[aria-expanded="true"]').forEach(function (button) {
+            closeAcaGroupByTemplate(button.dataset.templateId);
+        });
+    });
+}
+
+function resetAcaDataTableWidths(table) {
+    const container = table.closest('.dt-container');
+    const scope = container || table;
+    scope.querySelectorAll('colgroup col').forEach(function (col) {
+        col.removeAttribute('style');
+    });
+    scope.querySelectorAll('.dt-scroll-headInner, .dt-scroll-headInner table, .dt-scroll-body table, .dt-scroll-foot table').forEach(function (node) {
+        node.style.width = '';
+        node.style.minWidth = '';
+    });
+}
+
+function acaColumnWidthRules(table, commentsVisible) {
+    const headerRow = table.tHead?.rows?.[table.tHead.rows.length - 1];
+    const rules = new Map();
+    let columnIndex = 0;
+    Array.from(headerRow?.cells || []).forEach(function (cell) {
+        const span = Number(cell.colSpan || 1);
+        const classes = Array.from(cell.classList);
+        let width = null;
+        if (classes.some(function (className) {
+            return className.indexOf('aca-col-dim_') === 0;
+        })) {
+            width = commentsVisible ? 128 : 88;
+        } else if (classes.includes('aca-col-fecha_creado') || classes.includes('aca-col-ultimo_avance')) {
+            width = 132;
+        } else if (classes.includes('aca-col-avance_aca')) {
+            width = 96;
+        } else if (classes.includes('aca-col-ubicacion_tecnica')) {
+            width = 150;
+        } else if (classes.includes('aca-col-descripcion_ut') || classes.includes('aca-col-equipo')) {
+            width = 155;
+        } else if (classes.includes('aca-col-observacion')) {
+            width = 130;
+        } else if (classes.includes('aca-col-cliente') || classes.includes('aca-col-tag')) {
+            width = 88;
+        } else if (classes.includes('aca-col-valor_criticidad_equipo') || classes.includes('aca-col-criticidad_final')) {
+            width = 150;
+        } else if (classes.includes('aca-col-acciones')) {
+            width = 142;
+        } else if (columnIndex === 0) {
+            width = 58;
+        }
+        if (width) {
+            for (let offset = 0; offset < span; offset += 1) {
+                rules.set(columnIndex + offset, width);
+            }
+        }
+        columnIndex += span;
+    });
+    return rules;
+}
+
+function syncAcaColumnWidths(table, commentsVisible) {
+    const container = table.closest('.dt-container');
+    const scope = container || table;
+    const rules = acaColumnWidthRules(table, commentsVisible);
+    scope.querySelectorAll('colgroup col').forEach(function (col, fallbackIndex) {
+        const columnIndex = Number(col.dataset.dtColumn || fallbackIndex);
+        const width = rules.get(columnIndex);
+        if (!width) return;
+        col.style.width = width + 'px';
+        col.style.minWidth = width + 'px';
+    });
+}
+
+function syncAcaDataTableHeader(table) {
+    const container = table.closest('.dt-container');
+    if (!container) return;
+    const bodyTable = container.querySelector('.dt-scroll-body table');
+    const bodyCols = Array.from(container.querySelectorAll('.dt-scroll-body colgroup col'));
+    if (bodyCols.length) {
+        container.querySelectorAll('colgroup').forEach(function (colgroup) {
+            const cols = Array.from(colgroup.children);
+            cols.forEach(function (col, index) {
+                const source = bodyCols[index];
+                if (!source) return;
+                if (source.getAttribute('style')) {
+                    col.setAttribute('style', source.getAttribute('style'));
+                } else {
+                    col.removeAttribute('style');
+                }
+            });
+        });
+    }
+    const bodyWidth = bodyTable?.getBoundingClientRect().width || table.getBoundingClientRect().width;
+    if (bodyWidth) {
+        container.querySelectorAll('.dt-scroll-headInner, .dt-scroll-headInner table').forEach(function (node) {
+            node.style.width = bodyWidth + 'px';
+            node.style.minWidth = bodyWidth + 'px';
+        });
+    }
+    const scrollBody = container.querySelector('.dt-scroll-body');
+    const scrollHead = container.querySelector('.dt-scroll-head');
+    if (scrollBody && scrollHead) {
+        scrollHead.scrollLeft = scrollBody.scrollLeft;
+    }
+}
+
+function bindAcaScrollSync(table) {
+    const container = table.closest('.dt-container');
+    if (!container || container.dataset.acaScrollSyncBound === 'true') return;
+    const scrollBody = container.querySelector('.dt-scroll-body');
+    const scrollHead = container.querySelector('.dt-scroll-head');
+    if (!scrollBody || !scrollHead) return;
+    container.dataset.acaScrollSyncBound = 'true';
+    scrollBody.addEventListener('scroll', function () {
+        scrollHead.scrollLeft = scrollBody.scrollLeft;
+    }, { passive: true });
+}
+
+function openAcaGroupTemplateIds(table) {
+    const root = table || document;
+    return Array.from(root.querySelectorAll('.aca-group-toggle[aria-expanded="true"]'))
+        .map(function (button) {
+            return button.dataset.templateId;
+        })
+        .filter(function (value, index, values) {
+            return value && values.indexOf(value) === index;
+        });
+}
+
+function restoreAcaOpenGroups(templateIds) {
+    (templateIds || []).forEach(function (templateId) {
+        if (!isAcaGroupOpen(templateId)) {
+            openAcaGroupByTemplate(templateId);
+        }
+    });
+}
+
+function adjustAcaDataTable(table, commentsVisible, options) {
+    if (!window.jQuery || !jQuery.fn || !jQuery.fn.dataTable || !jQuery.fn.dataTable.isDataTable(table)) return;
+    const opts = options || {};
+    const openTemplateIds = opts.preserveGroups ? openAcaGroupTemplateIds(table) : [];
+    bindAcaScrollSync(table);
+    if (opts.resetWidths) {
+        resetAcaDataTableWidths(table);
+    }
+    const dataTable = jQuery(table).DataTable();
+    function syncNow() {
+        syncAcaColumnWidths(table, commentsVisible);
+        syncAcaDataTableHeader(table);
+    }
+    function restoreAndSync() {
+        restoreAcaOpenGroups(openTemplateIds);
+        syncNow();
+    }
+    window.requestAnimationFrame(function () {
+        if (opts.resetWidths) {
+            resetAcaDataTableWidths(table);
+        }
+        dataTable.columns.adjust();
+        if (opts.draw) {
+            dataTable.draw(false);
+        }
+        syncNow();
+        window.setTimeout(function () {
+            if (opts.resetWidths) {
+                resetAcaDataTableWidths(table);
+            }
+            dataTable.columns.adjust();
+            syncNow();
+            restoreAndSync();
+        }, 80);
+        window.setTimeout(restoreAndSync, 180);
+    });
+}
+
+function currentAcaCommentsVisible() {
+    const toggle = document.querySelector('[data-aca-toggle-dimension-comments]');
+    return toggle ? toggle.checked : true;
+}
+
+function setAcaDimensionCommentsVisibility(visible, options) {
+    const opts = options || {};
+    document.querySelectorAll('[data-aca-records-table]').forEach(function (table) {
+        const wrapper = table.closest('.aca-datatable-wrap');
+        if (opts.hideDuringAdjust && wrapper) {
+            wrapper.classList.add('is-adjusting');
+        }
+        table.classList.toggle('aca-hide-dimension-comments', !visible);
+        table.classList.toggle('aca-show-dimension-comments', visible);
+        const container = table.closest('.dt-container');
+        if (container) {
+            container.classList.toggle('aca-show-dimension-comments', visible);
+            container.classList.toggle('aca-hide-dimension-comments', !visible);
+        }
+        adjustAcaDataTable(table, visible, { resetWidths: true, draw: true, preserveGroups: true });
+        if (opts.hideDuringAdjust && wrapper) {
+            window.setTimeout(function () {
+                wrapper.classList.remove('is-adjusting');
+            }, 240);
+        }
+    });
+}
+
+const acaCommentToggle = document.querySelector('[data-aca-toggle-dimension-comments]');
+if (acaCommentToggle) {
+    setAcaDimensionCommentsVisibility(acaCommentToggle.checked);
+    acaCommentToggle.addEventListener('change', function () {
+        setAcaDimensionCommentsVisibility(acaCommentToggle.checked, { hideDuringAdjust: true });
     });
 }
 
 document.addEventListener('click', function (event) {
+    const copyCell = event.target.closest('.copy-cell');
+    if (copyCell) {
+        const text = copyCell.dataset.copy || copyCell.textContent.trim();
+        if (text && navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () {
+                copyCell.classList.add('copied');
+                window.setTimeout(function () {
+                    copyCell.classList.remove('copied');
+                }, 800);
+            });
+        }
+    }
+
     const button = event.target.closest('[data-aca-group-toggle]');
     if (!button) return;
 
-    const parentRow = button.closest('tr');
-    if (!parentRow) return;
-    if (button.getAttribute('aria-expanded') === 'true') {
-        closeAcaGroup(button);
-        return;
+    const templateId = button.dataset.templateId;
+    if (!templateId) return;
+    if (isAcaGroupOpen(templateId)) {
+        closeAcaGroupByTemplate(templateId);
+    } else {
+        openAcaGroupByTemplate(templateId);
     }
-    openAcaGroup(button);
+    const table = button.closest('table') || document.querySelector('[data-aca-records-table]');
+    if (table) {
+        adjustAcaDataTable(table, currentAcaCommentsVisible(), { resetWidths: false });
+    }
 });
+
 </script>
 {% endblock %}
+

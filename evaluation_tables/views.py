@@ -81,6 +81,7 @@ def _serialize_dimension_catalog(catalogo):
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
         'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
+        'visible_en_listado_aca': getattr(ed, 'visible_en_listado_aca', True),
         'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [
@@ -138,6 +139,7 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'config_calculo': _json_safe(_json_loads_safe(dimension.config_calculo, {})),
         'obligatorio': ed.obligatorio,
         'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
+        'visible_en_listado_aca': getattr(ed, 'visible_en_listado_aca', True),
         'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [] if dimension.tipo_calculo else _default_columns_for_type(tipo),
@@ -217,8 +219,8 @@ def _validate_strategy_catalog_payload(payload):
     errors = []
     warnings = []
     payload = payload if isinstance(payload, list) else []
-    lower_keys = ['limite_inferior', 'desde', 'min', 'minimo', 'mÃ­nimo']
-    upper_keys = ['limite_superior', 'hasta', 'max', 'maximo', 'mÃ¡ximo']
+    lower_keys = ['limite_inferior', 'desde', 'min', 'minimo', 'mí­nimo']
+    upper_keys = ['limite_superior', 'hasta', 'max', 'maximo', 'máximo']
 
     for item_index, item in enumerate(payload, start=1):
         if not isinstance(item, dict):
@@ -490,6 +492,7 @@ def _save_strategy_catalogs(estrategia, payload):
 
         obligatorio = item.get('obligatorio', True) is not False
         considerar_avance_aca = item.get('considerar_avance_aca', True) is not False
+        visible_en_listado_aca = item.get('visible_en_listado_aca', True) is not False
         if cat_id and cat_id in existing:
             catalogo = existing[cat_id]
             estrategia_dimension = catalogo.estrategia_dimension
@@ -524,6 +527,7 @@ def _save_strategy_catalogs(estrategia, payload):
                 orden=idx,
                 obligatorio=obligatorio,
                 considerar_avance_aca=considerar_avance_aca,
+                visible_en_listado_aca=visible_en_listado_aca,
                 proceso_uso=proceso_uso,
                 activo=True,
             )
@@ -548,6 +552,7 @@ def _save_strategy_catalogs(estrategia, payload):
         estrategia_dimension.orden = idx
         estrategia_dimension.obligatorio = obligatorio
         estrategia_dimension.considerar_avance_aca = considerar_avance_aca
+        estrategia_dimension.visible_en_listado_aca = visible_en_listado_aca
         estrategia_dimension.proceso_uso = proceso_uso
         estrategia_dimension.activo = True
         estrategia_dimension.save()
@@ -667,6 +672,12 @@ def _dimension_editor_context(estrategia, payload=None):
         'tipos_calculo': models.Dimension.TIPO_CALCULO_CHOICES,
         'procesos_uso': models.EstrategiaDimension.PROCESO_USO_CHOICES,
         'tipos_columna': models.DimensionCatalogoColumna.TIPO_DATO_CHOICES,
+        'dimension_name_suggestions': list(
+            models.Dimension.objects.exclude(nombre='')
+            .order_by('nombre')
+            .values_list('nombre', flat=True)
+            .distinct()
+        ),
     }
 
 
@@ -786,7 +797,7 @@ def _matrix_axis_dimension_options(builder_form):
                 _level_defs_from_strategy_dimension(estrategia_dimension, level_count, 'p')
             ),
             'impact_levels': _json_safe(
-                _level_defs_from_strategy_dimension(estrategia_dimension, level_count, 'i')
+                _level_defs_from_strategy_dimension(estrategia_dimension, level_count, 'c')
             ),
         }
     return payload
@@ -831,7 +842,7 @@ def matriz_builder_new(request):
                 request if action == 'save' else None,
             )
             fallback_prob = _level_defs_from_strategy_dimension(selected_prob, prob_count, 'p')
-            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'i')
+            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'c')
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
@@ -867,7 +878,7 @@ def matriz_builder_new(request):
                 messages.success(request, 'La matriz se creó correctamente y sus dimensiones se asignaron automáticamente.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
-            matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'i'))
+            matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'c'))
     else:
         initial_strategy = request.GET.get('estrategia') or None
         builder_form = MatrizBuilderForm(initial={
@@ -878,7 +889,7 @@ def matriz_builder_new(request):
             'x_count': 5,
             'y_count': 5,
         }, strategy=initial_strategy)
-        matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'i'))
+        matrix_preview = _matrix_preview_from_defs('impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'c'))
 
     return render(
         request,
@@ -922,7 +933,7 @@ def matriz_builder_edit(request, pk):
                 request if action == 'save' else None,
             )
             fallback_prob = _level_defs_from_strategy_dimension(selected_prob, prob_count, 'p')
-            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'i')
+            fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'c')
             prob_defs, impact_defs = _definitions_from_request(request, prob_count, impact_count, fallback_prob, fallback_impact)
             cell_payload = _cell_data_from_request(request)
             min_value, max_value = _matrix_value_bounds(prob_defs, impact_defs)
@@ -959,12 +970,12 @@ def matriz_builder_edit(request, pk):
                 messages.success(request, 'La matriz se actualizó correctamente y sus dimensiones se ajustaron automáticamente.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
-            matrix_preview = _matrix_preview_from_defs(matriz.eje_horizontal or 'impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'i'))
+            matrix_preview = _matrix_preview_from_defs(matriz.eje_horizontal or 'impacto', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'c'))
     else:
         prob_levels = list(matriz.niveles_probabilidad.order_by('orden_visual', 'id'))
         impact_levels = list(matriz.niveles_impacto.order_by('orden_visual', 'id'))
         prob_defs = _matrix_level_dicts(prob_levels, len(prob_levels) or 5, 'p')
-        impact_defs = _matrix_level_dicts(impact_levels, len(impact_levels) or 5, 'i')
+        impact_defs = _matrix_level_dicts(impact_levels, len(impact_levels) or 5, 'c')
         existing_cells = {
             (cell.probabilidad.orden_visual, cell.impacto_nivel.orden_visual): cell
             for cell in matriz.celdas.select_related('probabilidad', 'impacto_nivel').all()

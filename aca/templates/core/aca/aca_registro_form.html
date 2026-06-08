@@ -100,16 +100,6 @@
                     </div>
                 </div>
             </div>
-            <div class="form-field full">
-                <label for="{{ base_form.escenario_falla.id_for_label }}">{{ base_form.escenario_falla.label }}</label>
-                {{ base_form.escenario_falla }}
-                {% if base_form.escenario_falla.errors %}<div class="form-error">{{ base_form.escenario_falla.errors }}</div>{% endif %}
-            </div>
-            <div class="form-field full" id="aca-scenario-other-field" hidden>
-                <label for="{{ base_form.escenario_falla_otro.id_for_label }}">{{ base_form.escenario_falla_otro.label }}</label>
-                {{ base_form.escenario_falla_otro }}
-                {% if base_form.escenario_falla_otro.errors %}<div class="form-error">{{ base_form.escenario_falla_otro.errors }}</div>{% endif %}
-            </div>
         </div>
         
         {% if base_form.non_field_errors %}
@@ -233,6 +223,16 @@
                     </div>
                 {% endif %}
 
+                {% if form.allows_empty_comment %}
+                    <div class="form-field dimension-empty-comment">
+                        <label>{{ form.comentario.label|default:"Comentario" }}</label>
+                        {{ form.comentario }}
+                        <small class="muted">Opcional. Úsalo para justificar por qué esta evaluación quedó vacía.</small>
+                    </div>
+                {% else %}
+                    {{ form.comentario.as_hidden }}
+                {% endif %}
+
                 {% if form.errors %}
                     <div class="form-error form-error-block">{{ form.errors }}</div>
                 {% endif %}
@@ -259,9 +259,9 @@
                             </select>
                         </div>
                         <div class="form-field">
-                            <label for="matrix-impact-select">{{ matrix_selector.impact_axis_label|default:"Impacto" }}</label>
+                            <label for="matrix-impact-select">{{ matrix_selector.impact_axis_label|default:"Consecuencia" }}</label>
                             <select id="matrix-impact-select" class="input-control">
-                                <option value="">Selecciona impacto</option>
+                                <option value="">Selecciona consecuencia</option>
                                 {% for col in matrix_selector.columns %}
                                     <option value="{{ col.id }}" data-level-value="{{ col.value }}">{{ col.label }} ({{ col.value }})</option>
                                 {% endfor %}
@@ -278,7 +278,7 @@
                     <input id="matrix-prob-display" class="matrix-readonly-value" type="text" value="" readonly placeholder="Se resuelve desde dimensiones">
                 </div>
                 <div class="matrix-axis-card">
-                    <span>{{ matrix_selector.impact_axis_label|default:"Impacto" }}</span>
+                    <span>{{ matrix_selector.impact_axis_label|default:"Consecuencia" }}</span>
                     <input id="matrix-impact-display" class="matrix-readonly-value" type="text" value="" readonly placeholder="Se resuelve desde dimensiones">
                 </div>
                 <div class="matrix-axis-card matrix-result-card">
@@ -292,7 +292,7 @@
                     <table class="matrix-compact">
                         <thead>
                             <tr>
-                                <th>Probabilidad \ Impacto</th>
+                                <th>Probabilidad \ Consecuencia</th>
                                 {% for col in matrix_selector.columns %}
                                     <th>{{ col.label }}<br><span class="muted">{{ col.value }}</span></th>
                                 {% endfor %}
@@ -397,6 +397,30 @@
     const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
     const familyDataNode = document.getElementById('service-family-data');
     const existingEquipmentDataNode = document.getElementById('aca-existing-equipment-data');
+
+    function initCollapsibleDimensionComments() {
+        document.querySelectorAll('.dimension-empty-comment').forEach(function (box) {
+            if (box.tagName && box.tagName.toLowerCase() === 'details') return;
+            const input = box.querySelector('input, textarea');
+            const details = document.createElement('details');
+            details.className = 'dimension-empty-comment dimension-empty-comment-collapsible';
+            if (input && input.value.trim()) details.open = true;
+            const summary = document.createElement('summary');
+            summary.title = 'Comentario';
+            summary.innerHTML = '<i class="bi bi-chat-left-text"></i><span>Comentario</span>';
+            const content = document.createElement('div');
+            content.className = 'form-field';
+            Array.from(box.childNodes).forEach(function (node) {
+                if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'label') return;
+                content.appendChild(node);
+            });
+            details.appendChild(summary);
+            details.appendChild(content);
+            box.replaceWith(details);
+        });
+    }
+
+    initCollapsibleDimensionComments();
     const equipmentPayload = equipmentDataNode ? JSON.parse(equipmentDataNode.textContent || '{}') : {};
     const equipmentEndpoints = equipmentEndpointsNode ? JSON.parse(equipmentEndpointsNode.textContent || '{}') : {};
     const familyPayload = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
@@ -422,8 +446,6 @@
     const equipmentExistingWarning = document.getElementById('aca-equipment-existing-warning');
     const equipmentDetailFields = Array.from(document.querySelectorAll('.aca-equipment-detail-field'));
     const scopeRadios = Array.from(document.querySelectorAll('input[name="aca_scope"]'));
-    const scenarioSelect = document.getElementById('{{ base_form.escenario_falla.id_for_label }}');
-    const scenarioOtherField = document.getElementById('aca-scenario-other-field');
     const attachmentInput = document.getElementById('aca-adjuntos');
     const attachmentPreview = document.getElementById('aca-adjuntos-preview');
     const equipmentFields = {
@@ -491,11 +513,6 @@
                 </div>
             `;
         }).join('');
-    }
-
-    function toggleScenarioOther() {
-        if (!scenarioSelect || !scenarioOtherField) return;
-        scenarioOtherField.hidden = scenarioSelect.value !== '__otro__';
     }
 
     function initAttachmentPicker() {
@@ -802,19 +819,11 @@
         const currentValue = keepSelection && equipmentInput ? String(equipmentInput.value || '') : '';
         const query = equipmentSearch ? equipmentSearch.value.trim() : '';
         const nodeId = lazySelectedEquipmentNodeId();
-        if (!nodeId && query.length < 2) {
-            equipmentResults.innerHTML = '<option value="">Selecciona un equipo</option>';
-            if (equipmentCount) equipmentCount.textContent = 'Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.';
-            if (!currentValue && equipmentInput) {
-                equipmentInput.value = '';
-                lazySyncEquipmentInfo(null);
-            }
-            return;
-        }
+        const defaultListing = !nodeId && query.length < 2;
 
         const requestId = ++lazyEquipmentRequestId;
         if (equipmentCount) equipmentCount.textContent = 'Buscando equipos...';
-        const params = new URLSearchParams({ limit: '200' });
+        const params = new URLSearchParams({ limit: defaultListing ? '50' : '200' });
         if (nodeId) params.set('node_id', nodeId);
         if (query) params.set('q', query);
 
@@ -847,7 +856,9 @@
         if (equipmentCount) {
             equipmentCount.textContent = data.truncated
                 ? `${data.count} equipos encontrados. Mostrando los primeros ${items.length}.`
-                : `${data.count || 0} equipos encontrados.`;
+                : defaultListing
+                    ? `${data.count || 0} equipos disponibles. Mostrando hasta 50.`
+                    : `${data.count || 0} equipos encontrados.`;
         }
     }
 
@@ -1429,8 +1440,6 @@
     }
 
     initScopeSelector();
-    if (scenarioSelect) scenarioSelect.addEventListener('change', toggleScenarioOther);
-    toggleScenarioOther();
     initAttachmentPicker();
     initEquipmentBrowser();
     recalcCalculatedDimensions();

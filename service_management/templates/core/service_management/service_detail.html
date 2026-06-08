@@ -2,11 +2,9 @@
 {% block title %}{{ service.codigo_servicio }} | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
-    <div style="display: flex; gap: 4px;">
-        <div class="actions">
-            <a class="btn" href="{% url 'model_list' 'servicio' %}">Volver</a>
-        </div>
-        <div>
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'model_list' 'servicio' %}" aria-label="Volver" title="Volver"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
             <h2>{{ service.codigo_servicio }}</h2>
             <p>{{ service.descripcion|default:'Sin descripción' }}</p>
         </div>
@@ -59,19 +57,25 @@
                     <a class="btn btn-primary" href="{% url 'service_aca_list' service.pk %}">
                         Desarrollo
                     </a>
+                    <a class="btn" href="{% url 'aca_panel' %}?service={{ service.pk }}">
+                        Ver reporte
+                    </a>
                 </div>
             </div>
             <div class="stat">
-                <small>FMECA</small>
+                <small>RCM/FMECA</small>
                 <strong style="font-size:18px;">{{ rcm_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn btn-primary" href="{% url 'service_rcm_list' service.pk %}">
                         Desarrollo
                     </a>
+                    <a class="btn" href="{% url 'service_rcm_list' service.pk %}">
+                        Ver reporte
+                    </a>
                 </div>
             </div>
             <div class="stat">
-                <small>PLANES</small>
+                <small>PAUTAS</small>
                 <strong style="font-size:18px;">{{ pauta_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn btn-primary" href="{% url 'service_pautas_list' service.pk %}">
@@ -151,6 +155,9 @@
     <div class="segmented-control service-equipment-mode" aria-label="Tipo de busqueda">
         <label><input type="radio" name="service_equipment_mode" value="equipment" checked> Equipos</label>
         <label><input type="radio" name="service_equipment_mode" value="family"> Familias</label>
+        {% if permission.can_edit %}
+            <label><input type="radio" name="service_equipment_mode" value="link"> Vincular equipos</label>
+        {% endif %}
     </div>
     
     <div class="service-equipment-tools">
@@ -162,6 +169,14 @@
             <label for="service-equipment-count">Resultados</label>
             <input id="service-equipment-count" class="input-control" type="text" readonly value="">
         </div>
+        {% if permission.can_edit %}
+            <div class="actions service-equipment-link-actions" id="service-equipment-link-actions" hidden>
+                <button class="btn btn-primary" type="button" id="service-equipment-link-button">
+                    Vincular seleccionados
+                </button>
+                <span class="muted" id="service-equipment-link-status"></span>
+            </div>
+        {% endif %}
     </div>
     <hr>
     <div class="form-grid" id="service-equipment-level-filters"></div>
@@ -183,7 +198,7 @@
     </div>
 </div>
 
-<div style="display: flex; gap: 16px;">
+<div class="service-config-grid">
     <div class="card">
         <div class="service-equipment-intro">
             <h3 class="card-title">Tablas y dimensiones de evaluación</h3>
@@ -272,14 +287,19 @@
             <div class="actions" style="margin-top:12px;">
             </div>
         {% else %}
+            <div class="service-config-empty">
+                <div>
+                    <strong>Sin tablas de evaluación</strong>
             <p class="muted">La estrategia del servicio todavía no tiene dimensiones configuradas.</p>
+                </div>
             {% if request.user.is_superuser and service.estrategia_id %}
-                <div class="actions" style="margin-top:12px;">
+                <div class="actions service-config-empty-actions">
                     <a class="btn btn-primary" href="{% url 'dimension_tables_editor' service.estrategia_id %}?service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
                         Crear tablas de evaluación
                     </a>
                 </div>
             {% endif %}
+            </div>
         {% endif %}
     </div>
 
@@ -288,16 +308,10 @@
     <div class="card">
         <div class="service-equipment-intro">
             <h3 class="card-title">Matrices de riesgo asociadas</h3>
-            {% if request.user.is_superuser and service.estrategia_id %}
-                {% if matrices %}
-                    <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}">
-                        Crear / gestionar matrices
-                    </a>
-                {% else %}
-                    <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}?estrategia={{ service.estrategia_id }}&service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
-                        Crear matriz de riesgo
-                    </a>
-                {% endif %}
+            {% if matrices and request.user.is_superuser and service.estrategia_id %}
+                <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}">
+                    Crear / gestionar matrices
+                </a>
             {% endif %}
         </div>
         {% if matrices %}
@@ -331,7 +345,19 @@
                 </table>
             </div>
         {% else %}
-            <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
+            <div class="service-config-empty">
+                <div>
+                    <strong>Sin matrices de riesgo</strong>
+                    <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
+                </div>
+                {% if request.user.is_superuser and service.estrategia_id %}
+                    <div class="actions service-config-empty-actions">
+                        <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}?estrategia={{ service.estrategia_id }}&service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                            Crear matriz de riesgo
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
         {% endif %}
     </div>
 </div>
@@ -354,12 +380,19 @@
     const countInput = document.getElementById('service-equipment-count');
     const tableBody = document.getElementById('service-equipment-table');
     const modeInputs = Array.from(document.querySelectorAll('input[name="service_equipment_mode"]'));
+    const linkActions = document.getElementById('service-equipment-link-actions');
+    const linkButton = document.getElementById('service-equipment-link-button');
+    const linkStatus = document.getElementById('service-equipment-link-status');
     const tableHead = tableBody ? tableBody.closest('table')?.querySelector('thead tr') : null;
     const endpoints = {
         nodes: "{% url 'service_equipment_nodes' service.pk %}",
-        search: "{% url 'service_equipment_search' service.pk %}"
+        search: "{% url 'service_equipment_search' service.pk %}",
+        available: "{% url 'service_equipment_available' service.pk %}",
+        link: "{% url 'service_equipment_link' service.pk %}"
     };
+    const csrfToken = "{{ csrf_token|escapejs }}";
     const nodeCache = new Map();
+    const selectedLinkIds = new Set();
     let searchTimer = null;
     let activeRequest = 0;
 
@@ -385,8 +418,12 @@
         return '';
     }
 
+    function tableColspan() {
+        return currentMode() === 'link' ? 5 : 4;
+    }
+
     function setTableMessage(message) {
-        if (tableBody) tableBody.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(message)}</td></tr>`;
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="${tableColspan()}" class="muted">${escapeHtml(message)}</td></tr>`;
     }
 
     function setEquipmentHeader() {
@@ -407,6 +444,27 @@
             <th>Equipos</th>
             <th>Detalle</th>
         `;
+    }
+
+    function setLinkHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th style="width:44px;"><input type="checkbox" data-link-toggle-all aria-label="Seleccionar visibles"></th>
+            <th>Ubicaci&oacute;n T&eacute;cnica</th>
+            <th>Descripci&oacute;n U.T&eacute;cnica</th>
+            <th>Equipo</th>
+            <th>TAG</th>
+        `;
+    }
+
+    function updateLinkTools() {
+        if (linkActions) linkActions.hidden = currentMode() !== 'link';
+        if (linkButton) {
+            linkButton.disabled = selectedLinkIds.size === 0;
+            linkButton.textContent = selectedLinkIds.size
+                ? `Vincular seleccionados (${selectedLinkIds.size})`
+                : 'Vincular seleccionados';
+        }
     }
 
     async function fetchJson(url) {
@@ -465,7 +523,12 @@
             renderFamilies();
             return;
         }
+        if (currentMode() === 'link') {
+            renderLinkableEquipment();
+            return;
+        }
         setEquipmentHeader();
+        updateLinkTools();
         const requestId = ++activeRequest;
         const query = searchInput ? searchInput.value.trim() : '';
         const nodeId = selectedNodeId();
@@ -510,6 +573,59 @@
         `).join('');
     }
 
+    async function renderLinkableEquipment() {
+        setLinkHeader();
+        updateLinkTools();
+        const requestId = ++activeRequest;
+        const query = searchInput ? searchInput.value.trim() : '';
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            if (countInput) countInput.value = '';
+            setTableMessage('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres para buscar equipos de la empresa.');
+            return;
+        }
+        if (countInput) countInput.value = 'Buscando...';
+        setTableMessage('Buscando equipos disponibles...');
+        const params = new URLSearchParams({ limit: '500' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.available}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countInput) countInput.value = '';
+            setTableMessage('No se pudieron cargar los equipos disponibles.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        if (countInput) {
+            countInput.value = data.truncated
+                ? `${data.count} encontrados, mostrando ${items.length}`
+                : `${data.count || 0} encontrados`;
+        }
+        if (!items.length) {
+            setTableMessage('No hay equipos disponibles para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => {
+            const disabled = item.linked ? 'disabled' : '';
+            const checked = selectedLinkIds.has(Number(item.id)) && !item.linked ? 'checked' : '';
+            const state = item.linked ? '<span class="pill-soft">Ya vinculado</span>' : '';
+            return `
+                <tr>
+                    <td><input type="checkbox" data-link-equipment-id="${item.id}" ${checked} ${disabled}></td>
+                    <td><strong>${escapeHtml(item.ut)}</strong> ${state}</td>
+                    <td>${escapeHtml(item.descripcion_ut)}</td>
+                    <td>${escapeHtml(item.equipo)}</td>
+                    <td>${escapeHtml(item.tag)}</td>
+                </tr>
+            `;
+        }).join('');
+        updateLinkTools();
+    }
+
     function familyMatchesQuery(family, query) {
         if (!query) return true;
         const haystack = [
@@ -523,6 +639,7 @@
     function renderFamilies() {
         activeRequest += 1;
         setFamilyHeader();
+        updateLinkTools();
         const query = searchInput ? searchInput.value.trim() : '';
         const matches = familyItems.filter(family => familyMatchesQuery(family, query));
         if (filtersBox) filtersBox.style.display = 'none';
@@ -554,6 +671,42 @@
         }).join('');
     }
 
+    async function linkSelectedEquipment() {
+        if (!selectedLinkIds.size || !linkButton) return;
+        linkButton.disabled = true;
+        if (linkStatus) linkStatus.textContent = 'Vinculando...';
+        let data;
+        try {
+            const response = await fetch(endpoints.link, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ equipment_ids: Array.from(selectedLinkIds) }),
+            });
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(response.status === 403
+                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
+                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo vincular.')
+                );
+            }
+            if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo vincular.');
+        } catch (error) {
+            if (linkStatus) linkStatus.textContent = error.message || 'No se pudo vincular.';
+            updateLinkTools();
+            return;
+        }
+        selectedLinkIds.clear();
+        if (linkStatus) linkStatus.textContent = data.message || 'Equipos vinculados.';
+        await renderLinkableEquipment();
+    }
+
     function scheduleRenderTable() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(renderTable, 250);
@@ -577,13 +730,39 @@
         if (searchInput) searchInput.addEventListener('input', scheduleRenderTable);
         modeInputs.forEach(function (input) {
             input.addEventListener('change', function () {
-                if (filtersBox) filtersBox.style.display = currentMode() === 'family' ? 'none' : '';
-                if (searchInput) searchInput.placeholder = currentMode() === 'family'
+                const mode = currentMode();
+                if (filtersBox) filtersBox.style.display = mode === 'family' ? 'none' : '';
+                if (searchInput) searchInput.placeholder = mode === 'family'
                     ? 'Nombre de familia, UT, TAG o equipo'
-                    : 'UT, TAG o nombre del equipo';
+                    : (mode === 'link' ? 'Buscar en equipos de la empresa' : 'UT, TAG o nombre del equipo');
+                updateLinkTools();
                 renderTable();
             });
         });
+        if (linkButton) linkButton.addEventListener('click', linkSelectedEquipment);
+        if (tableBody) {
+            tableBody.addEventListener('change', function (event) {
+                const checkbox = event.target.closest('[data-link-equipment-id]');
+                if (!checkbox) return;
+                const equipmentId = Number(checkbox.dataset.linkEquipmentId);
+                if (checkbox.checked) selectedLinkIds.add(equipmentId);
+                else selectedLinkIds.delete(equipmentId);
+                updateLinkTools();
+            });
+        }
+        if (tableHead) {
+            tableHead.addEventListener('change', function (event) {
+                const toggle = event.target.closest('[data-link-toggle-all]');
+                if (!toggle) return;
+                tableBody.querySelectorAll('[data-link-equipment-id]:not(:disabled)').forEach(function (checkbox) {
+                    checkbox.checked = toggle.checked;
+                    const equipmentId = Number(checkbox.dataset.linkEquipmentId);
+                    if (toggle.checked) selectedLinkIds.add(equipmentId);
+                    else selectedLinkIds.delete(equipmentId);
+                });
+                updateLinkTools();
+            });
+        }
         repopulateFilters(-1).then(renderTable);
     }
 

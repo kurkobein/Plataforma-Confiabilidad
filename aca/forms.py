@@ -9,6 +9,40 @@ from django.utils import timezone
 from core import models as app_models
 from core.access import get_service_equipment
 
+
+class ACAExcelBulkUploadForm(forms.Form):
+    archivo = forms.FileField(
+        label='Archivo Excel',
+        required=False,
+        help_text='Archivo .xlsx con registros ACA. La hoja debe tener encabezados reconocibles.',
+    )
+    hoja = forms.CharField(
+        label='Hoja',
+        required=False,
+        initial='ACA',
+        help_text='Opcional. Si queda vacio se usara la hoja ACA o la primera hoja disponible.',
+    )
+    create_missing_equipment = forms.BooleanField(
+        label='Crear equipos faltantes',
+        required=False,
+        help_text='Si no se encuentra un equipo por TAG o UT, lo crea con los datos del Excel.',
+    )
+    replace = forms.BooleanField(
+        label='Reemplazar carga previa del mismo archivo',
+        required=False,
+        help_text='Elimina registros ACA previos con origen ACA Excel: nombre_archivo para este servicio.',
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            widget = field.widget
+            if isinstance(widget, forms.CheckboxInput):
+                continue
+            css = widget.attrs.get('class', '')
+            widget.attrs['class'] = f'{css} input-control'.strip()
+
+
 class ACARegistroForm(forms.Form):
     servicio = forms.ModelChoiceField(queryset=app_models.Servicio.objects.select_related('empresa', 'estrategia').order_by('-creado_en', 'codigo_servicio'))
     estrategia = forms.ModelChoiceField(queryset=app_models.Estrategia.objects.select_related('empresa').order_by('empresa__nombre','nombre'))
@@ -21,7 +55,6 @@ class ACARegistroForm(forms.Form):
     origen = forms.CharField(initial='Manual')
     usuario = forms.ModelChoiceField(queryset=app_models.Usuario.objects.select_related('empresa', 'cargo').order_by('nombre_completo'), required=False)
     equipo = forms.ModelChoiceField(queryset=app_models.Equipo.objects.none())
-    escenario_falla = forms.CharField(required=False, widget=forms.Textarea)
     frecuencia_original = forms.DecimalField(max_digits=10, decimal_places=2, required=False)
     frecuencia_normalizada = forms.DecimalField(max_digits=10, decimal_places=2, required=False)
 
@@ -84,7 +117,7 @@ class ACARegistroForm(forms.Form):
         if not service_obj and empresa_id:
             equipos_qs = app_models.Equipo.objects.filter(
                 Q(nodo__empresa_id=empresa_id) | Q(nodo__isnull=True)
-            ).select_related('nodo', 'nodo__empresa').distinct().order_by('tag_equipo', 'nombre_equipo')
+            ).select_related('nodo', 'nodo__empresa').distinct().order_by('tag_equipo', 'nombre_equipo', 'ut')
 
         self.fields['equipo'].queryset = equipos_qs
         self.fields['equipo'].label_from_instance = lambda obj: f"{obj.tag_display} - {obj.nombre_equipo}"
@@ -186,6 +219,11 @@ class CriticidadDimensionInputForm(forms.Form):
         coerce=lambda v: None if v == '' else v == 'true',
     )
     valor_texto = forms.CharField(required=False, widget=forms.Textarea)
+    comentario = forms.CharField(
+        required=False,
+        max_length=180,
+        widget=forms.TextInput(attrs={'maxlength': '180', 'placeholder': 'Comentario breve si queda vacio'}),
+    )
 
     def __init__(self, *args, estrategia=None, proceso=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -347,6 +385,7 @@ class CriticidadDimensionInputForm(forms.Form):
             and catalogo_obj
             and catalogo_obj.tipo in {'rangos', 'opciones'}
         )
+        self.allows_empty_comment = mode != 'calculado' and not self.is_dependent_catalog
 
         self.option_headers = []
         self.option_rows = []
@@ -430,17 +469,6 @@ class ServicioACARegistroForm(forms.Form):
         label='Familia de equipos',
         help_text='Opcional. Si seleccionas una familia, se creara un registro ACA para cada equipo activo de esa familia.',
     )
-    escenario_falla = forms.ChoiceField(
-        required=False,
-        label='Escenario de falla',
-        choices=(),
-        widget=forms.Select,
-    )
-    escenario_falla_otro = forms.CharField(
-        required=False,
-        label='Nuevo escenario de falla',
-        widget=forms.TextInput(attrs={'class': 'input-control'}),
-    )
     observacion = forms.CharField(
         required=False,
         label='Observación',
@@ -481,34 +509,6 @@ class ServicioACARegistroForm(forms.Form):
             activa=True,
         ).order_by('nombre') if service else app_models.FamiliaEquipo.objects.none()
         self.fields['familia_equipo'].empty_label = 'Sin familia'
-        scenario_names = []
-        if service:
-            configured_names = app_models.EscenarioFalla.objects.filter(
-                servicio=service,
-                activo=True,
-            ).order_by('nombre').values_list('nombre', flat=True)
-            historical_names = (
-                app_models.Criticidad.objects.filter(aca_carga__servicio=service)
-                .exclude(escenario_falla='')
-                .order_by('escenario_falla')
-                .values_list('escenario_falla', flat=True)
-                .distinct()
-            )
-            for name in list(configured_names) + list(historical_names):
-                clean_name = str(name or '').strip()
-                if clean_name and clean_name not in scenario_names:
-                    scenario_names.append(clean_name)
-        scenario_initial = self.initial.get('escenario_falla') or ''
-        scenario_choices = [('', 'Selecciona un escenario de falla')]
-        scenario_choices.extend((name, name) for name in scenario_names)
-        scenario_choices.append(('__otro__', 'Otro'))
-        self.fields['escenario_falla'].choices = scenario_choices
-        self.fields['escenario_falla'].widget.choices = scenario_choices
-        self.fields['escenario_falla'].widget.attrs['class'] = 'input-control'
-        if scenario_initial and scenario_initial not in scenario_names:
-            self.initial['escenario_falla'] = '__otro__'
-            self.initial['escenario_falla_otro'] = scenario_initial
-
         if service and getattr(service, 'estrategia_id', None):
             self.matriz = app_models.MatrizRiesgo.objects.filter(
                 estrategia=service.estrategia
@@ -546,12 +546,6 @@ class ServicioACARegistroForm(forms.Form):
             self.add_error('familia_equipo', 'La familia seleccionada no tiene equipos.')
         if not self.allow_incomplete and not familia and not equipo:
             self.add_error('equipo', 'Selecciona un equipo o una familia de equipos.')
-        escenario = cleaned.get('escenario_falla') or ''
-        escenario_otro = (cleaned.get('escenario_falla_otro') or '').strip()
-        if escenario == '__otro__':
-            if not escenario_otro:
-                self.add_error('escenario_falla_otro', 'Ingresa el nuevo escenario de falla.')
-            cleaned['escenario_falla'] = escenario_otro
         return cleaned
 
     def clean_fecha_analisis(self):

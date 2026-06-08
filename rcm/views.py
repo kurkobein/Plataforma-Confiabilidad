@@ -341,7 +341,7 @@ def _service_rcm_export_data(servicio):
             'fecha_modificacion': registro.carga.actualizado if registro.carga_id else '',
             'tipo': registro.tipo_analisis,
             'estado': registro.get_estado_display(),
-            'ubicacion_tecnica': registro.equipo.ut if registro.equipo else '',
+            'ubicacion_tecnica': registro.equipo.ut_display if registro.equipo else '',
             'equipo': registro.equipo.nombre_equipo if registro.equipo else '',
             'tag': registro.equipo.tag_display if registro.equipo else '',
             'componente': registro.componente or '',

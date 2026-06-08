@@ -60,7 +60,7 @@
                     </td>
                     <td>{{ row.registro.tipo_analisis }}</td>
                     <td>{{ row.registro.get_estado_display }}</td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.ut }}" data-copy="{{ row.registro.equipo.ut }}">{{ row.registro.equipo.ut }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.ut_display }}" data-copy="{{ row.registro.equipo.ut_display }}">{{ row.registro.equipo.ut_display }}</span></td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.nombre_equipo }}" data-copy="{{ row.registro.equipo.nombre_equipo }}">{{ row.registro.equipo.nombre_equipo }}</span></td>
                     <td>{{ row.registro.equipo.tag_display }}</td>
                     <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.componente|default:'' }}" data-copy="{{ row.registro.componente|default:'' }}">{{ row.registro.componente|default:'' }}</span></td>

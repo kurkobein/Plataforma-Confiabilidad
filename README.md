@@ -90,10 +90,14 @@ python manage.py runserver
 Si una eliminación falla, normalmente será por llaves foráneas ya definidas en MySQL.
 
 
-
-#COMANDO PARA ELIMINAR:
-
-python manage.py delete_bulk_records --service ERB-001 --type rcm --origin "RCM Excel: RCM.xlsx" --confirm
-
-
+tunel cloudflare:
 cloudflared tunnel --url http://localhost:8000
+
+carga masiva ACA:
+    python manage.py import_aca_excel --file "C:\Users\Felipe Sanchez\OneDrive - MindCo\Escritorio\Empresa MINDCO.xlsx" --sheet ACA --service MNC-001 --confirm
+
+    python manage.py import_aca_excel --file "C:\Users\Felipe Sanchez\OneDrive - MindCo\Escritorio\UTS_corto.xlsx" --sheet ACA --service MNC-001 --confirm
+
+
+    dry-run:
+        python manage.py import_aca_excel --file "C:\Users\Felipe Sanchez\OneDrive - MindCo\Escritorio\Empresa MINDCO.xlsx" --sheet ACA --service MNC-001 --dry-run --replac

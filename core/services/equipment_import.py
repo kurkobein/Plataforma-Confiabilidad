@@ -353,14 +353,15 @@ def build_hierarchy_from_mindco_row(row, headers, last_segment_is_equipment=None
             'node_path': cumulative_paths[index - 1],
         })
 
-    tag = tag_value or (parts[-1] if parts else '')
+    tag = technical_segment(tag_value) or (parts[-1] if parts else '')
+    equipment_parts = parts if equipment_is_last else parts + ([tag] if tag else [])
     nombre = _first_value(row, EQUIPMENT_NAME_HEADERS) or tag
     descripcion = _first_value(row, DESCRIPTION_HEADERS) or nombre
     return hierarchy, {
         'tag_equipo': tag,
         'nombre_equipo': nombre,
-        'ut': '-'.join(parts),
-        'ubicacion_tecnica': '-'.join(parts),
+        'ut': '-'.join(equipment_parts),
+        'ubicacion_tecnica': '-'.join(equipment_parts),
         'descripcion_ut': descripcion,
     }
 
@@ -537,6 +538,14 @@ def _find_equipment(empresa, equipment_data):
 
 
 def create_or_update_equipment(empresa, servicio, equipment_data, parent_node):
+    tag = technical_segment(equipment_data.get('tag_equipo') or '')
+    if parent_node and tag:
+        equipment_data = {
+            **equipment_data,
+            'tag_equipo': tag,
+            'ut': f'{parent_node.ut}-{tag}',
+            'ubicacion_tecnica': f'{parent_node.ut}-{tag}',
+        }
     equipment = _find_equipment(empresa, equipment_data)
     created = False
     if not equipment:

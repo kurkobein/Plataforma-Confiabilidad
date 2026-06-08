@@ -2,8 +2,10 @@
 <tr{% if row_class %} class="{{ row_class }}"{% endif %}>
     <td>{{ row.id }}</td>
     {% for key, label in columns %}
-        <td{% if key == 'valor_cons_total' or key == 'valor_criticidad_equipo' %} class="numeric"{% elif key == 'criticidad_final' and row.criticidad_final_color %} class="aca-criticality-final-cell"{% endif %}{% if key == 'criticidad_final' and row.criticidad_final_color %} style="--criticality-color: {{ row.criticidad_final_color }}; --criticality-text-color: {{ row.criticidad_final_text_color }};"{% endif %}{% if key == 'avance_aca' %} data-order="{{ row.avance_aca_order }}"{% endif %}>
+        <td class="aca-col-{{ key }}{% if key == 'valor_cons_total' or key == 'valor_criticidad_equipo' %} numeric{% elif key == 'criticidad_final' and row.criticidad_final_color %} aca-criticality-final-cell{% endif %}"{% if key == 'criticidad_final' and row.criticidad_final_color %} style="--criticality-color: {{ row.criticidad_final_color }}; --criticality-text-color: {{ row.criticidad_final_text_color }};"{% endif %}{% if key == 'avance_aca' %} data-order="{{ row.avance_aca_order }}"{% endif %}>
             {% with cell_value=row|get_item:key %}
+            {% with comment_key='comment_'|add:key %}
+            {% with comment_value=row|get_item:comment_key %}
                 {% if key == 'acciones' %}
                     <div class="actions">
                         {% if permission.can_edit %}
@@ -15,8 +17,6 @@
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-danger"><i class="bi bi-trash3"></i></button>
                             </form>
-                        {% else %}
-                            -
                         {% endif %}
                     </div>
                 {% elif key == 'avance_aca' %}
@@ -26,13 +26,18 @@
                         <span class="aca-progress-pill-fill" aria-hidden="true"></span>
                         <span class="aca-progress-pill-label">{{ cell_value }}</span>
                     </span>
-                {% elif key == 'ubicacion_tecnica' or key == 'descripcion_ut' or key == 'equipo' or key == 'escenario_falla' or key == 'observacion' %}
+                {% elif key == 'ubicacion_tecnica' or key == 'descripcion_ut' or key == 'equipo' or key == 'observacion' %}
                     <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ cell_value }}" data-copy="{{ cell_value }}">{{ cell_value }}</span>
                 {% elif key == 'criticidad_final' %}
                     <span class="aca-criticality-final-label">{{ cell_value }}</span>
+                {% elif comment_value and not cell_value %}
+                    <span class="cell-ellipsis copy-cell aca-dimension-comment" title="Click para copiar: {{ comment_value }}" data-copy="{{ comment_value }}">{{ comment_value }}</span>
+                    <span class="aca-dimension-comment-placeholder">-</span>
                 {% else %}
                     {{ cell_value }}
                 {% endif %}
+            {% endwith %}
+            {% endwith %}
             {% endwith %}
         </td>
     {% endfor %}

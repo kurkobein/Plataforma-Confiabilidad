@@ -1,12 +1,14 @@
 import json
 import re
 import html
+import uuid
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
 from django.db import connection, transaction
 from django.db.models import Count, Q, TextField, Prefetch
@@ -172,6 +174,374 @@ def _ensure_delete_allowed(request, config, obj=None):
         raise PermissionDenied('Solo un administrador puede eliminar este registro.')
 
 
+def _delete_by_materialized_ids(model, ids):
+    ids = list(ids)
+    if not ids:
+        return 0
+    deleted_count, _deleted_by_model = model.objects.filter(id__in=ids).delete()
+    return deleted_count
+
+
+def _delete_service_related_data(service):
+    counts = {}
+
+    carga_ids = list(models.Carga.objects.filter(servicio=service).values_list('id', flat=True))
+    criticidad_ids = list(models.Criticidad.objects.filter(aca_carga_id__in=carga_ids).values_list('id', flat=True))
+    rcm_ids = list(models.RCM.objects.filter(carga_id__in=carga_ids).values_list('id', flat=True))
+    fmea_ids = list(models.FMEA_FMECA.objects.filter(rcm_id__in=rcm_ids).values_list('id', flat=True))
+    tarea_ids = list(models.TareaRCM.objects.filter(fmea_id__in=fmea_ids).values_list('id', flat=True))
+
+    pauta_ids = list(models.Pauta.objects.filter(servicio=service).values_list('id', flat=True))
+    plantilla_ids = list(models.PlantillaPauta.objects.filter(servicio=service).values_list('id', flat=True))
+    familia_ids = list(models.FamiliaEquipo.objects.filter(servicio=service).values_list('id', flat=True))
+
+    counts['valores_tarea_rcm'] = _delete_by_materialized_ids(
+        models.ValorCampoTareaRCM,
+        models.ValorCampoTareaRCM.objects.filter(tarea_id__in=tarea_ids).values_list('id', flat=True),
+    )
+    counts['tareas_rcm'] = _delete_by_materialized_ids(models.TareaRCM, tarea_ids)
+    counts['evaluaciones_fmea'] = _delete_by_materialized_ids(
+        models.EvaluacionFMEA,
+        models.EvaluacionFMEA.objects.filter(fmea_id__in=fmea_ids).values_list('id', flat=True),
+    )
+    counts['fmea'] = _delete_by_materialized_ids(models.FMEA_FMECA, fmea_ids)
+    counts['adjuntos_rcm'] = _delete_by_materialized_ids(
+        models.RCMAdjunto,
+        models.RCMAdjunto.objects.filter(rcm_id__in=rcm_ids).values_list('id', flat=True),
+    )
+    counts['rcm'] = _delete_by_materialized_ids(models.RCM, rcm_ids)
+
+    counts['adjuntos_aca'] = _delete_by_materialized_ids(
+        models.CriticidadAdjunto,
+        models.CriticidadAdjunto.objects.filter(criticidad_id__in=criticidad_ids).values_list('id', flat=True),
+    )
+    counts['dimensiones_aca'] = _delete_by_materialized_ids(
+        models.CriticidadDimension,
+        models.CriticidadDimension.objects.filter(criticidad_id__in=criticidad_ids).values_list('id', flat=True),
+    )
+    counts['criticidades'] = _delete_by_materialized_ids(models.Criticidad, criticidad_ids)
+    counts['cargas'] = _delete_by_materialized_ids(models.Carga, carga_ids)
+
+    counts['tareas_pauta'] = _delete_by_materialized_ids(
+        models.PautaTarea,
+        models.PautaTarea.objects.filter(pauta_id__in=pauta_ids).values_list('id', flat=True),
+    )
+    counts['pautas'] = _delete_by_materialized_ids(models.Pauta, pauta_ids)
+    counts['mapeos_plantilla'] = _delete_by_materialized_ids(
+        models.MapeoPlantillaPauta,
+        models.MapeoPlantillaPauta.objects.filter(plantilla_id__in=plantilla_ids).values_list('id', flat=True),
+    )
+    counts['plantillas_pauta'] = _delete_by_materialized_ids(models.PlantillaPauta, plantilla_ids)
+    counts['reglas_pauta'] = _delete_by_materialized_ids(
+        models.ReglaGeneracionPauta,
+        models.ReglaGeneracionPauta.objects.filter(servicio=service).values_list('id', flat=True),
+    )
+
+    counts['items_familia'] = _delete_by_materialized_ids(
+        models.FamiliaEquipoItem,
+        models.FamiliaEquipoItem.objects.filter(familia_id__in=familia_ids).values_list('id', flat=True),
+    )
+    counts['familias_equipo'] = _delete_by_materialized_ids(models.FamiliaEquipo, familia_ids)
+    counts['escenarios_falla'] = _delete_by_materialized_ids(
+        models.EscenarioFalla,
+        models.EscenarioFalla.objects.filter(servicio=service).values_list('id', flat=True),
+    )
+    counts['accesos'] = _delete_by_materialized_ids(
+        models.AccesoUsuario,
+        models.AccesoUsuario.objects.filter(servicio=service).values_list('id', flat=True),
+    )
+    counts['equipos_servicio'] = _delete_by_materialized_ids(
+        models.ServicioEquipo,
+        models.ServicioEquipo.objects.filter(servicio=service).values_list('id', flat=True),
+    )
+    counts['metodologias_servicio'] = _delete_by_materialized_ids(
+        models.ServicioMetodologia,
+        models.ServicioMetodologia.objects.filter(servicio=service).values_list('id', flat=True),
+    )
+    return counts
+
+
+def _merge_delete_counts(target, source, prefix=''):
+    for key, value in source.items():
+        target[f'{prefix}{key}'] = target.get(f'{prefix}{key}', 0) + value
+    return target
+
+
+def _delete_nodes_by_depth(node_ids):
+    nodes = list(models.NodoJerarquia.objects.filter(id__in=list(node_ids)).select_related('parent'))
+    if not nodes:
+        return 0
+    node_by_id = {node.pk: node for node in nodes}
+
+    def depth(node):
+        current = node
+        seen = set()
+        value = 0
+        while current and current.pk not in seen:
+            seen.add(current.pk)
+            current = node_by_id.get(current.parent_id)
+            if current:
+                value += 1
+        return value
+
+    deleted = 0
+    for node in sorted(nodes, key=depth, reverse=True):
+        deleted += _delete_by_materialized_ids(models.NodoJerarquia, [node.pk])
+    return deleted
+
+
+def _delete_equipment_related_data(equipment_ids):
+    counts = {}
+    equipment_ids = list(dict.fromkeys(equipment_ids))
+    if not equipment_ids:
+        return counts
+
+    criticidad_ids = list(
+        models.Criticidad.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True)
+    )
+    rcm_ids = list(
+        models.RCM.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True)
+    )
+    fmea_ids = list(
+        models.FMEA_FMECA.objects.filter(rcm_id__in=rcm_ids).values_list('id', flat=True)
+    )
+    tarea_ids = list(
+        models.TareaRCM.objects.filter(fmea_id__in=fmea_ids).values_list('id', flat=True)
+    )
+    pauta_ids = list(
+        models.Pauta.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True)
+    )
+
+    counts['valores_tarea_rcm_equipo'] = _delete_by_materialized_ids(
+        models.ValorCampoTareaRCM,
+        models.ValorCampoTareaRCM.objects.filter(tarea_id__in=tarea_ids).values_list('id', flat=True),
+    )
+    counts['tareas_rcm_equipo'] = _delete_by_materialized_ids(models.TareaRCM, tarea_ids)
+    counts['evaluaciones_fmea_equipo'] = _delete_by_materialized_ids(
+        models.EvaluacionFMEA,
+        models.EvaluacionFMEA.objects.filter(fmea_id__in=fmea_ids).values_list('id', flat=True),
+    )
+    counts['fmea_equipo'] = _delete_by_materialized_ids(models.FMEA_FMECA, fmea_ids)
+    counts['adjuntos_rcm_equipo'] = _delete_by_materialized_ids(
+        models.RCMAdjunto,
+        models.RCMAdjunto.objects.filter(rcm_id__in=rcm_ids).values_list('id', flat=True),
+    )
+    counts['rcm_equipo'] = _delete_by_materialized_ids(models.RCM, rcm_ids)
+    counts['adjuntos_aca_equipo'] = _delete_by_materialized_ids(
+        models.CriticidadAdjunto,
+        models.CriticidadAdjunto.objects.filter(criticidad_id__in=criticidad_ids).values_list('id', flat=True),
+    )
+    counts['dimensiones_aca_equipo'] = _delete_by_materialized_ids(
+        models.CriticidadDimension,
+        models.CriticidadDimension.objects.filter(criticidad_id__in=criticidad_ids).values_list('id', flat=True),
+    )
+    counts['criticidades_equipo'] = _delete_by_materialized_ids(models.Criticidad, criticidad_ids)
+    counts['tareas_pauta_equipo'] = _delete_by_materialized_ids(
+        models.PautaTarea,
+        models.PautaTarea.objects.filter(pauta_id__in=pauta_ids).values_list('id', flat=True),
+    )
+    counts['pautas_equipo'] = _delete_by_materialized_ids(models.Pauta, pauta_ids)
+    counts['items_familia_equipo'] = _delete_by_materialized_ids(
+        models.FamiliaEquipoItem,
+        models.FamiliaEquipoItem.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True),
+    )
+    counts['servicios_equipo'] = _delete_by_materialized_ids(
+        models.ServicioEquipo,
+        models.ServicioEquipo.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True),
+    )
+    counts['componentes_equipo'] = _delete_by_materialized_ids(
+        models.ComponenteEquipo,
+        models.ComponenteEquipo.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True),
+    )
+    counts['equipos'] = _delete_by_materialized_ids(models.Equipo, equipment_ids)
+    return counts
+
+
+def _strategy_delete_blockers(strategy):
+    blockers = []
+    estrategia_dimension_ids = list(
+        models.EstrategiaDimension.objects.filter(estrategia=strategy).values_list('id', flat=True)
+    )
+    tipo_tarea_ids = list(
+        models.TipoTareaEstrategia.objects.filter(estrategia=strategy).values_list('id', flat=True)
+    )
+    campo_tarea_ids = list(
+        models.CampoTareaEstrategia.objects.filter(
+            tipo_tarea_estrategia_id__in=tipo_tarea_ids
+        ).values_list('id', flat=True)
+    )
+    catalogo_ids = list(
+        models.DimensionCatalogo.objects.filter(
+            estrategia_dimension_id__in=estrategia_dimension_ids
+        ).values_list('id', flat=True)
+    )
+    catalogo_fila_ids = list(
+        models.DimensionCatalogoFila.objects.filter(catalogo_id__in=catalogo_ids).values_list('id', flat=True)
+    )
+    escala_ids = list(
+        models.EscalaValor.objects.filter(
+            estrategia_dimension_id__in=estrategia_dimension_ids
+        ).values_list('id', flat=True)
+    )
+
+    checks = [
+        ('cargas ACA/RCM/FMECA', models.Carga.objects.filter(estrategia=strategy).count()),
+        (
+            'evaluaciones ACA asociadas a dimensiones de la estrategia',
+            models.CriticidadDimension.objects.filter(
+                Q(estrategia_dimension_id__in=estrategia_dimension_ids)
+                | Q(catalogo_fila_id__in=catalogo_fila_ids)
+                | Q(escala_valor_id__in=escala_ids)
+            ).count(),
+        ),
+        (
+            'evaluaciones FMECA asociadas a dimensiones de la estrategia',
+            models.EvaluacionFMEA.objects.filter(
+                Q(estrategia_dimension_id__in=estrategia_dimension_ids)
+                | Q(catalogo_fila_id__in=catalogo_fila_ids)
+                | Q(escala_valor_id__in=escala_ids)
+            ).count(),
+        ),
+        (
+            'tareas RCM/FMECA asociadas a tipos de tarea de la estrategia',
+            models.TareaRCM.objects.filter(tipo_tarea_estrategia_id__in=tipo_tarea_ids).count(),
+        ),
+        (
+            'valores dinámicos de tareas RCM/FMECA asociados a campos de la estrategia',
+            models.ValorCampoTareaRCM.objects.filter(campo_id__in=campo_tarea_ids).count(),
+        ),
+    ]
+    for label, count in checks:
+        if count:
+            blockers.append(f'{count} {label}')
+    return blockers
+
+
+def _delete_strategy_related_data(strategy):
+    counts = {}
+    estrategia_dimension_ids = list(
+        models.EstrategiaDimension.objects.filter(estrategia=strategy).values_list('id', flat=True)
+    )
+    catalogo_ids = list(
+        models.DimensionCatalogo.objects.filter(
+            estrategia_dimension_id__in=estrategia_dimension_ids
+        ).values_list('id', flat=True)
+    )
+    catalogo_fila_ids = list(
+        models.DimensionCatalogoFila.objects.filter(catalogo_id__in=catalogo_ids).values_list('id', flat=True)
+    )
+    catalogo_columna_ids = list(
+        models.DimensionCatalogoColumna.objects.filter(catalogo_id__in=catalogo_ids).values_list('id', flat=True)
+    )
+    tipo_tarea_ids = list(
+        models.TipoTareaEstrategia.objects.filter(estrategia=strategy).values_list('id', flat=True)
+    )
+    campo_tarea_ids = list(
+        models.CampoTareaEstrategia.objects.filter(
+            tipo_tarea_estrategia_id__in=tipo_tarea_ids
+        ).values_list('id', flat=True)
+    )
+    matriz_ids = list(
+        models.MatrizRiesgo.objects.filter(estrategia=strategy).values_list('id', flat=True)
+    )
+    probabilidad_ids = list(
+        models.NivelProbabilidad.objects.filter(matriz_id__in=matriz_ids).values_list('id', flat=True)
+    )
+    impacto_ids = list(
+        models.NivelImpacto.objects.filter(matriz_id__in=matriz_ids).values_list('id', flat=True)
+    )
+
+    nullable_relations = [
+        ('servicios_desvinculados', models.Servicio.objects.filter(estrategia=strategy)),
+        ('accesos_desvinculados', models.AccesoUsuario.objects.filter(estrategia=strategy)),
+        ('plantillas_desvinculadas', models.PlantillaPauta.objects.filter(estrategia=strategy)),
+        ('pautas_desvinculadas', models.Pauta.objects.filter(estrategia=strategy)),
+        ('reglas_pauta_desvinculadas', models.ReglaGeneracionPauta.objects.filter(estrategia=strategy)),
+    ]
+    for key, queryset in nullable_relations:
+        counts[key] = queryset.update(estrategia=None)
+
+    counts['celdas_matriz'] = _delete_by_materialized_ids(
+        models.MatrizRiesgoCelda,
+        models.MatrizRiesgoCelda.objects.filter(matriz_id__in=matriz_ids).values_list('id', flat=True),
+    )
+    counts['niveles_probabilidad'] = _delete_by_materialized_ids(models.NivelProbabilidad, probabilidad_ids)
+    counts['niveles_consecuencia'] = _delete_by_materialized_ids(models.NivelImpacto, impacto_ids)
+    counts['matrices'] = _delete_by_materialized_ids(models.MatrizRiesgo, matriz_ids)
+
+    counts['celdas_catalogo'] = _delete_by_materialized_ids(
+        models.DimensionCatalogoCelda,
+        models.DimensionCatalogoCelda.objects.filter(
+            Q(fila_id__in=catalogo_fila_ids) | Q(columna_id__in=catalogo_columna_ids)
+        ).values_list('id', flat=True),
+    )
+    counts['columnas_catalogo'] = _delete_by_materialized_ids(models.DimensionCatalogoColumna, catalogo_columna_ids)
+    counts['filas_catalogo'] = _delete_by_materialized_ids(models.DimensionCatalogoFila, catalogo_fila_ids)
+    counts['catalogos'] = _delete_by_materialized_ids(models.DimensionCatalogo, catalogo_ids)
+    counts['escalas_valor'] = _delete_by_materialized_ids(
+        models.EscalaValor,
+        models.EscalaValor.objects.filter(
+            estrategia_dimension_id__in=estrategia_dimension_ids
+        ).values_list('id', flat=True),
+    )
+    counts['campos_tarea'] = _delete_by_materialized_ids(models.CampoTareaEstrategia, campo_tarea_ids)
+    counts['tipos_tarea'] = _delete_by_materialized_ids(models.TipoTareaEstrategia, tipo_tarea_ids)
+    counts['dimensiones_estrategia'] = _delete_by_materialized_ids(
+        models.EstrategiaDimension,
+        estrategia_dimension_ids,
+    )
+    return counts
+
+
+def _delete_company_related_data(company):
+    counts = {}
+    service_ids = list(models.Servicio.objects.filter(empresa=company).values_list('id', flat=True))
+    strategy_ids = list(models.Estrategia.objects.filter(empresa=company).values_list('id', flat=True))
+    node_ids = list(models.NodoJerarquia.objects.filter(empresa=company).values_list('id', flat=True))
+    equipment_ids = set(
+        models.Equipo.objects.filter(nodo_id__in=node_ids).values_list('id', flat=True)
+    )
+    equipment_ids.update(
+        models.ServicioEquipo.objects.filter(servicio_id__in=service_ids).values_list('equipo_id', flat=True)
+    )
+
+    for service in models.Servicio.objects.filter(id__in=service_ids):
+        _merge_delete_counts(counts, _delete_service_related_data(service), prefix='servicio_')
+        counts['servicios'] = counts.get('servicios', 0) + _delete_by_materialized_ids(models.Servicio, [service.pk])
+
+    _merge_delete_counts(counts, _delete_equipment_related_data(equipment_ids), prefix='empresa_')
+
+    plantilla_ids = list(
+        models.PlantillaPauta.objects.filter(empresa=company).values_list('id', flat=True)
+    )
+    counts['mapeos_plantilla_empresa'] = _delete_by_materialized_ids(
+        models.MapeoPlantillaPauta,
+        models.MapeoPlantillaPauta.objects.filter(plantilla_id__in=plantilla_ids).values_list('id', flat=True),
+    )
+    counts['plantillas_empresa'] = _delete_by_materialized_ids(models.PlantillaPauta, plantilla_ids)
+
+    for strategy in models.Estrategia.objects.filter(id__in=strategy_ids):
+        _merge_delete_counts(counts, _delete_strategy_related_data(strategy), prefix='estrategia_')
+        counts['estrategias'] = counts.get('estrategias', 0) + _delete_by_materialized_ids(models.Estrategia, [strategy.pk])
+
+    counts['accesos_empresa'] = _delete_by_materialized_ids(
+        models.AccesoUsuario,
+        models.AccesoUsuario.objects.filter(empresa=company).values_list('id', flat=True),
+    )
+    counts['usuarios_desvinculados'] = models.Usuario.all_objects.filter(empresa=company).update(empresa=None)
+    counts['usuarios_eliminados_desvinculados'] = models.UsuarioEliminado.objects.filter(empresa=company).update(empresa=None)
+    counts['valores_nivel_jerarquia'] = _delete_by_materialized_ids(
+        models.ValorNivelJerarquia,
+        models.ValorNivelJerarquia.objects.filter(empresa=company).values_list('id', flat=True),
+    )
+    counts['nodos_jerarquia'] = _delete_nodes_by_depth(node_ids)
+    counts['niveles_jerarquia'] = _delete_by_materialized_ids(
+        models.NivelJerarquia,
+        models.NivelJerarquia.objects.filter(empresa=company).values_list('id', flat=True),
+    )
+    return counts
+
+
 def empresa_logo(request, empresa_id):
     empresa = models.Empresa.objects.filter(id=empresa_id).first()
 
@@ -304,6 +674,14 @@ def _equipment_location_context(form=None, obj=None):
         'tech_location_nodes_json': json.dumps(nodes, ensure_ascii=False),
         'tech_location_selected_id': str(selected_node_id or ''),
         'tech_location_empresa_id': str(selected_empresa_id or ''),
+        'equipment_services_json': json.dumps([
+            {
+                'id': service.pk,
+                'empresa_id': service.empresa_id,
+                'label': f'{service.codigo_servicio} - {service.descripcion}'.strip(' -'),
+            }
+            for service in models.Servicio.objects.select_related('empresa').order_by('empresa__nombre', 'codigo_servicio')
+        ], ensure_ascii=False),
         'tech_location_nodes_url_template': reverse(
             'hierarchy_values_nodes',
             kwargs={'empresa_id': 0},
@@ -421,7 +799,7 @@ def _equipment_items_payload(equipment_items):
         path_ids = _path_ids_for_node(equipo.nodo_id, rows_by_id) if equipo.nodo_id else []
         payload.append({
             'id': equipo.pk,
-            'ut': equipo.ut or '',
+            'ut': equipo.ut_display or '',
             'descripcion_ut': equipo.descripcion_ut or '',
             'equipo': equipo.nombre_equipo or '',
             'tag': equipo.tag_display or '',
@@ -450,7 +828,7 @@ def _service_equipment_search_queryset(service, node=None, query=''):
             | Q(nombre_equipo__icontains=query)
             | Q(tag_equipo__icontains=query)
         )
-    return qs.distinct().order_by('ut', 'tag_equipo', 'nombre_equipo')
+    return qs.distinct().order_by('tag_equipo', 'nombre_equipo', 'ut')
 
 
 def _active_subtree_ids(node):
@@ -485,18 +863,70 @@ def _active_subtree_ids(node):
 
 @login_required
 def dashboard(request):
-    servicios = list(get_accessible_services(request.user)[:8])
+    accessible_services_qs = get_accessible_services(request.user)
+    accessible_service_ids = list(accessible_services_qs.values_list('id', flat=True))
+    servicios = list(accessible_services_qs[:8])
+    service_ids = [service.pk for service in servicios]
 
-    aca_total = models.Criticidad.objects.filter(aca_carga__servicio__in=servicios).count() if servicios else 0
-    activos_evaluados_ACA = models.Equipo.objects.filter(criticidades__aca_carga__servicio__in=servicios).distinct().count() if servicios else 0
-    activos_evaluados_FMECA = models.Equipo.objects.filter(registros_rcm__fmea_fmeca__isnull=False, registros_rcm__carga__servicio__in=servicios).distinct().count() if servicios else 0
-    editable_services = [s for s in servicios if get_service_permission(request.user, s)['can_edit']]
+    aca_evaluated_by_service = {}
+    fmeca_evaluated_by_service = {}
+    if service_ids:
+        aca_evaluated_by_service = {
+            row['aca_carga__servicio_id']: row['total']
+            for row in models.Criticidad.objects.filter(
+                aca_carga__servicio_id__in=service_ids,
+                equipo_id__isnull=False,
+            ).values('aca_carga__servicio_id').annotate(total=Count('equipo_id', distinct=True))
+        }
+        fmeca_evaluated_by_service = {
+            row['carga__servicio_id']: row['total']
+            for row in models.RCM.objects.filter(
+                carga__servicio_id__in=service_ids,
+                equipo_id__isnull=False,
+                fmea_fmeca__isnull=False,
+            ).values('carga__servicio_id').annotate(total=Count('equipo_id', distinct=True))
+        }
+    for service in servicios:
+        service.dashboard_aca_evaluated = aca_evaluated_by_service.get(service.pk, 0)
+        service.dashboard_fmeca_evaluated = fmeca_evaluated_by_service.get(service.pk, 0)
+
+    activos_evaluados_ACA = (
+        models.Equipo.objects
+        .filter(criticidades__aca_carga__servicio_id__in=accessible_service_ids)
+        .distinct()
+        .count()
+        if accessible_service_ids else 0
+    )
+    activos_evaluados_FMECA = (
+        models.Equipo.objects
+        .filter(
+            registros_rcm__fmea_fmeca__isnull=False,
+            registros_rcm__carga__servicio_id__in=accessible_service_ids,
+        )
+        .distinct()
+        .count()
+        if accessible_service_ids else 0
+    )
+    activos_evaluados_total = (
+        models.Equipo.objects
+        .filter(
+            Q(criticidades__aca_carga__servicio_id__in=accessible_service_ids)
+            | Q(
+                registros_rcm__fmea_fmeca__isnull=False,
+                registros_rcm__carga__servicio_id__in=accessible_service_ids,
+            )
+        )
+        .distinct()
+        .count()
+        if accessible_service_ids else 0
+    )
+    editable_services = [s for s in accessible_services_qs if get_service_permission(request.user, s)['can_edit']]
     return render(request, 'core/dashboard.html', {
         'service_cards': servicios,
         'quick_stats': [
-            {'label': 'Servicios accesibles', 'count': len(servicios)},
+            {'label': 'Servicios accesibles', 'count': len(accessible_service_ids)},
             {'label': 'Servicios editables', 'count': len(editable_services)},
-            {'label': 'Activos evaluados', 'count': aca_total},
+            {'label': 'Activos evaluados', 'count': activos_evaluados_total},
             {'label': 'Activos evaluados en ACA', 'count': activos_evaluados_ACA},
             {'label': 'Activos evaluados en FMECA', 'count': activos_evaluados_FMECA},
         ]
@@ -699,12 +1129,136 @@ def model_list(request, model_key):
 
 
 @login_required
+def equipment_bulk_example(request, formato):
+    _ensure_admin_access(request)
+    formato = (formato or '').strip().lower()
+    examples = {
+        'mindco_simple': {
+            'filename': 'ejemplo_equipos_mindco_simple.xlsx',
+            'sheet': 'Mindco simple',
+            'headers': [
+                'Empresa',
+                'Planta / Sitio',
+                'Area',
+                'Sistema',
+                'SubSistema',
+                'Ubicacion Tecnica',
+                'TAG',
+                'Equipo / Componente',
+                'Descripcion U.T.',
+            ],
+            'rows': [
+                ['Minera Inventada S.A.', 'Planta Norte', 'Molienda', 'Transporte de pulpa', 'Bombas', 'MIN-PLN-MOL-PUL-BOM-A001', 'A001', 'Bomba de pulpa 1', 'Linea de bombeo de pulpa planta norte'],
+                ['Minera Inventada S.A.', 'Planta Norte', 'Chancado', 'Correas transportadoras', 'Correa principal', 'MIN-PLN-CHA-COR-PRI-A002', 'A002', 'Correa transportadora 2', 'Sistema de transporte de mineral chancado'],
+            ],
+        },
+        'sap_uts': {
+            'filename': 'ejemplo_equipos_sap_uts.xlsx',
+            'sheet': 'SAP UTS',
+            'headers': [
+                'Ubicacion tecnica',
+                'Denominacion',
+                'N0',
+                'N0_nombre',
+                'N1',
+                'N1_nombre',
+                'N2',
+                'N2_nombre',
+                'N3',
+                'N3_nombre',
+                'N4',
+                'N4_nombre',
+            ],
+            'rows': [
+                ['MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrifuga de pulpa A101', 'MIN', 'Minera Inventada S.A.', 'MIN-PLN', 'Planta Norte', 'MIN-PLN-MOL', 'Molienda', 'MIN-PLN-MOL-PUL', 'Transporte de pulpa', 'MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrifuga de pulpa A101'],
+                ['MIN-PLN-CHA-COR-PRI-A102', 'Correa transportadora principal A102', 'MIN', 'Minera Inventada S.A.', 'MIN-PLN', 'Planta Norte', 'MIN-PLN-CHA', 'Chancado', 'MIN-PLN-CHA-COR', 'Correas transportadoras', 'MIN-PLN-CHA-COR-PRI-A102', 'Correa transportadora principal A102'],
+            ],
+        },
+    }
+    example = examples.get(formato)
+    if not example:
+        raise Http404('Formato de ejemplo no soportado.')
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = example['sheet']
+    worksheet.append(example['headers'])
+    for row in example['rows']:
+        worksheet.append(row)
+
+    header_fill = PatternFill('solid', fgColor='E8EEF7')
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+    for index, header in enumerate(example['headers'], start=1):
+        letter = get_column_letter(index)
+        max_length = max(
+            len(str(worksheet.cell(row=row_idx, column=index).value or ''))
+            for row_idx in range(1, worksheet.max_row + 1)
+        )
+        worksheet.column_dimensions[letter].width = min(max(max_length + 2, len(header) + 2, 14), 42)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{example["filename"]}"'
+    return response
+
+
+def store_session_upload(request, session_key, uploaded_file, folder):
+    previous = request.session.get(session_key)
+    if previous and previous.get('path') and default_storage.exists(previous['path']):
+        default_storage.delete(previous['path'])
+    safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', uploaded_file.name or 'archivo.xlsx').strip('_') or 'archivo.xlsx'
+    path = default_storage.save(f'tmp_uploads/{folder}/{uuid.uuid4().hex}_{safe_name}', uploaded_file)
+    ref = {'path': path, 'name': uploaded_file.name or safe_name}
+    request.session[session_key] = ref
+    request.session.modified = True
+    return ref
+
+
+def open_session_upload(request, session_key):
+    ref = request.session.get(session_key) or {}
+    path = ref.get('path')
+    if not path or not default_storage.exists(path):
+        return None, None
+    file_obj = default_storage.open(path, 'rb')
+    file_obj.name = ref.get('name') or path.rsplit('/', 1)[-1]
+    return file_obj, ref
+
+
+def clear_session_upload(request, session_key):
+    ref = request.session.pop(session_key, None)
+    request.session.modified = True
+    if ref and ref.get('path') and default_storage.exists(ref['path']):
+        default_storage.delete(ref['path'])
+
+
+@login_required
 def equipment_bulk_upload(request):
     _ensure_admin_access(request)
     report = None
     preview_only = True
+    upload_session_key = 'equipment_bulk_upload_file'
     if request.method == 'POST':
         form = EquipoBulkUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data.get('archivo')
+            if uploaded_file:
+                store_session_upload(request, upload_session_key, uploaded_file, 'equipment')
+            stored_file, _stored_ref = open_session_upload(request, upload_session_key)
+            if not stored_file:
+                form.add_error('archivo', 'Selecciona un archivo Excel para continuar.')
+            else:
+                form.cleaned_data['archivo'] = stored_file
         if form.is_valid():
             try:
                 preview = preview_equipment_import(
@@ -713,8 +1267,8 @@ def equipment_bulk_upload(request):
                     servicio=form.cleaned_data.get('servicio'),
                     sheet_name=form.cleaned_data.get('hoja') or None,
                     format=form.cleaned_data.get('formato') or 'auto',
-                    last_segment_is_equipment=True if form.cleaned_data.get('last_segment_is_equipment') else None,
-                    last_level_is_equipment=form.cleaned_data.get('last_level_is_equipment'),
+                    last_segment_is_equipment=None,
+                    last_level_is_equipment=True,
                 )
                 if request.POST.get('action') == 'confirm':
                     preview_only = False
@@ -722,11 +1276,14 @@ def equipment_bulk_upload(request):
                 else:
                     report = preview
 
+                if not preview_only:
+                    clear_session_upload(request, upload_session_key)
+
                 if preview_only:
                     if report.errors:
                         messages.warning(request, 'La previsualizacion encontro errores. Corrige el archivo antes de confirmar.')
                     else:
-                        messages.info(request, 'Previsualizacion lista. Para cargar datos, vuelve a enviar el archivo con "Confirmar carga".')
+                        messages.info(request, 'Previsualizacion lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
                 elif report.equipment_created or report.equipment_updated:
                     messages.success(
                         request,
@@ -736,13 +1293,21 @@ def equipment_bulk_upload(request):
                     messages.warning(request, 'No se crearon ni actualizaron equipos. Revisa las observaciones de la carga.')
             except ValueError as exc:
                 messages.error(request, str(exc))
+            finally:
+                try:
+                    form.cleaned_data['archivo'].close()
+                except Exception:
+                    pass
     else:
+        clear_session_upload(request, upload_session_key)
         form = EquipoBulkUploadForm()
+    stored_upload = request.session.get(upload_session_key)
 
     return render(request, 'core/equipment_bulk_upload.html', {
         'form': form,
         'report': report,
         'preview_only': preview_only,
+        'stored_upload': stored_upload,
         'equipment_upload_services': list(
             models.Servicio.objects
             .select_related('empresa')
@@ -876,6 +1441,36 @@ def model_delete(request, model_key, pk):
             obj.delete()
 
             messages.success(request, 'Matriz eliminada correctamente.')
+            return redirect('model_list', model_key=model_key)
+        if model_key == 'servicio':
+            counts = _delete_service_related_data(obj)
+            obj.delete()
+            removed_children = sum(counts.values())
+            detail = f' Se eliminaron {removed_children} registros asociados.' if removed_children else ''
+            messages.success(request, f'Servicio eliminado correctamente.{detail}')
+            return redirect('model_list', model_key=model_key)
+        if model_key == 'empresa':
+            counts = _delete_company_related_data(obj)
+            obj.delete()
+            removed_children = sum(counts.values())
+            detail = f' Se eliminaron, desvincularon o limpiaron {removed_children} registros asociados.' if removed_children else ''
+            messages.success(request, f'Empresa eliminada correctamente.{detail}')
+            return redirect('model_list', model_key=model_key)
+        if model_key == 'estrategia':
+            blockers = _strategy_delete_blockers(obj)
+            if blockers:
+                messages.error(
+                    request,
+                    'No se puede eliminar la estrategia porque tiene datos históricos asociados: '
+                    + '; '.join(blockers)
+                    + '. Elimina primero esos registros o usa una estrategia sin cargas/evaluaciones.'
+                )
+                return redirect('model_list', model_key=model_key)
+            counts = _delete_strategy_related_data(obj)
+            obj.delete()
+            removed_children = sum(counts.values())
+            detail = f' Se eliminaron o desvincularon {removed_children} registros asociados.' if removed_children else ''
+            messages.success(request, f'Estrategia eliminada correctamente.{detail}')
             return redirect('model_list', model_key=model_key)
         
         obj.delete()
@@ -1236,7 +1831,7 @@ def _build_homologated_matrix_preview(matriz):
         })
         impact_defs.append({
             'idx': slot,
-            'nombre': f'I{slot}',
+            'nombre': f'C{slot}',
             'valor': slot,
             'descripcion': f"Ref. {source_impact['nombre']}" if source_impact else 'Sin referencia',
         })
@@ -1296,7 +1891,7 @@ def _build_matrix_original_preview(matriz):
     prob_levels = list(matriz.niveles_probabilidad.order_by('orden_visual', 'id'))
     impact_levels = list(matriz.niveles_impacto.order_by('orden_visual', 'id'))
     prob_defs = _matrix_level_dicts(prob_levels, len(prob_levels) or 5, 'p')
-    impact_defs = _matrix_level_dicts(impact_levels, len(impact_levels) or 5, 'i')
+    impact_defs = _matrix_level_dicts(impact_levels, len(impact_levels) or 5, 'c')
     existing_cells = {
         (cell.probabilidad.orden_visual, cell.impacto_nivel.orden_visual): cell
         for cell in matriz.celdas.select_related('probabilidad', 'impacto_nivel').all()
@@ -1466,9 +2061,12 @@ def _matrix_level_dicts(levels, count, prefix):
     for idx in range(1, count + 1):
         obj = levels[idx - 1] if idx <= len(levels) else None
         value = getattr(obj, 'valor', None) if obj else None
+        name = getattr(obj, 'nombre', None) if obj else None
+        if prefix.lower().startswith('c') and name == f'I{idx}':
+            name = f'C{idx}'
         data.append({
             'idx': idx,
-            'nombre': getattr(obj, 'nombre', None) or f'{prefix.upper()}{idx}',
+            'nombre': name or f'{prefix.upper()}{idx}',
             'valor': _json_safe(value) if value is not None else idx,
             'descripcion': getattr(obj, 'descripcion', None) or '',
         })
@@ -1532,7 +2130,7 @@ def _definitions_from_request(request, prob_count, impact_count, fallback_prob, 
     prob_defs = _json_payload(request, 'prob_levels_json', fallback_prob) or fallback_prob
     impact_defs = _json_payload(request, 'impact_levels_json', fallback_impact) or fallback_impact
     prob_defs = _normalize_matrix_level_defs(prob_defs if isinstance(prob_defs, list) else fallback_prob, prob_count, 'p')
-    impact_defs = _normalize_matrix_level_defs(impact_defs if isinstance(impact_defs, list) else fallback_impact, impact_count, 'i')
+    impact_defs = _normalize_matrix_level_defs(impact_defs if isinstance(impact_defs, list) else fallback_impact, impact_count, 'c')
 
     return prob_defs, impact_defs
 
@@ -1780,7 +2378,7 @@ def _next_strategy_order(estrategia):
 
 
 def _matrix_axis_prefix(axis):
-    return 'Probabilidad' if axis == 'probabilidad' else 'Impacto'
+    return 'Probabilidad' if axis == 'probabilidad' else 'Consecuencia'
 
 
 def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
@@ -1792,6 +2390,7 @@ def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
         prefixes.append('probabilidad - ')
     if axis in (None, 'impacto'):
         prefixes.append('impacto - ')
+        prefixes.append('consecuencia - ')
     return any(name.startswith(prefix) for prefix in prefixes)
 
 

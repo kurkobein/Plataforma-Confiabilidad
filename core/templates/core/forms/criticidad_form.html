@@ -22,12 +22,6 @@
         {% csrf_token %}
         {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
         <div class="detail-grid">
-            <div><strong>{{ form.escenario_falla.label }}</strong></div>
-            <div>
-                {{ form.escenario_falla }}
-                {% if form.escenario_falla.help_text %}<small>{{ form.escenario_falla.help_text }}</small>{% endif %}
-                {{ form.escenario_falla.errors }}
-            </div>
             <div><strong>{{ form.frecuencia_original.label }}</strong></div>
             <div>
                 {{ form.frecuencia_original }}

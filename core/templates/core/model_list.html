@@ -97,6 +97,8 @@
                         <td>
                             {% if model_key == 'equipo' and field.name == 'tag_equipo' %}
                                 {{ row.tag_display }}
+                            {% elif model_key == 'equipo' and field.name == 'ut' %}
+                                {{ row.ut_display }}
                             {% else %}
                                 {{ row|attr:field.name }}
                             {% endif %}

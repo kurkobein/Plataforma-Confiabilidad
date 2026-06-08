@@ -1,5 +1,4 @@
-{% extends 'core/base.html' %} {% block title %}Dimensiones y catálogos | {{
-estrategia.nombre }}{% endblock %} {% block extra_head %}
+{% extends 'core/base.html' %} {% block title %}Dimensiones y catálogos | {{ estrategia.nombre }}{% endblock %} {% block extra_head %}
 <style>
   .editor-shell {
     display: grid;
@@ -123,7 +122,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
 
   .field-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 9px;
   }
 
@@ -381,14 +380,19 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
         <div id="editorValidation" class="validation-panel"></div>
         <div class="field-grid">
           <div>
-            <label>Nombre</label><input class="input-control" id="fNombre"
+            <label>Nombre</label><input class="input-control" id="fNombre" list="dimensionNameSuggestions"
               oninput="updateField('nombre', this.value)" />
+            <datalist id="dimensionNameSuggestions">
+              {% for name in dimension_name_suggestions %}
+              <option value="{{ name }}"></option>
+              {% endfor %}
+            </datalist>
           </div>
           <div>
             <label>Campo interno</label><input class="input-control" id="fCampo"
               oninput="updateField('campo', this.value)" />
           </div>
-          <div class="full">
+          <div>
             <label>Descripción</label><textarea class="input-textarea" id="fDescripcion" rows="2"
               oninput="updateField('descripcion', this.value)"></textarea>
           </div>
@@ -459,6 +463,10 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
           <div style="display: flex; align-items: end">
             <label><input type="checkbox" id="fConsiderarAvanceAca" onchange="updateField('considerar_avance_aca', this.checked)" />
               Considerar en avance ACA</label>
+          </div>
+          <div style="display: flex; align-items: end">
+            <label><input type="checkbox" id="fVisibleListadoAca" onchange="updateField('visible_en_listado_aca', this.checked)" />
+              Mostrar en listado ACA</label>
           </div>
         </div>
 
@@ -788,7 +796,8 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
           it.tipo_funcional || '-',
           it.tipo_dato || '-',
           it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones'),
-          it.considerar_avance_aca === false ? '' : 'avance ACA'
+          it.considerar_avance_aca === false ? '' : 'avance ACA',
+          it.visible_en_listado_aca === false ? 'oculta listado ACA' : 'listado ACA'
         ];
         if (dep) meta.push('depende: ' + dep);
         return `<div class="item-card ${activeClass}" onclick="selectItem('${escapeHtml(it.id)}')"><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong><div class="meta">${escapeHtml(meta.join(' | '))}</div></div>`;
@@ -806,7 +815,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
     ensureColumns(item); ensureRows(item);
     document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
     fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
-    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false;
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false; fVisibleListadoAca.checked = item.visible_en_listado_aca !== false;
     const calculated = isCalculated(item);
     catalogTypeBlock.style.display = calculated ? 'none' : '';
     catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
@@ -1029,7 +1038,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
   function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
   function newItem() {
     const id = 'new_' + Date.now();
-    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, visible_en_listado_aca: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
     store.active = id; expandItemGroup(current()); renderList(); renderEditor();
   }
   function duplicateItem() {
@@ -1185,6 +1194,7 @@ estrategia.nombre }}{% endblock %} {% block extra_head %}
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
       proceso_uso: item.proceso_uso || 'aca',
       considerar_avance_aca: item.considerar_avance_aca !== false,
+      visible_en_listado_aca: item.visible_en_listado_aca !== false,
       tipo_calculo: item.tipo_calculo || '',
       config_calculo: item.tipo_calculo
         ? normalizedCalculationConfig(item)

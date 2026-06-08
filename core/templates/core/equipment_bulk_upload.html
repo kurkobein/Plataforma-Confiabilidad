@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+﻿{% extends 'core/base.html' %}
 {% block title %}Carga masiva de equipos | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -16,95 +16,197 @@
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
-            <div class="form-grid">
-                <div class="form-field">
-                    <label>{{ form.empresa.label }}</label>
-                    {{ form.empresa }}
-                    {{ form.empresa.errors }}
-                </div>
-                <div class="form-field">
-                    <label>{{ form.servicio.label }}</label>
-                    {{ form.servicio }}
-                    {% if form.servicio.help_text %}<small class="muted">{{ form.servicio.help_text }}</small>{% endif %}
-                    {{ form.servicio.errors }}
-                </div>
-                <div class="form-field">
-                    <label>{{ form.archivo.label }}</label>
+            <div class="bulk-upload-main">
+                <label>{{ form.archivo.label }}</label>
+                <div class="bulk-file-dropzone{% if stored_upload %} has-file{% endif %}" data-bulk-file-dropzone data-stored-file-name="{{ stored_upload.name|default:'' }}">
+                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                    <strong>Selecciona o arrastra el Excel</strong>
+                    <span data-bulk-file-name>{% if stored_upload %}{{ stored_upload.name }} cargado y listo para revisar{% else %}Sin archivo seleccionado{% endif %}</span>
                     {{ form.archivo }}
-                    {% if form.archivo.help_text %}<small class="muted">{{ form.archivo.help_text }}</small>{% endif %}
-                    {{ form.archivo.errors }}
                 </div>
-                <div class="form-field">
-                    <label>{{ form.hoja.label }}</label>
-                    {{ form.hoja }}
-                    {% if form.hoja.help_text %}<small class="muted">{{ form.hoja.help_text }}</small>{% endif %}
-                    {{ form.hoja.errors }}
+                {% if form.archivo.help_text %}<small class="muted">{{ form.archivo.help_text }}</small>{% endif %}
+                {{ form.archivo.errors }}
+            </div>
+            <div class="bulk-upload-config">
+                <h3 class="card-title">Configuracion</h3>
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label>{{ form.empresa.label }}</label>
+                        {{ form.empresa }}
+                        {{ form.empresa.errors }}
+                    </div>
+                    <div class="form-field">
+                        <label>{{ form.servicio.label }}</label>
+                        {{ form.servicio }}
+                        {% if form.servicio.help_text %}<small class="muted">{{ form.servicio.help_text }}</small>{% endif %}
+                        {{ form.servicio.errors }}
+                    </div>
+                    <div class="form-field">
+                        <label>{{ form.hoja.label }}</label>
+                        {{ form.hoja }}
+                        {% if form.hoja.help_text %}<small class="muted">{{ form.hoja.help_text }}</small>{% endif %}
+                        {{ form.hoja.errors }}
+                    </div>
+                    <div class="form-field">
+                        <label>{{ form.formato.label }}</label>
+                        {{ form.formato }}
+                        {{ form.formato.errors }}
+                    </div>
                 </div>
-                <div class="form-field">
-                    <label>{{ form.formato.label }}</label>
-                    {{ form.formato }}
-                    {{ form.formato.errors }}
-                </div>
-                <label class="check-option">
-                    {{ form.last_segment_is_equipment }}
-                    <span>{{ form.last_segment_is_equipment.label }}</span>
-                </label>
-                <label class="check-option">
-                    {{ form.last_level_is_equipment }}
-                    <span>{{ form.last_level_is_equipment.label }}</span>
-                </label>
             </div>
             <div class="actions" style="margin-top:16px;">
-                <button class="btn" type="submit" name="action" value="preview">Previsualizar</button>
-                <button class="btn btn-primary" type="submit" name="action" value="confirm">Confirmar carga</button>
+                <button class="btn" type="submit" name="action" value="preview" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Previsualizar</button>
+                <button class="btn btn-primary" type="submit" name="action" value="confirm" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Confirmar carga</button>
+                <span class="bulk-upload-status muted" id="bulk-upload-status" data-rows-read="{% if report %}{{ report.rows_read }}{% else %}0{% endif %}"></span>
             </div>
-            <p class="muted" style="margin-top:8px;">Para confirmar se debe volver a enviar el archivo. La previsualizacion no guarda datos.</p>
         </form>
     </div>
 
     <div class="card hierarchy-side-card">
         <h3 class="card-title">Formatos soportados</h3>
-        <p class="muted">La primera hoja, o la hoja indicada, debe incluir columnas reconocibles.</p>
+        <p class="muted">
+            La primera hoja, o la hoja indicada, puede usar encabezados flexibles. El sistema detecta columnas equivalentes aunque no tengan exactamente el mismo nombre.
+        </p>
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>Formato</th>
-                        <th>Columnas clave</th>
+                        <th>Encabezados de ejemplo</th>
+                        <th>Ejemplo</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>Mindco simple</td><td>Empresa, Planta/Sitio, Area, Sistema, SubSistema, TAG, Ubicacion Tecnica, Equipo/Componente</td></tr>
-                    <tr><td>SAP / UTS</td><td>Ubicacion tecnica, Denominacion, N0, N0_nombre, N1, N1_nombre...</td></tr>
+                    <tr>
+                        <td>Mindco simple</td>
+                        <td>Empresa, nivel jer&aacute;rquico, nivel jer&aacute;rquico, TAG, nombre del equipo, descripci&oacute;n U.T.</td>
+                        <td>
+                            <a class="btn" href="{% url 'equipment_bulk_example' 'mindco_simple' %}">
+                                Descargar Excel
+                            </a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>SAP / UTS</td>
+                        <td>Ubicaci&oacute;n t&eacute;cnica, denominaci&oacute;n, niveles/c&oacute;digos jer&aacute;rquicos, nombre del equipo.</td>
+                        <td>
+                            <a class="btn" href="{% url 'equipment_bulk_example' 'sap_uts' %}">
+                                Descargar Excel
+                            </a>
+                        </td>
+                    </tr>
                 </tbody>
             </table>
         </div>
-        <p class="muted">La carga crea niveles, nodos, equipos y relaciones ServicioEquipo si corresponde. No borra datos existentes.</p>
+        <p class="muted">
+            Ejemplos válidos pueden venir como área/Sistema/SubSistema, Nivel 1/Nivel 2, N0/N1, UT completa, TAG o denominación. La carga crea niveles, nodos, equipos y relaciones ServicioEquipo si corresponde. No borra datos existentes.
+        </p>
     </div>
 </div>
 
 {% if report %}
 <div class="card" style="margin-top:16px;">
     <h3 class="card-title">{% if preview_only %}Previsualizacion{% else %}Resultado de la carga{% endif %}</h3>
-    <div class="stats-grid">
-        <div class="stat"><small>Filas leidas</small><strong>{{ report.rows_read }}</strong></div>
-        <div class="stat"><small>Filas validas</small><strong>{{ report.valid_rows }}</strong></div>
-        <div class="stat"><small>Filas omitidas</small><strong>{{ report.skipped }}</strong></div>
-        <div class="stat"><small>Formato</small><strong style="font-size:18px;">{{ report.format_detected|default:'-' }}</strong></div>
-        <div class="stat"><small>Nodos a crear</small><strong>{{ report.nodes_to_create }}</strong></div>
-        <div class="stat"><small>Nodos reutilizados</small><strong>{{ report.nodes_reused }}</strong></div>
-        <div class="stat"><small>Nodos creados</small><strong>{{ report.nodes_created }}</strong></div>
-        <div class="stat"><small>Equipos a crear</small><strong>{{ report.equipment_to_create }}</strong></div>
-        <div class="stat"><small>Equipos a actualizar</small><strong>{{ report.equipment_to_update }}</strong></div>
-        <div class="stat"><small>Equipos creados</small><strong>{{ report.equipment_created }}</strong></div>
-        <div class="stat"><small>Equipos actualizados</small><strong>{{ report.equipment_updated }}</strong></div>
-        <div class="stat"><small>ServicioEquipo a crear</small><strong>{{ report.service_equipment_to_create }}</strong></div>
-        <div class="stat"><small>ServicioEquipo creados</small><strong>{{ report.service_equipment_created }}</strong></div>
+    <div class="import-preview-summary">
+        <div class="preview-group">
+            <div class="preview-group-title">Archivo</div>
+
+            <div class="preview-metric">
+                <span>Filas leídas</span>
+                <strong>{{ report.rows_read }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Filas válidas</span>
+                <strong>{{ report.valid_rows }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Filas omitidas</span>
+                <strong>{{ report.skipped }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Formato</span>
+                <strong>{{ report.format_detected|default:'-' }}</strong>
+            </div>
+        </div>
+
+        <div class="preview-group">
+            <div class="preview-group-title">Jerarquía</div>
+
+            <div class="preview-metric">
+                <span>Nodos a crear</span>
+                <strong>{{ report.nodes_to_create }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Nodos reutilizados</span>
+                <strong>{{ report.nodes_reused }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Nodos creados</span>
+                <strong>{{ report.nodes_created }}</strong>
+            </div>
+        </div>
+
+        <div class="preview-group">
+            <div class="preview-group-title">Equipos</div>
+
+            <div class="preview-metric">
+                <span>A crear</span>
+                <strong>{{ report.equipment_to_create }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>A actualizar</span>
+                <strong>{{ report.equipment_to_update }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Creados</span>
+                <strong>{{ report.equipment_created }}</strong>
+            </div>
+            <div class="preview-metric">
+                <span>Actualizados</span>
+                <strong>{{ report.equipment_updated }}</strong>
+            </div>
+        </div>
     </div>
 
-    {% if report.levels_detected %}
-        <h4>Niveles detectados</h4>
-        <p class="muted">{{ report.levels_detected|join:', ' }}</p>
+    {% if report.normalized_rows %}
+    <hr>
+        <h3 class="card-title">Muestra de registros interpretados</h3>
+        <p class="muted">Primeros 10 registros normalizados antes de guardar. Revisa que la jerarqu&iacute;a, UT, TAG y nombre del equipo correspondan al Excel.</p>
+        <div class="table-wrap">
+            <table class="datatable display" data-page-length="10">
+                <thead>
+                    <tr>
+                        <th>Fila</th>
+                        <th>Empresa</th>
+                        <th>Jerarqu&iacute;a detectada</th>
+                        <th>UT</th>
+                        <th>TAG</th>
+                        <th>Equipo</th>
+                        <th>Descripci&oacute;n U.T.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in report.normalized_rows|slice:":10" %}
+                        <tr>
+                            <td>{{ item.row_number }}</td>
+                            <td>{{ item.empresa }}</td>
+                            <td>
+                                {% for node in item.hierarchy %}
+                                    <div>
+                                        <strong>{{ node.level_name }}:</strong>
+                                        {{ node.node_code }} - {{ node.node_name }}
+                                    </div>
+                                {% endfor %}
+                            </td>
+                            <td>{{ item.equipment.ut }}</td>
+                            <td>{{ item.equipment.tag_equipo }}</td>
+                            <td>{{ item.equipment.nombre_equipo }}</td>
+                            <td>{{ item.equipment.descripcion_ut }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% endif %}
 
     {% if report.errors %}
@@ -124,7 +226,8 @@
     {% endif %}
 
     {% if report.warnings %}
-        <h4>Observaciones</h4>
+    <hr>
+        <h3 class="card-title">Observaciones</h3>
         <div class="table-wrap">
             <table class="datatable display" data-page-length="25">
                 <thead>
@@ -180,6 +283,78 @@
     if (initialService) servicioSelect.value = initialService;
     empresaSelect.addEventListener('change', function () {
         renderServices(false);
+    });
+})();
+
+(function () {
+    const form = document.querySelector('form[method="post"][enctype="multipart/form-data"]');
+    const status = document.getElementById('bulk-upload-status');
+    if (!form || !status) return;
+    const dropzone = form.querySelector('[data-bulk-file-dropzone]');
+    const fileInput = dropzone ? dropzone.querySelector('input[type="file"]') : null;
+    const fileName = dropzone ? dropzone.querySelector('[data-bulk-file-name]') : null;
+    const submitButtons = Array.from(form.querySelectorAll('[data-bulk-submit]'));
+
+    function syncFileState() {
+        const storedName = dropzone?.dataset.storedFileName || '';
+        const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        const hasFile = Boolean(file || storedName);
+        dropzone?.classList.toggle('has-file', hasFile);
+        if (fileName) {
+            fileName.textContent = file
+                ? `${file.name} cargado y listo para revisar`
+                : (storedName ? `${storedName} cargado y listo para revisar` : 'Sin archivo seleccionado');
+        }
+        submitButtons.forEach(button => {
+            button.disabled = !hasFile;
+        });
+    }
+
+    if (dropzone && fileInput) {
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                dropzone.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, function () {
+                dropzone.classList.remove('is-dragover');
+            });
+        });
+        dropzone.addEventListener('drop', function (event) {
+            event.preventDefault();
+            if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) {
+                fileInput.files = event.dataTransfer.files;
+                syncFileState();
+            }
+        });
+        fileInput.addEventListener('change', syncFileState);
+        syncFileState();
+    }
+
+    const storageKey = 'equipmentBulkUploadStartedAt';
+    const rowsRead = Number(status.dataset.rowsRead || 0);
+    const previousStart = Number(sessionStorage.getItem(storageKey) || 0);
+    if (rowsRead > 0 && previousStart > 0) {
+        const elapsed = Math.max(0, Math.round((Date.now() - previousStart) / 1000));
+        status.textContent = `Ultima revision: ${rowsRead} registros revisados en ${elapsed}s.`;
+        sessionStorage.removeItem(storageKey);
+    }
+
+    form.addEventListener('submit', function (event) {
+        const submitter = event.submitter;
+        const action = submitter && submitter.value === 'confirm' ? 'Carga' : 'Previsualizacion';
+        sessionStorage.setItem(storageKey, String(Date.now()));
+        const startedAt = Date.now();
+
+        function tick() {
+            const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+            status.textContent = `${action} en proceso... ${elapsed}s - registros revisados: esperando resultado.`;
+        }
+
+        tick();
+        setInterval(tick, 500);
     });
 })();
 </script>

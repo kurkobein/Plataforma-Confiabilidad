@@ -23,9 +23,9 @@ class MatrizBuilderForm(forms.Form):
     dimension_impacto = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
         required=False,
-        label='Dimension eje impacto',
+        label='Dimension eje consecuencia',
         empty_label='Crear dimension automatica',
-        help_text='Dimension existente que entrega el valor para el eje de impacto.',
+        help_text='Dimension existente que entrega el valor para el eje de consecuencia.',
     )
     eje_horizontal = forms.ChoiceField(
         choices=app_models.MatrizRiesgo.EJE_HORIZONTAL_CHOICES,

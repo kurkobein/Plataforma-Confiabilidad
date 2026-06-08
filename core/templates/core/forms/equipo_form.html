@@ -45,6 +45,13 @@
                 {{ form.empresa.errors }}
             </div>
 
+            <div><strong>{{ form.servicio.label }}</strong></div>
+            <div>
+                {{ form.servicio }}
+                {% if form.servicio.help_text %}<small>{{ form.servicio.help_text }}</small>{% endif %}
+                {{ form.servicio.errors }}
+            </div>
+
             <div><strong>Ubicacion tecnica</strong></div>
             <div>
                 <div id="technical-location-picker" class="technical-location-picker">
@@ -82,18 +89,22 @@
 <script type="application/json" id="tech-location-levels-data">{{ tech_location_levels_json|safe }}</script>
 <script type="application/json" id="tech-location-nodes-data">{{ tech_location_nodes_json|safe }}</script>
 <script type="application/json" id="tech-location-nodes-url-template">{{ tech_location_nodes_url_template|safe }}</script>
+<script type="application/json" id="equipment-services-data">{{ equipment_services_json|safe }}</script>
 
 <script>
 (function () {
     const levels = JSON.parse(document.getElementById('tech-location-levels-data').textContent || '[]');
     const nodes = JSON.parse(document.getElementById('tech-location-nodes-data').textContent || '[]');
+    const serviceOptions = JSON.parse(document.getElementById('equipment-services-data').textContent || '[]');
     const nodesUrlTemplate = (document.getElementById('tech-location-nodes-url-template').textContent || '').trim();
     const selectedInitial = '{{ tech_location_selected_id|default:"" }}';
     const selectedEmpresaInitial = '{{ tech_location_empresa_id|default:"" }}';
 
     const empresaSelect = document.getElementById('id_empresa');
+    const serviceSelect = document.getElementById('id_servicio');
     const nodeInput = document.getElementById('id_nodo');
     const utInput = document.getElementById('id_ut');
+    const tagInput = document.getElementById('id_tag_equipo');
     const fieldsWrap = document.getElementById('technical-location-fields');
     const emptyState = document.getElementById('technical-location-empty');
     const resolveButton = document.getElementById('resolve-ut-button');
@@ -132,12 +143,37 @@
 
     function updateUnifiedFields(node) {
         if (!node) return;
-        if (utInput) utInput.value = node.ut || '';
+        const tag = segment(tagInput ? tagInput.value : '');
+        if (utInput) utInput.value = [node.ut, tag].filter(Boolean).join('-');
         setFeedback('', '');
     }
 
     function segment(value) {
         return (value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function filterServiceOptions() {
+        if (!serviceSelect) return;
+        const empresaId = selectedEmpresaId();
+        const selected = serviceSelect.value;
+        const options = serviceOptions
+            .filter(item => !empresaId || Number(item.empresa_id) === Number(empresaId))
+            .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+        serviceSelect.innerHTML = '<option value="">Sin servicio</option>' + options
+            .map(item => `<option value="${item.id}">${escapeHtml(item.label)}</option>`)
+            .join('');
+        if (options.some(item => String(item.id) === String(selected))) {
+            serviceSelect.value = selected;
+        }
     }
 
     function normalizeNode(node) {
@@ -223,7 +259,12 @@
             setFeedback('La empresa no tiene estructura de ubicacion tecnica configurada.', 'warning');
             return false;
         }
-        if (codes.length !== companyLevels.length) {
+        let utTag = '';
+        let nodeCodes = codes;
+        if (codes.length === companyLevels.length + 1) {
+            utTag = codes[codes.length - 1];
+            nodeCodes = codes.slice(0, -1);
+        } else if (codes.length !== companyLevels.length) {
             setFeedback(`La UT tiene ${codes.length} componentes y la estructura requiere ${companyLevels.length} niveles.`, 'warning');
             return false;
         }
@@ -232,7 +273,7 @@
         let finalNode = null;
         for (let index = 0; index < companyLevels.length; index += 1) {
             const level = companyLevels[index];
-            const code = codes[index];
+            const code = nodeCodes[index];
             let options = [];
             try {
                 options = await fetchNodes(parentId, level.id);
@@ -253,9 +294,12 @@
 
         if (finalNode) {
             nodeInput.value = finalNode.id;
+            if (utTag && tagInput && !segment(tagInput.value)) {
+                tagInput.value = utTag;
+            }
             updateUnifiedFields(finalNode);
             renderPicker();
-            setFeedback(`UT resuelta: ${finalNode.ut}`, 'success');
+            setFeedback(`UT resuelta: ${utInput ? utInput.value : finalNode.ut}`, 'success');
             return true;
         }
         return false;
@@ -342,6 +386,7 @@
         nodeInput.value = '';
         if (utInput) utInput.value = '';
         setFeedback('', '');
+        filterServiceOptions();
         renderPicker();
     });
 
@@ -358,7 +403,19 @@
             this.value = this.value.toUpperCase();
         });
     }
+    if (tagInput) {
+        tagInput.addEventListener('input', function () {
+            this.value = segment(this.value);
+            const selected = nodeById.get(String(nodeInput.value));
+            if (selected) updateUnifiedFields(selected);
+        });
+        tagInput.addEventListener('change', function () {
+            const selected = nodeById.get(String(nodeInput.value));
+            if (selected) updateUnifiedFields(selected);
+        });
+    }
 
+    filterServiceOptions();
     renderPicker();
 })();
 </script>

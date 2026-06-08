@@ -1,4 +1,4 @@
-import json
+﻿import json
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -10,11 +10,12 @@ from django.db.models import Count, Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 
 from core import models
 from core.access import get_accessible_services, get_profile_for_user, get_service_equipment, get_service_permission
-from aca.forms import CriticidadDimensionFormSet, CriticidadDimensionInputForm, ServicioACARegistroForm
+from aca.forms import ACAExcelBulkUploadForm, CriticidadDimensionFormSet, CriticidadDimensionInputForm, ServicioACARegistroForm
 from aca.services.progress import (
     build_aca_service_progress_summary,
     compute_criticidad_progress,
@@ -27,6 +28,7 @@ from aca.services.progress import (
 )
 from core.views import (
     _calc_slug,
+    clear_session_upload,
     _catalog_row_boolean,
     _catalog_row_primary_numeric,
     _catalog_row_text,
@@ -47,6 +49,8 @@ from core.views import (
     _service_equipment_endpoints,
     _service_or_404,
     _strategy_dimensions,
+    open_session_upload,
+    store_session_upload,
 )
 
 
@@ -108,10 +112,18 @@ def _service_family_payload(servicio):
     familias = (
         models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True)
         .prefetch_related('items__equipo')
-        .order_by('nombre')
+        .order_by('nombre', 'id')
     )
     for familia in familias:
         equipos = [item.equipo for item in familia.items.all()]
+        equipos = sorted(
+            [equipo for equipo in equipos if equipo],
+            key=lambda equipo: (
+                (getattr(equipo, 'tag_display', '') or equipo.tag_equipo or '').casefold(),
+                (equipo.nombre_equipo or '').casefold(),
+                (equipo.ut or '').casefold(),
+            ),
+        )
         payload.append({
             'id': familia.pk,
             'nombre': familia.nombre,
@@ -178,7 +190,7 @@ def _service_matrix_selector(servicio):
             'prob_axis_generated': False,
             'impact_axis_generated': False,
             'prob_axis_label': 'Probabilidad',
-            'impact_axis_label': 'Impacto',
+            'impact_axis_label': 'Consecuencia',
         }
 
     prob_levels = list(
@@ -237,7 +249,7 @@ def _service_matrix_selector(servicio):
         'prob_axis_generated': _is_generated_matrix_axis_dimension(matriz.dimension_probabilidad, 'probabilidad') if matriz.dimension_probabilidad_id else False,
         'impact_axis_generated': _is_generated_matrix_axis_dimension(matriz.dimension_impacto, 'impacto') if matriz.dimension_impacto_id else False,
         'prob_axis_label': matriz.dimension_probabilidad.dimension.nombre if matriz.dimension_probabilidad_id else 'Probabilidad',
-        'impact_axis_label': matriz.dimension_impacto.dimension.nombre if matriz.dimension_impacto_id else 'Impacto',
+        'impact_axis_label': matriz.dimension_impacto.dimension.nombre if matriz.dimension_impacto_id else 'Consecuencia',
     }
 
 def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
@@ -598,6 +610,7 @@ def get_aca_bulk_dimension_payload(estrategia, excluded_dimension_ids=None):
             'catalog_dependency_dimension_id': form.catalog_dependency_dimension_id,
             'catalog_dependency_campo': form.catalog_dependency_campo,
             'catalog_type': form.catalog_type,
+            'allows_empty_comment': form.allows_empty_comment,
             'config_calculo': form.config_calculo,
             'config_calculo_json': form.config_calculo_json,
             'tipo_calculo': form.tipo_calculo,
@@ -653,6 +666,7 @@ def _dimension_formset_initial_from_criticidad(criticidad, estrategia, exclude_d
                 'valor_numerico': item.valor_numerico,
                 'valor_booleano': item.valor_booleano,
                 'valor_texto': item.valor_texto,
+                'comentario': item.comentario or '',
             })
         initial.append(payload)
     return initial
@@ -815,6 +829,11 @@ def _prepare_dimension_items(estrategia, formset):
 
         catalogo_fila = data.get('catalogo_fila')
         escala_valor = data.get('escala_valor')
+        is_calculated = bool((getattr(dimension, 'tipo_calculo', '') or '').strip())
+        dependency_key = _dependency_ref_from_config(getattr(dimension, 'config_calculo', None))
+        comentario = str(data.get('comentario') or '').strip()
+        if is_calculated or dependency_key:
+            comentario = ''
         valor_numerico, valor_secundario, valor_booleano, valor_texto, escala_unificada = _extract_dimension_form_value(
             data,
             catalogo_fila=catalogo_fila,
@@ -831,8 +850,9 @@ def _prepare_dimension_items(estrategia, formset):
             'valor_secundario': valor_secundario,
             'valor_booleano': valor_booleano,
             'valor_texto': valor_texto or '',
-            'is_calculated': bool((getattr(dimension, 'tipo_calculo', '') or '').strip()),
-            'dependency_key': _dependency_ref_from_config(getattr(dimension, 'config_calculo', None)),
+            'comentario': comentario,
+            'is_calculated': is_calculated,
+            'dependency_key': dependency_key,
         }
         prepared.append(item)
 
@@ -937,6 +957,9 @@ def prepare_bulk_dimension_items(estrategia, row_dimensions, excluded_dimension_
             'valor_booleano': valor_booleano,
             'valor_texto': str(_bulk_dimension_value(raw, 'valor_texto', 'text_value', 'display') or ''),
         }
+        comentario = str(_bulk_dimension_value(raw, 'comentario', 'comment') or '').strip()
+        if is_calculated or dependency_key:
+            comentario = ''
         valor_numerico, valor_secundario, valor_booleano, valor_texto, escala_unificada = _extract_dimension_form_value(
             data,
             catalogo_fila=catalogo_fila,
@@ -953,6 +976,7 @@ def prepare_bulk_dimension_items(estrategia, row_dimensions, excluded_dimension_
             'valor_secundario': valor_secundario,
             'valor_booleano': valor_booleano,
             'valor_texto': valor_texto or '',
+            'comentario': comentario,
             'is_calculated': is_calculated,
             'dependency_key': dependency_key,
         }
@@ -1035,6 +1059,7 @@ def _create_dimension_items(evaluacion, prepared):
             item['valor_secundario'] is not None,
             item['valor_booleano'] is not None,
             item['valor_texto'],
+            item.get('comentario'),
         ]):
             continue
 
@@ -1049,6 +1074,7 @@ def _create_dimension_items(evaluacion, prepared):
             valor_secundario=item['valor_secundario'],
             valor_booleano=item['valor_booleano'],
             valor_texto=item['valor_texto'] or '',
+            comentario=item.get('comentario') or '',
         ))
     return created
 
@@ -1335,6 +1361,7 @@ def _aca_progress_context(servicio, params):
     )
     criticidades = list(criticidades_queryset)
     progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
+    progress_by_criticidad_id = progress_summary.get('progress_by_criticidad_id', {})
     progress_dimensions = get_aca_progress_dimensions(servicio.estrategia)
     hierarchy_chart_summary = group_progress_by_hierarchy_level(
         criticidades,
@@ -1353,6 +1380,145 @@ def _aca_progress_context(servicio, params):
     }
 
 
+def _aca_excel_sample_rows(importer, service, rows, limit=10):
+    sample = []
+    existing_equipment_ids = set(
+        models.Criticidad.objects.filter(
+            aca_carga__servicio=service,
+            equipo_id__isnull=False,
+        ).values_list('equipo_id', flat=True)
+    )
+    for row in rows[:limit]:
+        tag = str(row.get('tag') or '').strip()
+        ut = str(row.get('ut') or '').strip()
+        name = str(row.get('equipo_componente') or '').strip()
+        equipo = None
+        equipment_qs = get_service_equipment(service)
+        if tag:
+            equipo = equipment_qs.filter(tag_equipo=tag).first() or models.Equipo.objects.filter(tag_equipo=tag).first()
+        if not equipo and ut:
+            equipo = equipment_qs.filter(ut=ut).first() or models.Equipo.objects.filter(ut=ut).first()
+        status = 'Listo'
+        if equipo and equipo.pk in existing_equipment_ids:
+            status = 'Ya tiene ACA'
+        elif not equipo:
+            status = 'Equipo no encontrado'
+        sample.append({
+            'excel_row': row.get('_excel_row'),
+            'tag': tag,
+            'ut': ut,
+            'equipo_excel': name,
+            'equipo_sistema': equipo.nombre_equipo if equipo else '',
+            'status': status,
+        })
+    return sample
+
+
+def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_equipment=False, replace=False, preview=True):
+    from openpyxl import load_workbook
+    from aca.management.commands.import_aca_excel import Command as ACAImportCommand
+
+    importer = ACAImportCommand()
+    workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
+    resolved_sheet = (sheet_name or '').strip()
+    if not resolved_sheet:
+        resolved_sheet = 'ACA' if 'ACA' in workbook.sheetnames else workbook.sheetnames[0]
+    if resolved_sheet not in workbook.sheetnames:
+        raise ValueError(f'El archivo no tiene hoja "{resolved_sheet}". Hojas: {", ".join(workbook.sheetnames)}')
+
+    rows = importer.read_rows(workbook[resolved_sheet])
+    if not rows:
+        raise ValueError('No se encontraron filas ACA para importar.')
+
+    origin = f'ACA Excel: {uploaded_file.name}'
+    sample_rows = _aca_excel_sample_rows(importer, servicio, rows)
+    now = timezone.now()
+    with transaction.atomic():
+        if replace:
+            importer.delete_previous(servicio, origin)
+        result = importer.import_rows(
+            service=servicio,
+            rows=rows,
+            origin=origin,
+            create_missing_equipment=create_missing_equipment,
+            now=now,
+        )
+        if preview:
+            transaction.set_rollback(True)
+
+    return {
+        'sheet_name': resolved_sheet,
+        'origin': origin,
+        'rows_read': len(rows),
+        'cargas': result.get('cargas', 0),
+        'aca': result.get('aca', 0),
+        'dimensiones': result.get('dimensiones', 0),
+        'catalogo_fila_asignadas': result.get('catalogo_fila_asignadas', 0),
+        'equipos_creados': result.get('equipos_creados', 0),
+        'omitidas': result.get('omitidas', 0),
+        'warnings': result.get('warnings') or [],
+        'sample_rows': sample_rows,
+    }
+
+
+@login_required
+def service_aca_excel_upload(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    if not permission.get('can_edit'):
+        raise PermissionDenied('No tienes permisos para cargar registros ACA en este servicio.')
+
+    report = None
+    preview_only = True
+    upload_session_key = f'aca_excel_upload_file_{servicio.pk}'
+    if request.method == 'POST':
+        form = ACAExcelBulkUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data.get('archivo')
+            if uploaded_file:
+                store_session_upload(request, upload_session_key, uploaded_file, 'aca')
+            stored_file, _stored_ref = open_session_upload(request, upload_session_key)
+            if not stored_file:
+                form.add_error('archivo', 'Selecciona un archivo Excel para continuar.')
+            else:
+                form.cleaned_data['archivo'] = stored_file
+        if form.is_valid():
+            preview_only = request.POST.get('action') != 'confirm'
+            try:
+                report = _run_aca_excel_upload(
+                    servicio,
+                    form.cleaned_data['archivo'],
+                    form.cleaned_data.get('hoja') or '',
+                    create_missing_equipment=form.cleaned_data.get('create_missing_equipment'),
+                    replace=form.cleaned_data.get('replace'),
+                    preview=preview_only,
+                )
+                if preview_only:
+                    messages.info(request, 'Previsualizacion lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
+                else:
+                    clear_session_upload(request, upload_session_key)
+                    messages.success(request, f'Carga ACA completada: {report["aca"]} registros creados.')
+            except Exception as exc:
+                messages.error(request, str(exc))
+            finally:
+                try:
+                    form.cleaned_data['archivo'].close()
+                except Exception:
+                    pass
+    else:
+        clear_session_upload(request, upload_session_key)
+        form = ACAExcelBulkUploadForm()
+    stored_upload = request.session.get(upload_session_key)
+
+    return render(request, 'core/aca/service_aca_excel_upload.html', {
+        'service': servicio,
+        'permission': permission,
+        'form': form,
+        'report': report,
+        'preview_only': preview_only,
+        'stored_upload': stored_upload,
+    })
+
+
 @login_required
 def service_aca_list(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=False)
@@ -1363,6 +1529,7 @@ def service_aca_list(request, pk):
         servicio,
         include_actions=True,
         criticidades=criticidades,
+        include_evaluation_columns=True,
     )
     aca_groups = _service_aca_row_groups(rows)
     aca_list_items = _service_aca_list_items(aca_groups)
@@ -1504,7 +1671,12 @@ def _aca_panel_progress_context(servicio, params):
             allowed_parent_ids = selected_in_level
 
     progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
+    progress_by_criticidad_id = progress_summary.get('progress_by_criticidad_id', {})
     progress_dimensions = get_aca_progress_dimensions(servicio.estrategia)
+    _detail_columns, panel_detail_rows, _detail_complete, _detail_incomplete, _detail_progress = _service_aca_table_data(
+        servicio,
+        criticidades=criticidades,
+    )
     chart_level_id = deepest_level_id or (levels[0]['id'] if levels else '')
     hierarchy_chart_summary = group_progress_by_hierarchy_level(
         criticidades,
@@ -1517,14 +1689,28 @@ def _aca_panel_progress_context(servicio, params):
     for record in criticidades:
         level_node = _record_node_at_level(record, chart_level_id, all_node_by_id) if chart_level_id else None
         carga = getattr(record, 'aca_carga', None)
+        progress = progress_by_criticidad_id.get(record.pk, {})
+        progress_percent = progress.get('progress_percent')
+        node_path_ids = []
+        if record.equipo and record.equipo.nodo_id:
+            node_path_ids = [str(node.pk) for node in _node_path_for_panel(record.equipo.nodo, all_node_by_id)]
         table_rows.append({
             'id': record.pk,
             'level_value': (level_node.nombre or level_node.codigo) if level_node else '-',
-            'ut': record.equipo.ut if record.equipo else '',
+            'ut': record.equipo.ut_display if record.equipo else '',
+            'descripcion_ut': record.equipo.descripcion_ut if record.equipo else '',
             'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y') if carga and carga.creado_en else '',
             'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y') if carga and carga.actualizado else '',
             'tag': record.equipo.tag_display if record.equipo else '',
-            'escenario_falla': record.escenario_falla,
+            'progress_percent': progress_percent if progress_percent is not None else '',
+            'progress_label': progress.get('progress_label', 'N/A'),
+            'progress_order': progress_percent if progress_percent is not None else -1,
+            'progress_width': _progress_width_css(progress_percent),
+            'progress_color': _progress_color(progress_percent),
+            'progress_missing_label': ', '.join(
+                item.dimension.nombre for item in progress.get('missing_dimensions', [])
+            ) or 'Sin faltantes',
+            'node_path_ids': ','.join(node_path_ids),
         })
 
     return {
@@ -1533,6 +1719,7 @@ def _aca_panel_progress_context(servicio, params):
         'panel_selected_node_ids': selected_node_ids,
         'panel_chart_summary': hierarchy_chart_summary,
         'panel_table_rows': table_rows,
+        'panel_detail_rows': panel_detail_rows,
         'panel_table_level_name': table_level_name,
         'panel_total_filtered': len(criticidades),
         'panel_is_filtered': bool(selected_node_ids),
@@ -1594,7 +1781,7 @@ def _aca_group_key_and_label(crit):
         familia = origen.replace('Manual familia:', '', 1).strip() or 'Familia'
         return (
             f'familia:{familia}:{stamp_key}',
-            f'Familia de activos · {familia}',
+            f'Familia de activos - {familia}',
             stamp,
             'grupo',
             getattr(carga, 'pk', None),
@@ -1649,7 +1836,7 @@ def _service_aca_list_items(groups):
     return items
 
 
-def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
+def _service_aca_table_data(servicio, include_actions=False, criticidades=None, include_evaluation_columns=False):
     estrategia_dims = _strategy_dimensions(
         servicio.estrategia,
         proceso=models.EstrategiaDimension.PROCESO_ACA,
@@ -1658,6 +1845,10 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
     estrategia_dims = [
         ed for ed in estrategia_dims
         if not _is_generated_matrix_axis_dimension(ed)
+    ]
+    listado_estrategia_dims = [
+        ed for ed in estrategia_dims
+        if getattr(ed, 'visible_en_listado_aca', True)
     ]
 
     if criticidades is None:
@@ -1687,20 +1878,25 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
     progress_by_criticidad_id = progress_summary.get('progress_by_criticidad_id', {})
 
     columns = [
-        ('cliente', 'Cliente'),
         ('avance_aca', 'Avance'),
-        ('fecha_analisis', 'Fecha análisis'),
+        ('fecha_creado', 'Fecha creado'),
+        ('ultimo_avance', 'Última modificación'),
         ('ubicacion_tecnica', 'Ubicación Técnica'),
         ('descripcion_ut', 'Descripción U.Técnica'),
         ('equipo', 'Equipo'),
         ('tag', 'TAG'),
-        ('escenario_falla', 'Escenario de Falla'),
         ('observacion', 'Observación'),
     ]
-    for ed in estrategia_dims:
-        columns.append((f'dim_{ed.dimension_id}', ed.dimension.nombre))
+    if include_evaluation_columns:
+        for ed in listado_estrategia_dims:
+            columns.append((f'dim_{ed.dimension_id}', ed.dimension.nombre))
+        columns.extend([
+            # ('frecuencia_original', 'Frecuencia Original'),
+            # ('frecuencia_normalizada', 'Frecuencia Normalizada'),
+            # ('valor_cons_total', 'Valor Consecuencia Total'),
+            # ('indicador_criticidad', 'Indicador Criticidad'),
+        ])
     columns.extend([
-        ('valor_cons_total', 'Valor Consecuencia Total'),
         ('valor_criticidad_equipo', 'Valor Criticidad Equipo'),
         ('criticidad_final', 'Criticidad Final'),
     ])
@@ -1728,6 +1924,16 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
             incomplete_count += 1
         missing_names = [item.dimension.nombre for item in progress.get('missing_dimensions', [])]
         show_matrix_values = not matriz or bool(matrix_cell)
+        carga = crit.aca_carga
+        fecha_creado = ''
+        ultimo_avance = ''
+        if carga:
+            if carga.creado_en:
+                fecha_creado = timezone.localtime(carga.creado_en).strftime('%d/%m/%Y %H:%M')
+            elif carga.fecha_analisis:
+                fecha_creado = carga.fecha_analisis.strftime('%d/%m/%Y')
+            if carga.actualizado:
+                ultimo_avance = timezone.localtime(carga.actualizado).strftime('%d/%m/%Y %H:%M')
         row = {
             'id': crit.id,
             'cliente': servicio.codigo_servicio,
@@ -1737,12 +1943,12 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
             'avance_aca_width': _progress_width_css(progress_percent),
             'avance_aca_color': _progress_color(progress_percent),
             'avance_aca_missing_label': ', '.join(missing_names) if missing_names else 'Sin faltantes',
-            'fecha_analisis': crit.aca_carga.fecha_analisis.strftime('%d/%m/%Y') if crit.aca_carga and crit.aca_carga.fecha_analisis else '',
-            'ubicacion_tecnica': crit.equipo.ut if crit.equipo else '',
+            'fecha_creado': fecha_creado,
+            'ultimo_avance': ultimo_avance,
+            'ubicacion_tecnica': crit.equipo.ut_display if crit.equipo else '',
             'descripcion_ut': crit.equipo.descripcion_ut if crit.equipo else '',
             'equipo': crit.equipo.nombre_equipo if crit.equipo else '',
             'tag': crit.equipo.tag_display if crit.equipo else '',
-            'escenario_falla': crit.escenario_falla,
             'observacion': crit.observacion,
             'frecuencia_original': crit.frecuencia_original,
             'frecuencia_normalizada': crit.frecuencia_normalizada,
@@ -1760,9 +1966,18 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
         row['_group_kind'] = group_kind
         row['_group_anchor'] = group_anchor
         dims_map = {item.dimension_id: item for item in crit_dims}
+        row['_dimension_details'] = []
         for ed in estrategia_dims:
             item = dims_map.get(ed.dimension_id)
-            row[f'dim_{ed.dimension_id}'] = _dimension_display_value(item) if item else ''
+            display_value = _dimension_display_value(item) if item else ''
+            comment_value = (item.comentario or '').strip() if item and not display_value else ''
+            row[f'dim_{ed.dimension_id}'] = display_value
+            row[f'comment_dim_{ed.dimension_id}'] = comment_value
+            row['_dimension_details'].append({
+                'name': ed.dimension.nombre,
+                'value': display_value,
+                'comment': comment_value,
+            })
         rows.append(row)
 
     return columns, rows, complete_count, incomplete_count, progress_summary
@@ -1771,7 +1986,10 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None):
 @login_required
 def service_aca_export(request, pk, formato):
     servicio, _permission = _service_or_404(request, pk, edit=False)
-    columns, rows, _complete_count, _incomplete_count, _progress_summary = _service_aca_table_data(servicio)
+    columns, rows, _complete_count, _incomplete_count, _progress_summary = _service_aca_table_data(
+        servicio,
+        include_evaluation_columns=True,
+    )
     formato = (formato or '').lower()
     if formato == 'excel':
         return _export_xlsx_response(
@@ -1793,7 +2011,7 @@ def service_aca_export(request, pk, formato):
 def _bulk_row_is_empty(row):
     if not isinstance(row, dict):
         return True
-    if row.get('equipo_id') or row.get('escenario_falla'):
+    if row.get('equipo_id') or row.get('family_id'):
         return False
     dimensions = row.get('dimensions') if isinstance(row.get('dimensions'), dict) else {}
     for value in dimensions.values():
@@ -1811,7 +2029,7 @@ def _bulk_row_is_empty(row):
 
 
 def _bulk_initial_equipment_payload(servicio, limit=40):
-    return _equipment_items_payload(list(get_service_equipment(servicio).order_by('ut', 'tag_equipo', 'nombre_equipo')[:limit]))
+    return _equipment_items_payload(list(get_service_equipment(servicio).order_by('tag_equipo', 'nombre_equipo', 'ut')[:limit]))
 
 
 def _bulk_payload_with_equipment(servicio, raw_payload):
@@ -1857,6 +2075,7 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
                 'valor_numerico': '' if item.valor_numerico is None else str(item.valor_numerico),
                 'valor_booleano': '' if item.valor_booleano is None else item.valor_booleano,
                 'valor_texto': item.valor_texto or '',
+                'comentario': item.comentario or '',
                 'display': _dimension_display_value(item),
             }
 
@@ -1872,7 +2091,6 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
             'criticidad_id': crit.pk,
             'equipo_id': crit.equipo_id or '',
             'equipo': equipment_map.get(crit.equipo_id),
-            'escenario_falla': crit.escenario_falla or '',
             'observacion': crit.observacion or '',
             'dimensions': dimensions,
             'matrix_cell_id': matrix_cell_id,
@@ -1927,7 +2145,7 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
         if equipo_id:
             equipo = equipment_qs.filter(pk=equipo_id).first()
             if not equipo:
-                row_errors.append('equipo invÃ¡lido o no asociado al servicio.')
+                row_errors.append('equipo inválido o no asociado al servicio.')
         else:
             row_errors.append('equipo requerido.')
 
@@ -1971,14 +2189,13 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
         prepared_rows.append({
             'existing': existing,
             'equipo': equipo,
-            'escenario_falla': str(row.get('escenario_falla') or '').strip(),
             'observacion': str(row.get('observacion') or '').strip(),
             'prepared': prepared,
             'selected_cell': selected_cell,
         })
 
     if not prepared_rows and not errors:
-        errors.append('No hay filas vÃ¡lidas para guardar.')
+        errors.append('No hay filas válidas para guardar.')
     return prepared_rows, errors
 
 
@@ -2003,18 +2220,6 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
     group_created = existing_group[0].aca_carga.creado_en if existing_group else now
 
     for offset, row in enumerate(prepared_rows):
-        if row['escenario_falla']:
-            models.EscenarioFalla.objects.get_or_create(
-                servicio=servicio,
-                nombre=row['escenario_falla'],
-                defaults={
-                    'activo': True,
-                    'creado_en': now,
-                    'actualizado': now,
-                    'usuario': profile,
-                },
-            )
-
         selected_cell = row['selected_cell']
         existing = row.get('existing')
         if existing:
@@ -2041,7 +2246,7 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
 
             evaluacion = existing
             evaluacion.equipo = row['equipo']
-            evaluacion.escenario_falla = row['escenario_falla']
+            evaluacion.escenario_falla = ''
             evaluacion.observacion = row['observacion']
             evaluacion.frecuencia_original = None
             evaluacion.frecuencia_normalizada = selected_cell.probabilidad.valor if selected_cell else None
@@ -2077,7 +2282,7 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
                 creado_en=group_created,
                 aca_carga=carga,
                 equipo=row['equipo'],
-                escenario_falla=row['escenario_falla'],
+                escenario_falla='',
                 observacion=row['observacion'],
                 frecuencia_original=None,
                 frecuencia_normalizada=selected_cell.probabilidad.valor if selected_cell else None,
@@ -2107,6 +2312,8 @@ def _bulk_render_context(
     bulk_payload='',
     title='Nueva carga masiva ACA',
     primary_label='Guardar carga masiva',
+    is_group_edit=False,
+    exclude_existing_crit_ids=None,
 ):
     return {
         'service': servicio,
@@ -2117,12 +2324,17 @@ def _bulk_render_context(
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
         'initial_equipment_payload': _bulk_initial_equipment_payload(servicio),
+        'service_family_payload': _service_family_payload(servicio),
+        'existing_aca_equipment_ids_json': list(
+            _existing_aca_equipment_ids(servicio, exclude_ids=exclude_existing_crit_ids)
+        ),
         'auto_version': ACA_INITIAL_VERSION,
         'auto_fecha_analisis': timezone.localdate(),
         'bulk_errors': errors or [],
         'bulk_payload': _bulk_payload_with_equipment(servicio, bulk_payload),
         'bulk_title': title,
         'bulk_primary_label': primary_label,
+        'is_group_edit': is_group_edit,
     }
 
 
@@ -2156,6 +2368,7 @@ def service_aca_bulk_new(request, pk):
         is_draft = request.POST.get('save_as') == 'draft'
         status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
         equipment_qs = get_service_equipment(servicio)
+        family_qs = models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True).prefetch_related('items__equipo')
         existing_equipment_ids = _existing_aca_equipment_ids(servicio)
         submitted_equipment_ids = set()
         prepared_rows = []
@@ -2165,20 +2378,44 @@ def service_aca_bulk_new(request, pk):
                 continue
 
             row_errors = []
-            equipo = None
-            equipo_id = row.get('equipo_id')
-            if equipo_id:
-                equipo = equipment_qs.filter(pk=equipo_id).first()
-                if not equipo:
-                    row_errors.append('equipo inválido o no asociado al servicio.')
-            else:
-                row_errors.append('equipo requerido.')
+            target_type = row.get('target_type') if row.get('target_type') in {'equipo', 'familia'} else 'equipo'
+            target_equipos = []
+            row_origin = 'Manual masivo'
 
-            if equipo:
+            if target_type == 'familia':
+                family_id = row.get('family_id')
+                familia = family_qs.filter(pk=family_id).first() if family_id else None
+                if familia:
+                    target_equipos = sorted(
+                        [item.equipo for item in familia.items.all() if item.equipo_id and item.equipo],
+                        key=lambda equipo: (
+                            (getattr(equipo, 'tag_display', '') or equipo.tag_equipo or '').casefold(),
+                            (equipo.nombre_equipo or '').casefold(),
+                            (equipo.ut or '').casefold(),
+                        ),
+                    )
+                    row_origin = f'Manual familia: {familia.nombre}'
+                    if not target_equipos:
+                        row_errors.append('la familia seleccionada no tiene equipos.')
+                else:
+                    row_errors.append('familia requerida o invalida.')
+            else:
+                equipo_id = row.get('equipo_id')
+                if equipo_id:
+                    equipo = equipment_qs.filter(pk=equipo_id).first()
+                    if equipo:
+                        target_equipos = [equipo]
+                    else:
+                        row_errors.append('equipo invalido o no asociado al servicio.')
+                else:
+                    row_errors.append('equipo requerido.')
+
+            for equipo in target_equipos:
                 if equipo.pk in existing_equipment_ids:
                     row_errors.append(_duplicate_aca_equipment_message(equipo))
                 elif equipo.pk in submitted_equipment_ids:
-                    row_errors.append('este equipo ya fue incluido en otra fila de esta carga.')
+                    label = getattr(equipo, 'tag_display', '') or getattr(equipo, 'tag_equipo', '') or str(equipo)
+                    row_errors.append(f'el equipo {label} ya fue incluido en otra fila de esta carga.')
 
             prepared, _source_values, dimension_errors = prepare_bulk_dimension_items(
                 strategy,
@@ -2206,17 +2443,15 @@ def service_aca_bulk_new(request, pk):
                 errors.append(f"Fila {index}: " + ' '.join(row_errors))
                 continue
 
-            if equipo:
+            for equipo in target_equipos:
                 submitted_equipment_ids.add(equipo.pk)
-
-            prepared_rows.append({
-                'equipo': equipo,
-                'escenario_falla': str(row.get('escenario_falla') or '').strip(),
-                'observacion': str(row.get('observacion') or '').strip(),
-                'prepared': prepared,
-                'selected_cell': selected_cell,
-            })
-
+                prepared_rows.append({
+                    'equipo': equipo,
+                    'observacion': str(row.get('observacion') or '').strip(),
+                    'prepared': prepared,
+                    'selected_cell': selected_cell,
+                    'origin': row_origin,
+                })
         if not prepared_rows and not errors:
             errors.append('No hay filas válidas para guardar.')
 
@@ -2238,22 +2473,10 @@ def service_aca_bulk_new(request, pk):
         now = timezone.now()
         with transaction.atomic():
             for row in prepared_rows:
-                if row['escenario_falla']:
-                    models.EscenarioFalla.objects.get_or_create(
-                        servicio=servicio,
-                        nombre=row['escenario_falla'],
-                        defaults={
-                            'activo': True,
-                            'creado_en': now,
-                            'actualizado': now,
-                            'usuario': profile,
-                        },
-                    )
-
                 carga = models.Carga.objects.create(
                     fecha_analisis=timezone.localdate(),
                     version_carga=ACA_INITIAL_VERSION,
-                    origen='Manual masivo',
+                    origen=row.get('origin') or 'Manual masivo',
                     status=status,
                     creado_en=now,
                     actualizado=now,
@@ -2266,7 +2489,7 @@ def service_aca_bulk_new(request, pk):
                     creado_en=now,
                     aca_carga=carga,
                     equipo=row['equipo'],
-                    escenario_falla=row['escenario_falla'],
+                    escenario_falla='',
                     observacion=row['observacion'],
                     frecuencia_original=None,
                     frecuencia_normalizada=selected_cell.probabilidad.valor if selected_cell else None,
@@ -2352,6 +2575,8 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
                     bulk_payload=raw_payload,
                     title='Editar carga grupal ACA',
                     primary_label='Guardar cambios del grupo',
+                    is_group_edit=True,
+                    exclude_existing_crit_ids=[item.pk for item in existing_group],
                 ),
             )
 
@@ -2381,6 +2606,8 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
             bulk_payload=initial_payload,
             title='Editar carga grupal ACA',
             primary_label='Guardar cambios del grupo',
+            is_group_edit=True,
+            exclude_existing_crit_ids=[item.pk for item in existing_group],
         ),
     )
 
@@ -2418,7 +2645,6 @@ def service_aca_new(request, pk):
             'version_carga': edit_crit.aca_carga.version_carga if edit_crit.aca_carga else Decimal('1.0'),
             'origen': edit_crit.aca_carga.origen if edit_crit.aca_carga else 'Manual',
             'equipo': edit_crit.equipo,
-            'escenario_falla': edit_crit.escenario_falla,
             'observacion': edit_crit.observacion,
             'frecuencia_normalizada': edit_crit.frecuencia_normalizada,
         }
@@ -2466,19 +2692,7 @@ def service_aca_new(request, pk):
             status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
             now = timezone.now()
             familia = base_form.cleaned_data.get('familia_equipo') if not edit_crit else None
-            escenario_falla = base_form.cleaned_data.get('escenario_falla') or ''
             observacion = base_form.cleaned_data.get('observacion') or ''
-            if escenario_falla:
-                models.EscenarioFalla.objects.get_or_create(
-                    servicio=servicio,
-                    nombre=escenario_falla,
-                    defaults={
-                        'activo': True,
-                        'creado_en': now,
-                        'actualizado': now,
-                        'usuario': profile,
-                    },
-                )
 
             if edit_crit:
                 carga = edit_crit.aca_carga
@@ -2565,7 +2779,7 @@ def service_aca_new(request, pk):
                     creado_en=now,
                     aca_carga=carga_actual,
                 )
-                evaluacion.escenario_falla = escenario_falla
+                evaluacion.escenario_falla = ''
                 evaluacion.observacion = observacion
                 evaluacion.frecuencia_original = None
                 evaluacion.frecuencia_normalizada = frecuencia_normalizada
@@ -2628,6 +2842,119 @@ def service_aca_edit(request, service_pk, crit_pk):
     return redirect(url)
 
 
+def _serialize_aca_for_undo(crit):
+    carga = crit.aca_carga
+    return {
+        'service_id': carga.servicio_id if carga else None,
+        'restore_url': reverse('service_aca_restore_deleted', kwargs={'service_pk': carga.servicio_id}) if carga else '',
+        'carga': {
+            'id': carga.pk if carga else None,
+            'fecha_analisis': carga.fecha_analisis.isoformat() if carga and carga.fecha_analisis else None,
+            'version_carga': str(carga.version_carga) if carga and carga.version_carga is not None else str(ACA_INITIAL_VERSION),
+            'origen': carga.origen if carga else 'Manual',
+            'status': carga.status if carga else models.Carga.STATUS_INCOMPLETO,
+            'creado_en': carga.creado_en.isoformat() if carga and carga.creado_en else timezone.now().isoformat(),
+            'actualizado': carga.actualizado.isoformat() if carga and carga.actualizado else timezone.now().isoformat(),
+            'estrategia_id': carga.estrategia_id if carga else None,
+            'servicio_id': carga.servicio_id if carga else None,
+            'usuario_id': carga.usuario_id if carga else None,
+        },
+        'criticidad': {
+            'id': crit.pk,
+            'equipo_id': crit.equipo_id,
+            'escenario_falla': crit.escenario_falla or '',
+            'observacion': crit.observacion or '',
+            'frecuencia_original': str(crit.frecuencia_original) if crit.frecuencia_original is not None else None,
+            'frecuencia_normalizada': str(crit.frecuencia_normalizada) if crit.frecuencia_normalizada is not None else None,
+            'valor_cons_total': str(crit.valor_cons_total) if crit.valor_cons_total is not None else None,
+            'indicador_criticidad': crit.indicador_criticidad or '',
+            'valor_criticidad_equipo': str(crit.valor_criticidad_equipo) if crit.valor_criticidad_equipo is not None else None,
+            'criticidad_final': crit.criticidad_final or '',
+            'creado_en': crit.creado_en.isoformat() if crit.creado_en else timezone.now().isoformat(),
+        },
+        'dimensiones': [
+            {
+                'dimension_id': item.dimension_id,
+                'estrategia_dimension_id': item.estrategia_dimension_id,
+                'catalogo_fila_id': item.catalogo_fila_id,
+                'escala_valor_id': item.escala_valor_id,
+                'escala_unificada_id': item.escala_unificada_id,
+                'valor_numerico': str(item.valor_numerico) if item.valor_numerico is not None else None,
+                'valor_booleano': item.valor_booleano,
+                'valor_texto': item.valor_texto or '',
+                'comentario': item.comentario or '',
+                'valor_secundario': str(item.valor_secundario) if item.valor_secundario is not None else None,
+            }
+            for item in crit.dimensiones.all()
+        ],
+    }
+
+
+def _restore_deleted_aca_snapshot(snapshot):
+    carga_data = snapshot.get('carga') or {}
+    crit_data = snapshot.get('criticidad') or {}
+    fecha_analisis = parse_date(carga_data.get('fecha_analisis') or '') or timezone.localdate()
+    carga_creado = parse_datetime(carga_data.get('creado_en') or '') or timezone.now()
+    criticidad_creado = parse_datetime(crit_data.get('creado_en') or '') or timezone.now()
+    carga_id = carga_data.get('id')
+    criticidad_id = crit_data.get('id')
+    if criticidad_id and models.Criticidad.objects.filter(pk=criticidad_id).exists():
+        raise ValueError(f'El ID ACA original {criticidad_id} ya esta ocupado.')
+
+    existing_carga = models.Carga.objects.filter(pk=carga_id).first() if carga_id else None
+    if existing_carga:
+        carga = existing_carga
+    else:
+        carga_create_kwargs = {}
+        if carga_id:
+            carga_create_kwargs['id'] = carga_id
+        carga = models.Carga.objects.create(
+            **carga_create_kwargs,
+            fecha_analisis=fecha_analisis,
+            version_carga=Decimal(str(carga_data.get('version_carga') or ACA_INITIAL_VERSION)),
+            origen=carga_data.get('origen') or 'Manual',
+            status=carga_data.get('status') or models.Carga.STATUS_INCOMPLETO,
+            creado_en=carga_creado,
+            actualizado=timezone.now(),
+            estrategia_id=carga_data.get('estrategia_id'),
+            servicio_id=carga_data.get('servicio_id'),
+            usuario_id=carga_data.get('usuario_id'),
+        )
+
+    criticidad_create_kwargs = {}
+    if criticidad_id:
+        criticidad_create_kwargs['id'] = criticidad_id
+    criticidad = models.Criticidad.objects.create(
+        **criticidad_create_kwargs,
+        aca_carga=carga,
+        equipo_id=crit_data.get('equipo_id'),
+        escenario_falla=crit_data.get('escenario_falla') or '',
+        observacion=crit_data.get('observacion') or '',
+        frecuencia_original=crit_data.get('frecuencia_original'),
+        frecuencia_normalizada=crit_data.get('frecuencia_normalizada'),
+        valor_cons_total=crit_data.get('valor_cons_total'),
+        indicador_criticidad=crit_data.get('indicador_criticidad') or '',
+        valor_criticidad_equipo=crit_data.get('valor_criticidad_equipo'),
+        criticidad_final=crit_data.get('criticidad_final') or '',
+        creado_en=criticidad_creado,
+    )
+    for item in snapshot.get('dimensiones') or []:
+        models.CriticidadDimension.objects.create(
+            criticidad=criticidad,
+            dimension_id=item.get('dimension_id'),
+            estrategia_dimension_id=item.get('estrategia_dimension_id'),
+            catalogo_fila_id=item.get('catalogo_fila_id'),
+            escala_valor_id=item.get('escala_valor_id'),
+            escala_unificada_id=item.get('escala_unificada_id'),
+            valor_numerico=item.get('valor_numerico'),
+            valor_booleano=item.get('valor_booleano'),
+            valor_texto=item.get('valor_texto') or '',
+            comentario=item.get('comentario') or '',
+            valor_secundario=item.get('valor_secundario'),
+        )
+    return criticidad
+
+
 @login_required
 @transaction.atomic
 def service_aca_delete(request, service_pk, crit_pk):
@@ -2640,15 +2967,37 @@ def service_aca_delete(request, service_pk, crit_pk):
 
     if request.method == 'POST':
         carga = crit.aca_carga
+        request.session['aca_deleted_record'] = _serialize_aca_for_undo(crit)
+        request.session['aca_deleted_restore_url'] = reverse('service_aca_restore_deleted', kwargs={'service_pk': servicio.pk})
         crit.dimensiones.all().delete()
         crit.delete()
 
         if carga and not carga.criticidades.exists():
             carga.delete()
 
-        messages.success(request, 'Registro ACA eliminado correctamente.')
+        messages.success(request, 'Registro ACA eliminado correctamente.', extra_tags='aca-undo-delete')
         return redirect('service_aca_list', pk=servicio.pk)
 
+    return redirect('service_aca_list', pk=servicio.pk)
+
+
+@login_required
+@transaction.atomic
+def service_aca_restore_deleted(request, service_pk):
+    servicio, _permission = _service_or_404(request, service_pk, edit=True)
+    snapshot = request.session.get('aca_deleted_record')
+    if request.method != 'POST' or not snapshot or snapshot.get('service_id') != servicio.pk:
+        messages.warning(request, 'No hay una eliminación ACA reciente para deshacer.')
+        return redirect('service_aca_list', pk=servicio.pk)
+
+    try:
+        criticidad = _restore_deleted_aca_snapshot(snapshot)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect('service_aca_list', pk=servicio.pk)
+    request.session.pop('aca_deleted_record', None)
+    request.session.pop('aca_deleted_restore_url', None)
+    messages.success(request, f'Registro ACA restaurado correctamente. ID: {criticidad.pk}.')
     return redirect('service_aca_list', pk=servicio.pk)
 
 

@@ -15,5 +15,7 @@ urlpatterns = [
     path('servicios/<int:pk>/equipos/niveles/', views.service_equipment_levels, name='service_equipment_levels'),
     path('servicios/<int:pk>/equipos/nodos/', views.service_equipment_nodes, name='service_equipment_nodes'),
     path('servicios/<int:pk>/equipos/buscar/', views.service_equipment_search, name='service_equipment_search'),
+    path('servicios/<int:pk>/equipos/disponibles/', views.service_equipment_available, name='service_equipment_available'),
+    path('servicios/<int:pk>/equipos/vincular/', views.service_equipment_link, name='service_equipment_link'),
     path('servicios/<int:pk>/equipos/<int:equipment_pk>/', views.service_equipment_detail, name='service_equipment_detail'),
 ]

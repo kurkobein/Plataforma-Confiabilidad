@@ -29,12 +29,24 @@
     {% if service_cards %}
         <div class="grid-2">
             {% for service in service_cards %}
-                <div class="stat">
+                <div class="stat dashboard-service-card">
+                    <div class="dashboard-service-main">
                     <small>{{ service.empresa.sigla }}</small>
                     <strong style="font-size:20px;">{{ service.codigo_servicio }}</strong>
                     <div class="muted" style="margin-top:6px;">{{ service.descripcion|default:'Sin descripción' }}</div>
                     <div class="actions" style="margin-top:12px;">
                         <a class="btn" href="{% url 'service_detail' service.pk %}">Abrir servicio</a>
+                    </div>
+                    </div>
+                    <div class="dashboard-service-metrics" aria-label="Resumen del servicio">
+                        <span class="dashboard-service-pill" style="background-color:var(--color-aca);">
+                            <small>ACA</small>
+                            <strong>{{ service.dashboard_aca_evaluated }}</strong>
+                        </span>
+                        <span class="dashboard-service-pill" style="background-color:var(--color-fmeca);">
+                            <small>FMECA</small>
+                            <strong>{{ service.dashboard_fmeca_evaluated }}</strong>
+                        </span>
                     </div>
                 </div>
             {% endfor %}

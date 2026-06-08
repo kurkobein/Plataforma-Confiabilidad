@@ -293,7 +293,7 @@ def _group_key(item, regla):
     if regla.agrupar_por_equipo:
         parts.append(('equipo', equipo.pk if equipo else ''))
     if regla.agrupar_por_ubicacion:
-        parts.append(('ut', equipo.ut if equipo else ''))
+        parts.append(('ut', equipo.ut_display if equipo else ''))
     if regla.agrupar_por_frecuencia:
         parts.append(('frecuencia', item['frequency']))
     if regla.agrupar_por_especialidad:
@@ -340,7 +340,7 @@ def preview_pautas_desde_rcm(servicio, estrategia=None, filtros=None, regla=None
             'key': key,
             'group_id': pauta_group_id(key),
             'equipo': equipo.nombre_equipo if equipo else '',
-            'ubicacion_tecnica': equipo.ut if equipo else '',
+            'ubicacion_tecnica': equipo.ut_display if equipo else '',
             'frecuencia': first['frequency'],
             'especialidad': first['specialty'],
             'estado_equipo': first['estado_equipo'],
@@ -384,7 +384,7 @@ def crear_pauta_desde_grupo(servicio, estrategia, grupo_key, registros, plantill
         codigo=_next_pauta_code(servicio),
         nombre=nombre[:200],
         area=str(_task_value(task, ['area', 'area_negocio', 'planta'], '') or '')[:150],
-        ubicacion_tecnica=equipo.ut if equipo else '',
+        ubicacion_tecnica=equipo.ut_display if equipo else '',
         frecuencia=first['frequency'][:150],
         especialidad=first['specialty'][:100],
         estado_equipo=first['estado_equipo'][:100],
@@ -414,10 +414,10 @@ def crear_pauta_consolidada_desde_registros(servicio, estrategia, registros, pla
     especialidad = _single_or_mixed(item['specialty'] for item in registros)
     estado_equipo = _single_or_mixed(item['estado_equipo'] for item in registros)
     ubicacion_tecnica = (
-        equipo.ut
+        equipo.ut_display
         if equipo
         else _single_or_mixed(
-            item['rcm'].equipo.ut
+            item['rcm'].equipo.ut_display
             for item in registros
             if getattr(item['rcm'], 'equipo_id', None)
         )

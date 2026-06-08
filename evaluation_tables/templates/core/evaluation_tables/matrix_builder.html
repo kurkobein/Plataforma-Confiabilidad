@@ -1,5 +1,12 @@
-{% extends 'core/base.html' %} {% block title %}{% if is_create %}Nueva matriz{%
-else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
+{% extends 'core/base.html' %} 
+{% block title %}
+{% if is_create %}
+Nueva matriz
+{% else %}
+Editar matriz
+{% endif %}
+{% endblock %}
+{% block extra_head %}
 <style>
   .matrix-shell {
     display: grid;
@@ -120,7 +127,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     </h2>
     <p>
       {% if matriz %}{{ matriz.nombre }}{% else %}Constructor práctico de matriz
-      de riesgo{% endif %}. Las dimensiones de impacto y probabilidad se
+      de riesgo{% endif %}. Las dimensiones de consecuencia y probabilidad se
       crean/asignan automáticamente al guardar.
     </p>
   </div>
@@ -173,7 +180,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
           <div class="form-field full">
             <label for="{{ builder_form.dimension_impacto.id_for_label }}">{{ builder_form.dimension_impacto.label }}</label>
             {{ builder_form.dimension_impacto }}
-            <small class="muted">Valor que se usara para buscar el nivel de impacto.</small>
+            <small class="muted">Valor que se usara para buscar el nivel de consecuencia.</small>
             {% if builder_form.dimension_impacto.errors %}
               <div style="color: #b91c1c; font-size: 13px">{{ builder_form.dimension_impacto.errors }}</div>
             {% endif %}
@@ -259,7 +266,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     }));
     let impactDefs = (state.impact_defs || []).map((item, i) => ({
       idx: i + 1,
-      nombre: item.nombre || `I${i + 1}`,
+      nombre: item.nombre || `C${i + 1}`,
       valor: decimalValue(item.valor ?? i + 1, i + 1),
       descripcion: item.descripcion || "",
     }));
@@ -315,7 +322,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       cols = Math.max(2, parseInt(xCountInput.value, 10) || cols);
     }
     function describeAxisOption(axisName, option) {
-      const label = axisName === "probabilidad" ? "Probabilidad" : "Impacto";
+      const label = axisName === "probabilidad" ? "Probabilidad" : "Consecuencia";
       if (!option) {
         return `<div class="matrix-axis-hint-item"><strong>${label}:</strong> sin dimension seleccionada. Puedes editar los niveles manualmente.</div>`;
       }
@@ -347,8 +354,8 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
           : cloneLevelDefs([], count, "p");
       } else {
         impactDefs = option
-          ? cloneLevelDefs(option.impact_levels, count, "i")
-          : cloneLevelDefs([], count, "i");
+          ? cloneLevelDefs(option.impact_levels, count, "c")
+          : cloneLevelDefs([], count, "c");
       }
       if (option?.requires_threshold && resolutionSelect) {
         resolutionSelect.value = "umbral_resultado";
@@ -371,7 +378,7 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
       while (impactDefs.length < impactCount)
         impactDefs.push({
           idx: impactDefs.length + 1,
-          nombre: `I${impactDefs.length + 1}`,
+          nombre: `C${impactDefs.length + 1}`,
           valor: impactDefs.length + 1,
           descripcion: "",
         });
@@ -507,8 +514,8 @@ else %}Editar matriz{% endif %}{% endblock %} {% block extra_head %}
     }
     function axisNames() {
       return axisSelect.value === "impacto"
-        ? { x: "Impacto", y: "Probabilidad" }
-        : { x: "Probabilidad", y: "Impacto" };
+        ? { x: "Consecuencia", y: "Probabilidad" }
+        : { x: "Probabilidad", y: "Consecuencia" };
     }
     function syncAxisLabels() {
       const a = axisNames();

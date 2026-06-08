@@ -36,7 +36,7 @@
             <div class="stat"><small>Mayor brecha</small><strong>{{ selected_summary.major_gap.name|default:'-' }}</strong></div>
         </div>
         <div class="actions">
-            <a class="btn" href="{% url 'service_aca_list' selected_service.pk %}">Ver registros ACA</a>
+            <a class="btn" href="{% url 'service_aca_list' selected_service.pk %}">Desarrollo ACA</a>
             <a class="btn btn-primary" href="{% url 'service_aca_new' selected_service.pk %}">Nuevo desarrollo ACA</a>
             <a class="btn" href="{% url 'service_aca_bulk_new' selected_service.pk %}">Nueva carga masiva ACA</a>
             <a class="btn" href="{% url 'aca_panel' %}?service={{ selected_service.pk }}">Ver panel</a>
@@ -49,7 +49,7 @@
                 <tr>
                     <th>Servicio</th>
                     <th>Descripción</th>
-                    <th>Registros ACA</th>
+                    <th>Equipos evaluados</th>
                     <th>Avance</th>
                     <th></th>
                 </tr>

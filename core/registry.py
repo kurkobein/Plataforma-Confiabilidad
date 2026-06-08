@@ -299,7 +299,7 @@ MODEL_REGISTRY = OrderedDict({
     },
     'nivelimpacto': {
         'model': models.NivelImpacto,
-        'label': 'Niveles de impacto',
+        'label': 'Niveles de consecuencia',
         'group': 'Matrices',
         'search_fields': ['nombre', 'descripcion'],
         'show_in_sidebar': False,
