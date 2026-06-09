@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}{{ form_title|default:'Nuevo registro RCM' }} | {{ service.codigo_servicio }}{% endblock %}
+{% block title %}{{ form_title|default:'Nuevo registro RCM/FMECA' }} | {{ service.codigo_servicio }}{% endblock %}
 {% block extra_head %}
 <style>
     .task-list {
@@ -59,9 +59,9 @@
 {% block content %}
 <div class="page-header">
     <div class="page-title-group">
-        <a class="btn" href="{% url 'service_rcm_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <a class="btn" href="{% url 'service_fmeca_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-        <h2>{{ form_title|default:'Nuevo registro RCM' }}</h2>
+        <h2>{{ form_title|default:'Nuevo registro RCM/FMECA' }}</h2>
         <p>{{ service.codigo_servicio }} · FMEA/FMECA</p>
     </div>
     </div>
@@ -258,7 +258,6 @@
         <div class="section-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
             <div>
                 <h3 class="card-title">Tareas RCM</h3>
-                <p class="muted">Registra tareas actuales, recomendadas, secundarias o equivalentes según la estrategia.</p>
             </div>
             <button class="btn" type="button" id="add-rcm-task" {% if not task_types_available %}disabled{% endif %}>+ Tarea</button>
         </div>

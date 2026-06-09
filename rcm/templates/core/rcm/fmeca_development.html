@@ -1,22 +1,22 @@
 {% extends 'core/base.html' %}
 
-{% block title %}Desarrollo ACA | Mindco{% endblock %}
+{% block title %}Desarrollo RCM/FMECA | Mindco{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Desarrollo ACA</h2>
-        <p>Selecciona un servicio para entrar al desarrollo de registros ACA.</p>
+        <h2>Desarrollo RCM/FMECA</h2>
+        <p>Selecciona un servicio para entrar al desarrollo de registros RCM/FMECA.</p>
     </div>
 </div>
 
 <div class="table-wrap">
-    <table class="datatable display compact-table">
+    <table class="datatable display compact-table" data-column-filters="true">
         <thead>
             <tr>
                 <th>Servicio</th>
                 <th>Descripción</th>
-                <th>Registros ACA</th>
+                <th>Registros</th>
                 <th>Avance</th>
                 <th>Acciones</th>
             </tr>
@@ -36,7 +36,8 @@
                     </td>
                     <td>
                         <div class="actions">
-                            <a class="btn" href="{% url 'service_aca_list' row.service.pk %}">Abrir</a>
+                            <a class="btn btn-primary" href="{% url 'service_fmeca_list' row.service.pk %}">Abrir desarrollo</a>
+                            <a class="btn" href="{% url 'fmeca_panel' %}?service={{ row.service.pk }}">Ver panel</a>
                         </div>
                     </td>
                 </tr>

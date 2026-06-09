@@ -11,6 +11,39 @@ from core import models as app_models
 from core.access import get_service_equipment
 
 
+class RCMExcelBulkUploadForm(forms.Form):
+    archivo = forms.FileField(
+        label='Archivo Excel',
+        required=False,
+        help_text='Archivo .xlsx con registros RCM/FMECA. Puede usar encabezados equivalentes a los configurados.',
+    )
+    hoja = forms.CharField(
+        label='Hoja',
+        required=False,
+        initial='',
+        help_text='Opcional. Si queda vacío se detectará la hoja RCM/FMEA/FMECA más compatible.',
+    )
+    replace = forms.BooleanField(
+        label='Reemplazar carga previa del mismo archivo',
+        required=False,
+        help_text='Elimina registros RCM/FMECA previos con el mismo origen para este servicio.',
+    )
+    create_task_types = forms.BooleanField(
+        label='Crear tipos de tarea faltantes',
+        required=False,
+        help_text='Crea Actual/Primaria/Secundaria si la estrategia no los tiene configurados.',
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            widget = field.widget
+            if isinstance(widget, forms.CheckboxInput):
+                continue
+            css = widget.attrs.get('class', '')
+            widget.attrs['class'] = f'{css} input-control'.strip()
+
+
 def _decimal_or_none(value):
     if value in (None, ''):
         return None

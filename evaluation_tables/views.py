@@ -82,6 +82,8 @@ def _serialize_dimension_catalog(catalogo):
         'obligatorio': ed.obligatorio,
         'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
         'visible_en_listado_aca': getattr(ed, 'visible_en_listado_aca', True),
+        'considerar_avance_fmeca': getattr(ed, 'considerar_avance_fmeca', True),
+        'visible_en_listado_fmeca': getattr(ed, 'visible_en_listado_fmeca', True),
         'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [
@@ -140,6 +142,8 @@ def _serialize_strategy_dimension_without_catalog(ed):
         'obligatorio': ed.obligatorio,
         'considerar_avance_aca': getattr(ed, 'considerar_avance_aca', True),
         'visible_en_listado_aca': getattr(ed, 'visible_en_listado_aca', True),
+        'considerar_avance_fmeca': getattr(ed, 'considerar_avance_fmeca', True),
+        'visible_en_listado_fmeca': getattr(ed, 'visible_en_listado_fmeca', True),
         'proceso_uso': _normalize_process_usage(ed.proceso_uso),
         'activo': ed.activo,
         'columnas': [] if dimension.tipo_calculo else _default_columns_for_type(tipo),
@@ -493,6 +497,14 @@ def _save_strategy_catalogs(estrategia, payload):
         obligatorio = item.get('obligatorio', True) is not False
         considerar_avance_aca = item.get('considerar_avance_aca', True) is not False
         visible_en_listado_aca = item.get('visible_en_listado_aca', True) is not False
+        considerar_avance_fmeca = item.get('considerar_avance_fmeca', True) is not False
+        visible_en_listado_fmeca = item.get('visible_en_listado_fmeca', True) is not False
+        if proceso_uso == models.EstrategiaDimension.PROCESO_ACA:
+            considerar_avance_fmeca = False
+            visible_en_listado_fmeca = False
+        if proceso_uso == models.EstrategiaDimension.PROCESO_FMECA:
+            considerar_avance_aca = False
+            visible_en_listado_aca = False
         if cat_id and cat_id in existing:
             catalogo = existing[cat_id]
             estrategia_dimension = catalogo.estrategia_dimension
@@ -528,6 +540,8 @@ def _save_strategy_catalogs(estrategia, payload):
                 obligatorio=obligatorio,
                 considerar_avance_aca=considerar_avance_aca,
                 visible_en_listado_aca=visible_en_listado_aca,
+                considerar_avance_fmeca=considerar_avance_fmeca,
+                visible_en_listado_fmeca=visible_en_listado_fmeca,
                 proceso_uso=proceso_uso,
                 activo=True,
             )
@@ -553,6 +567,8 @@ def _save_strategy_catalogs(estrategia, payload):
         estrategia_dimension.obligatorio = obligatorio
         estrategia_dimension.considerar_avance_aca = considerar_avance_aca
         estrategia_dimension.visible_en_listado_aca = visible_en_listado_aca
+        estrategia_dimension.considerar_avance_fmeca = considerar_avance_fmeca
+        estrategia_dimension.visible_en_listado_fmeca = visible_en_listado_fmeca
         estrategia_dimension.proceso_uso = proceso_uso
         estrategia_dimension.activo = True
         estrategia_dimension.save()
@@ -575,10 +591,12 @@ def _save_strategy_catalogs(estrategia, payload):
             if tipo_columna not in dict(models.DimensionCatalogoColumna.TIPO_DATO_CHOICES):
                 tipo_columna = 'texto'
 
+            nombre_columna = str(col.get('nombre_columna') or '').strip() or f'Columna {col_idx}'
+            clave_interna = str(col.get('clave_interna') or '').strip() or _safe_slug(nombre_columna)
             columna = models.DimensionCatalogoColumna.objects.create(
                 catalogo=catalogo,
-                nombre_columna=str(col.get('nombre_columna') or '').strip() or f'Columna {col_idx}',
-                clave_interna=str(col.get('clave_interna') or '').strip() or f'col_{col_idx}',
+                nombre_columna=nombre_columna,
+                clave_interna=clave_interna,
                 tipo_dato=tipo_columna,
                 visible_en_registro=col.get('visible_en_registro', True) is not False,
                 orden=col_idx,
@@ -587,13 +605,16 @@ def _save_strategy_catalogs(estrategia, payload):
 
         for row_idx, row in enumerate(filas, start=1):
             values = row.get('valores') if isinstance(row.get('valores'), dict) else {}
+            values_by_column = row.get('valores_por_columna') if isinstance(row.get('valores_por_columna'), dict) else {}
             fila = models.DimensionCatalogoFila.objects.create(
                 catalogo=catalogo,
                 etiqueta=str(row.get('etiqueta') or values.get('etiqueta') or '').strip(),
                 orden=row_idx,
             )
-            for col in columnas_creadas:
-                raw = values.get(col.clave_interna, '')
+            for col_idx, col in enumerate(columnas_creadas, start=1):
+                source_col = columnas[col_idx - 1] if col_idx - 1 < len(columnas) else {}
+                source_col_id = str(source_col.get('id') or '')
+                raw = values_by_column.get(source_col_id, values.get(col.clave_interna, ''))
                 normalized = _normalize_catalog_cell_value(col.tipo_dato, raw)
                 if (
                     normalized['valor_texto'] in ('', None)

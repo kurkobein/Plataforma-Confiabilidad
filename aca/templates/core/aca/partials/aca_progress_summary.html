@@ -46,81 +46,27 @@
     </div>
 
     <form class="aca-progress-filters" method="get" data-aca-progress-form data-progress-url="{% url 'service_aca_progress_partial' service.pk %}">
-        <div class="aca-progress-toolbar">
-            <button class="btn" type="button" data-aca-progress-toggle-filters aria-expanded="false">
-                <i class="bi bi-funnel"></i> Filtros
-            </button>
-            <button class="btn" type="button" data-aca-progress-toggle-chart aria-expanded="false">
-                <i class="bi bi-pie-chart"></i> Grafico por nivel
-            </button>
-            <button class="btn" type="button" data-aca-progress-save>
-                <i class="bi bi-save"></i> Guardar vista
-            </button>
-        </div>
+        <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
+        <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
 
-        <div class="aca-progress-filter-body" data-aca-progress-filter-body hidden>
-            <div class="form-field">
-                <label for="progress-nivel">Nivel filtro</label>
-                <select class="input-control" id="progress-nivel" name="progress_nivel" data-progress-level-filter>
-                    <option value="">Todos</option>
-                    {% for level in hierarchy_filters.levels %}
-                        <option value="{{ level.id }}"{% if selected_progress_nivel == level.id|stringformat:"s" %} selected{% endif %}>{{ level.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-field">
-                <label for="progress-nodo">Nodo</label>
-                <select class="input-control" id="progress-nodo" name="progress_nodo" data-progress-node-filter>
-                    <option value="">Todos los nodos</option>
-                    {% for node in hierarchy_filters.nodes %}
-                        <option value="{{ node.id }}" data-level-id="{{ node.level_id }}"{% if selected_progress_nodo == node.id|stringformat:"s" %} selected{% endif %}>{{ node.label }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+        <div class="aca-progress-filter-body" data-aca-progress-filter-body>
+            {% for level in hierarchy_filters.levels %}
+                <div class="form-field">
+                    <label for="progress-nested-level-{{ level.id }}">{{ level.name }}</label>
+                    <select class="input-control" id="progress-nested-level-{{ level.id }}" data-progress-nested-level="{{ level.id }}">
+                        <option value="">Todos</option>
+                        {% for node in hierarchy_filters.nodes %}
+                            {% if node.level_id == level.id %}
+                                <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endfor %}
             <div class="actions aca-progress-filter-actions">
                 <button class="btn btn-primary" type="submit">Aplicar</button>
                 <a class="btn" href="{% url 'service_aca_list' service.pk %}" data-aca-progress-clear>Limpiar</a>
             </div>
-        </div>
-
-        <div class="aca-progress-chart-panel" data-aca-progress-chart-panel hidden>
-            <div class="aca-progress-chart-head">
-                <div class="form-field">
-                    <label for="progress-chart-level">Nivel del grafico</label>
-                    <select class="input-control" id="progress-chart-level" name="progress_chart_level" data-progress-chart-level>
-                        <option value="">Selecciona nivel</option>
-                        {% for level in hierarchy_filters.levels %}
-                            <option value="{{ level.id }}"{% if selected_progress_chart_level == level.id|stringformat:"s" %} selected{% endif %}>{{ level.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <small class="muted">El grafico usa los filtros activos de nivel/nodo.</small>
-            </div>
-
-            {% if hierarchy_chart_summary %}
-                <div class="aca-progress-level-chart-grid">
-                    {% for group in hierarchy_chart_summary %}
-                        <div class="aca-progress-level-card">
-                            <div class="aca-progress-donut aca-progress-donut-small" style="--progress-degrees: {{ group.average_progress_degrees|default:0|unlocalize }}deg;">
-                                <span>{{ group.average_progress_label }}</span>
-                            </div>
-                            <div class="aca-progress-level-copy">
-                                <strong title="{{ group.label }}">{{ group.display_label|default:group.label }}</strong>
-                                <span>{{ group.total_records }} registros &middot; {{ group.complete_records }} completos &middot; {{ group.incomplete_records }} incompletos</span>
-                                {% if group.major_gap %}
-                                    <small>Brecha: {{ group.major_gap.name }} ({{ group.major_gap.missing_count }})</small>
-                                {% else %}
-                                    <small>Sin brechas</small>
-                                {% endif %}
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="aca-progress-chart-empty muted">
-                    Selecciona un nivel para ver donas por area, planta, sistema u otro nivel disponible.
-                </div>
-            {% endif %}
         </div>
     </form>
 </div>

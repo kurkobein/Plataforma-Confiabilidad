@@ -122,6 +122,7 @@
 {% block extra_js %}
 {{ dimension_payload|json_script:"aca-bulk-dimensions" }}
 {{ service_equipment_endpoints|json_script:"aca-bulk-equipment-endpoints" }}
+{{ service_equipment_payload|json_script:"aca-bulk-equipment-payload" }}
 {{ initial_equipment_payload|json_script:"aca-bulk-initial-equipment" }}
 {{ service_family_payload|json_script:"aca-bulk-families" }}
 {{ existing_aca_equipment_ids_json|json_script:"aca-bulk-existing-equipment" }}
@@ -130,6 +131,7 @@
 (function () {
     const dimensions = JSON.parse(document.getElementById('aca-bulk-dimensions').textContent || '[]');
     const endpoints = JSON.parse(document.getElementById('aca-bulk-equipment-endpoints').textContent || '{}');
+    const equipmentBrowserPayload = JSON.parse(document.getElementById('aca-bulk-equipment-payload').textContent || '{}');
     const initialEquipment = JSON.parse(document.getElementById('aca-bulk-initial-equipment').textContent || '[]');
     const families = JSON.parse(document.getElementById('aca-bulk-families').textContent || '[]');
     const existingAcaEquipmentIds = new Set(JSON.parse(document.getElementById('aca-bulk-existing-equipment').textContent || '[]').map(item => String(item)));
@@ -147,6 +149,8 @@
     const rows = {};
     let nextRowId = 1;
     let activePicker = null;
+    let equipmentLevels = equipmentBrowserPayload.levels || [];
+    const equipmentNodeCache = new Map();
 
     const matrixConfig = {
         resolutionMode: '{{ matrix_selector.modo_resolucion|default:"exacta" }}',
@@ -509,6 +513,55 @@
         }).join('');
     }
 
+    function selectedEquipmentHtml(row) {
+        if (!row.equipo_id || !row.equipo) {
+            return '<button class="btn aca-bulk-equipment-open" type="button" data-equipment-open="' + row.id + '"><i class="bi bi-search"></i> Elegir equipo</button>';
+        }
+        return `
+            <button class="btn aca-bulk-equipment-open aca-bulk-equipment-selected" type="button" data-equipment-open="${row.id}" title="${escapeHtml(equipmentLabel(row.equipo))}">
+                <i class="bi bi-hdd-rack"></i>
+                <span>${escapeHtml(equipmentLabel(row.equipo))}</span>
+            </button>
+        `;
+    }
+
+    function equipmentPopoverHtml(row) {
+        return `
+            <div class="aca-bulk-search-popover aca-bulk-equipment-popover" data-search-popover="${row.id}" hidden>
+                <div class="aca-bulk-equipment-popover-head">
+                    <strong>Seleccionar equipo</strong>
+                    <button class="btn" type="button" data-equipment-close="${row.id}" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <input class="aca-bulk-search input-control" data-row-id="${row.id}" type="search" placeholder="Buscar por UT, TAG o nombre" value="">
+                <div class="aca-bulk-equipment-levels" data-equipment-levels="${row.id}"></div>
+                <div class="aca-bulk-equipment-results" data-equipment-results="${row.id}">
+                    ${equipmentResultListHtml(row, row.equipmentOptions || initialEquipment)}
+                </div>
+                <small class="muted" data-equipment-count="${row.id}"></small>
+            </div>
+        `;
+    }
+
+    function equipmentResultListHtml(row, items) {
+        const sorted = sortEquipmentList(items || []);
+        if (!sorted.length) {
+            return '<div class="muted aca-bulk-equipment-empty">No hay equipos para mostrar.</div>';
+        }
+        return sorted.map(function (item) {
+            const id = String(item.id || '');
+            const selected = id && String(row.equipo_id || '') === id ? ' is-selected' : '';
+            const hasAca = existingAcaEquipmentIds.has(id);
+            return `
+                <button class="aca-bulk-equipment-option${selected}${hasAca ? ' has-aca' : ''}" type="button" data-equipment-pick="${row.id}" data-equipment-id="${escapeHtml(id)}">
+                    <strong>${escapeHtml(item.tag || '-')}</strong>
+                    <span>${escapeHtml(item.equipo || 'Sin nombre')}</span>
+                    <small>${escapeHtml(item.ut || '')}</small>
+                    ${hasAca ? '<em>ACA existente</em>' : ''}
+                </button>
+            `;
+        }).join('');
+    }
+
     function rowHasExistingAca(row) {
         if (!row) return false;
         if (row.target_type === 'familia') {
@@ -558,16 +611,9 @@
             `
                 : `
                 <div class="aca-bulk-equipment-control">
-                    <button class="btn aca-bulk-search-toggle" type="button" data-search-toggle="${rowId}" aria-label="Buscar equipo" title="Buscar equipo">
-                        <i class="bi bi-search"></i>
-                    </button>
-                    <div class="aca-bulk-search-popover" data-search-popover="${rowId}" hidden>
-                        <input class="aca-bulk-search" data-row-id="${rowId}" type="search" placeholder="Buscar equipo por UT, TAG o nombre" value="">
-                    </div>
+                    ${selectedEquipmentHtml(row)}
+                    ${equipmentPopoverHtml(row)}
                 </div>
-                <select class="aca-bulk-equipment-select" data-row-id="${rowId}">
-                    ${equipmentOptionsHtml(row)}
-                </select>
             `;
         tr.innerHTML = `
             <td class="aca-bulk-index">${rowId}</td>
@@ -628,23 +674,145 @@
             const toggle = tbody.querySelector(`[data-family-toggle="${rowId}"]`);
             positionFamilyPopover(toggle, popover);
         });
+        tbody.querySelectorAll('.aca-bulk-equipment-popover:not([hidden])').forEach(popover => {
+            const rowId = popover.dataset.searchPopover;
+            const toggle = tbody.querySelector(`[data-equipment-open="${rowId}"]`);
+            positionEquipmentPopover(toggle, popover);
+        });
     }
 
     async function searchEquipment(rowId, query) {
         const row = rows[rowId];
         if (!row || !endpoints.search) return;
+        const selectedNodeId = selectedEquipmentNodeId(rowId);
         if (query.trim().length < 2) {
-            row.equipmentOptions = initialEquipment;
-            const initialSelect = tbody.querySelector(`.aca-bulk-equipment-select[data-row-id="${rowId}"]`);
-            if (initialSelect) initialSelect.innerHTML = equipmentOptionsHtml(row);
+            await refreshEquipmentResults(rowId, selectedNodeId ? { nodeId: selectedNodeId } : {});
             return;
         }
-        const response = await fetch(`${endpoints.search}?q=${encodeURIComponent(query)}&limit=20`);
+        const nodeParam = selectedNodeId ? `&node_id=${encodeURIComponent(selectedNodeId)}` : '';
+        const response = await fetch(`${endpoints.search}?q=${encodeURIComponent(query)}${nodeParam}&limit=50`);
         const data = await response.json();
-        const select = tbody.querySelector(`.aca-bulk-equipment-select[data-row-id="${rowId}"]`);
-        if (!select) return;
         row.equipmentOptions = sortEquipmentList(data.items || []);
-        select.innerHTML = equipmentOptionsHtml(row);
+        renderEquipmentResults(rowId, row.equipmentOptions, data.count);
+    }
+
+    async function loadEquipmentNodes(parentId) {
+        if (!endpoints.nodes) return [];
+        const key = parentId || 'root';
+        if (equipmentNodeCache.has(key)) return equipmentNodeCache.get(key);
+        const url = parentId ? `${endpoints.nodes}?parent_id=${encodeURIComponent(parentId)}` : endpoints.nodes;
+        const response = await fetch(url);
+        const data = await response.json();
+        const nodes = data.nodes || [];
+        equipmentNodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    function selectedEquipmentNodeId(rowId) {
+        const wrap = tbody.querySelector(`[data-equipment-levels="${rowId}"]`);
+        if (!wrap) return '';
+        const selects = Array.from(wrap.querySelectorAll('[data-bulk-equipment-level]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
+        }
+        return '';
+    }
+
+    async function renderEquipmentLevelFilters(rowId, parentId, levelIndex) {
+        const wrap = tbody.querySelector(`[data-equipment-levels="${rowId}"]`);
+        if (!wrap) return;
+        const levels = equipmentLevels.length ? equipmentLevels : [];
+        Array.from(wrap.querySelectorAll('[data-bulk-equipment-level]')).forEach(select => {
+            if (Number(select.dataset.levelIndex) >= levelIndex) {
+                select.closest('.aca-bulk-equipment-level-field')?.remove();
+            }
+        });
+        const nodes = await loadEquipmentNodes(parentId || '');
+        if (!nodes.length) return;
+        const level = levels[levelIndex] || {};
+        const field = document.createElement('div');
+        field.className = 'aca-bulk-equipment-level-field';
+        field.innerHTML = `
+            <label>${escapeHtml(level.name || 'Nivel ' + (levelIndex + 1))}</label>
+            <select class="input-control" data-bulk-equipment-level data-row-id="${rowId}" data-level-index="${levelIndex}">
+                <option value="">Todos</option>
+                ${nodes.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label || ((node.code || '') + ' - ' + (node.name || '')))}</option>`).join('')}
+            </select>
+        `;
+        wrap.appendChild(field);
+    }
+
+    function renderEquipmentResults(rowId, items, total) {
+        const row = rows[rowId];
+        const results = tbody.querySelector(`[data-equipment-results="${rowId}"]`);
+        const count = tbody.querySelector(`[data-equipment-count="${rowId}"]`);
+        if (!row || !results) return;
+        results.innerHTML = equipmentResultListHtml(row, items || []);
+        if (count) {
+            const shown = (items || []).length;
+            count.textContent = total !== undefined && total !== null
+                ? `${shown} de ${total} equipos`
+                : `${shown} equipos`;
+        }
+    }
+
+    async function refreshEquipmentResults(rowId, options) {
+        const row = rows[rowId];
+        if (!row || !endpoints.search) return;
+        options = options || {};
+        const search = tbody.querySelector(`.aca-bulk-search[data-row-id="${rowId}"]`);
+        const query = options.query !== undefined ? options.query : (search ? search.value.trim() : '');
+        const nodeId = options.nodeId !== undefined ? options.nodeId : selectedEquipmentNodeId(rowId);
+        const params = new URLSearchParams();
+        if (query) params.set('q', query);
+        if (nodeId) params.set('node_id', nodeId);
+        params.set('limit', '50');
+        const response = await fetch(`${endpoints.search}?${params.toString()}`);
+        const data = await response.json();
+        row.equipmentOptions = sortEquipmentList(data.items || []);
+        renderEquipmentResults(rowId, row.equipmentOptions, data.count);
+    }
+
+    function equipmentById(row, id) {
+        id = String(id || '');
+        if (!id) return null;
+        const pools = [row.equipmentOptions || [], initialEquipment || [], row.equipo ? [row.equipo] : []];
+        for (const pool of pools) {
+            const found = (pool || []).find(item => String(item.id || '') === id);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    function positionEquipmentPopover(toggle, popover) {
+        if (!toggle || !popover || popover.hidden) return;
+        const rect = toggle.getBoundingClientRect();
+        const margin = 8;
+        const width = popover.offsetWidth || 520;
+        const height = popover.offsetHeight || 420;
+        let left = rect.left;
+        let top = rect.bottom + 6;
+        if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+        if (top + height > window.innerHeight - margin) top = Math.max(margin, rect.top - height - 6);
+        popover.style.left = `${Math.max(margin, left)}px`;
+        popover.style.top = `${Math.max(margin, top)}px`;
+    }
+
+    async function openEquipmentPopover(rowId) {
+        const popover = tbody.querySelector(`[data-search-popover="${rowId}"]`);
+        const toggle = tbody.querySelector(`[data-equipment-open="${rowId}"]`);
+        if (!popover || !toggle) return;
+        tbody.querySelectorAll('.aca-bulk-search-popover, .aca-bulk-family-popover').forEach(node => {
+            if (node !== popover) node.hidden = true;
+        });
+        popover.hidden = false;
+        positionEquipmentPopover(toggle, popover);
+        const levelsWrap = tbody.querySelector(`[data-equipment-levels="${rowId}"]`);
+        if (levelsWrap && !levelsWrap.children.length) {
+            await renderEquipmentLevelFilters(rowId, '', 0);
+        }
+        await refreshEquipmentResults(rowId);
+        popover.querySelector('.aca-bulk-search')?.focus();
     }
 
     function openDimensionPicker(rowId, dimensionId) {
@@ -774,6 +942,15 @@
             return;
         }
 
+        if (event.target.matches('[data-bulk-equipment-level]')) {
+            const rowId = Number(event.target.dataset.rowId);
+            const levelIndex = Number(event.target.dataset.levelIndex || 0);
+            const value = event.target.value;
+            renderEquipmentLevelFilters(rowId, value, levelIndex + 1);
+            refreshEquipmentResults(rowId, { nodeId: selectedEquipmentNodeId(rowId) });
+            return;
+        }
+
         if (event.target.classList.contains('aca-bulk-family-select')) {
             row.family_id = event.target.value;
             row.family = familyById(row.family_id);
@@ -808,6 +985,33 @@
     tbody.addEventListener('click', event => {
         const pick = event.target.closest('.aca-bulk-dimension-cell');
         if (pick) openDimensionPicker(Number(pick.dataset.rowId), pick.dataset.dimensionId);
+        const equipmentOpen = event.target.closest('[data-equipment-open]');
+        if (equipmentOpen) {
+            openEquipmentPopover(Number(equipmentOpen.dataset.equipmentOpen));
+            return;
+        }
+        const equipmentClose = event.target.closest('[data-equipment-close]');
+        if (equipmentClose) {
+            const popover = tbody.querySelector(`[data-search-popover="${equipmentClose.dataset.equipmentClose}"]`);
+            if (popover) popover.hidden = true;
+            return;
+        }
+        const equipmentPick = event.target.closest('[data-equipment-pick]');
+        if (equipmentPick) {
+            const row = rows[Number(equipmentPick.dataset.equipmentPick)];
+            if (!row) return;
+            const item = equipmentById(row, equipmentPick.dataset.equipmentId);
+            if (!item) return;
+            row.equipo_id = String(item.id || '');
+            row.equipo = item;
+            row.target_locked = true;
+            row.family_id = '';
+            row.family = null;
+            const popover = tbody.querySelector(`[data-search-popover="${row.id}"]`);
+            if (popover) popover.hidden = true;
+            renderRow(row.id);
+            return;
+        }
         const searchToggle = event.target.closest('[data-search-toggle]');
         if (searchToggle) {
             const rowId = searchToggle.dataset.searchToggle;

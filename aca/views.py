@@ -1414,6 +1414,140 @@ def _aca_excel_sample_rows(importer, service, rows, limit=10):
     return sample
 
 
+def _aca_preview_dimension_value(item):
+    if not item:
+        return ''
+    if item.get('valor_booleano') is not None:
+        return 'Sí' if item.get('valor_booleano') else 'No'
+    if item.get('valor_numerico') is not None:
+        value = item.get('valor_numerico')
+        try:
+            return str(int(value)) if value == int(value) else str(value)
+        except Exception:
+            return str(value)
+    if item.get('valor_secundario') is not None:
+        return str(item.get('valor_secundario'))
+    if item.get('valor_texto'):
+        return str(item.get('valor_texto'))
+    escala_valor = item.get('escala_valor')
+    if escala_valor:
+        return str(escala_valor.valor_numerico or escala_valor.codigo or escala_valor.descripcion or '')
+    catalogo_fila = item.get('catalogo_fila')
+    if catalogo_fila:
+        values = catalogo_fila.values_map()
+        for key in ['valor_numerico', 'valor', 'puntaje', 'nivel', 'valor_texto', 'etiqueta', 'nombre', 'descripcion']:
+            value = values.get(key)
+            if value not in (None, ''):
+                return str(value)
+        return catalogo_fila.etiqueta or ''
+    return ''
+
+
+def _resolve_aca_preview_equipment(service, row):
+    tag = str(row.get('tag') or '').strip()
+    ut = str(row.get('ut') or '').strip()
+    equipment_qs = get_service_equipment(service)
+    equipo = None
+    if tag:
+        equipo = equipment_qs.filter(tag_equipo=tag).first() or models.Equipo.objects.filter(tag_equipo=tag).first()
+    if not equipo and ut:
+        equipo = equipment_qs.filter(ut=ut).first() or models.Equipo.objects.filter(ut=ut).first()
+    return equipo
+
+
+def _aca_excel_preview_rows(importer, service, rows, create_missing_equipment=False, limit=100):
+    strategy = service.estrategia
+    matrix_selector = _service_matrix_selector(service)
+    matriz = matrix_selector.get('matriz')
+    excluded_dimension_ids = _aca_excluded_dimension_ids(strategy, matriz)
+    dimension_by_alias = importer.dimension_map(strategy, excluded_dimension_ids)
+    dimension_columns = sorted(
+        {
+            ed.pk: {
+                'id': ed.pk,
+                'name': ed.dimension.nombre,
+                'order': ed.orden,
+            }
+            for ed in dimension_by_alias.values()
+        }.values(),
+        key=lambda item: (item['order'], item['id']),
+    )
+    dimension_id_set = {item['id'] for item in dimension_columns}
+    existing_equipment_ids = set(
+        models.Criticidad.objects.filter(
+            aca_carga__servicio=service,
+            equipo_id__isnull=False,
+        ).values_list('equipo_id', flat=True)
+    )
+    submitted_equipment_ids = set()
+    preview_rows = []
+
+    for row in rows:
+        if len(preview_rows) >= limit:
+            break
+        tag = str(row.get('tag') or '').strip()
+        ut = str(row.get('ut') or '').strip()
+        name = str(row.get('equipo_componente') or '').strip()
+        equipo = _resolve_aca_preview_equipment(service, row)
+        status_items = []
+        will_load = True
+        equipment_status = ''
+
+        if equipo:
+            equipment_status = equipo.nombre_equipo
+            if equipo.pk in existing_equipment_ids:
+                status_items.append('Ya tiene ACA')
+                will_load = False
+            elif equipo.pk in submitted_equipment_ids:
+                status_items.append('Repetido en archivo')
+                will_load = False
+        elif create_missing_equipment:
+            equipment_status = 'Se creará'
+        else:
+            equipment_status = 'Equipo no encontrado'
+            status_items.append('Equipo no encontrado')
+            will_load = False
+
+        row_dimension_payload = importer.row_dimensions(row, dimension_by_alias)
+        prepared, _source_values, errors = prepare_bulk_dimension_items(
+            strategy,
+            row_dimension_payload,
+            excluded_dimension_ids=excluded_dimension_ids,
+            allow_incomplete=False,
+        )
+        if errors:
+            status_items.extend(errors)
+            will_load = False
+
+        selected_cell = _resolve_complete_matrix_cell_from_dimension_records(matriz, prepared) if matriz else None
+        if matriz and not selected_cell:
+            status_items.append('Matriz no resuelta')
+            will_load = False
+
+        if equipo and will_load:
+            submitted_equipment_ids.add(equipo.pk)
+
+        values_by_ed = {
+            item['estrategia_dimension'].pk: _aca_preview_dimension_value(item)
+            for item in prepared
+            if item['estrategia_dimension'].pk in dimension_id_set
+        }
+        preview_rows.append({
+            'excel_row': row.get('_excel_row'),
+            'tag': tag,
+            'ut': ut,
+            'equipo_excel': name,
+            'equipo_sistema': equipment_status,
+            'dimension_values': [values_by_ed.get(column['id'], '') for column in dimension_columns],
+            'criticidad_valor': selected_cell.resultado_num if selected_cell else row.get('criticidad') or '',
+            'criticidad_final': selected_cell.clasificacion if selected_cell else row.get('criticidad_nivel') or '',
+            'status': 'Se cargará' if will_load else 'Omitida',
+            'status_detail': '; '.join(status_items),
+        })
+
+    return dimension_columns, preview_rows
+
+
 def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_equipment=False, replace=False, preview=True):
     from openpyxl import load_workbook
     from aca.management.commands.import_aca_excel import Command as ACAImportCommand
@@ -1432,6 +1566,12 @@ def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_eq
 
     origin = f'ACA Excel: {uploaded_file.name}'
     sample_rows = _aca_excel_sample_rows(importer, servicio, rows)
+    preview_dimension_columns, preview_rows = _aca_excel_preview_rows(
+        importer,
+        servicio,
+        rows,
+        create_missing_equipment=create_missing_equipment,
+    )
     now = timezone.now()
     with transaction.atomic():
         if replace:
@@ -1458,6 +1598,9 @@ def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_eq
         'omitidas': result.get('omitidas', 0),
         'warnings': result.get('warnings') or [],
         'sample_rows': sample_rows,
+        'preview_dimension_columns': preview_dimension_columns,
+        'preview_rows': preview_rows,
+        'preview_rows_limited': len(rows) > len(preview_rows),
     }
 
 
@@ -1766,7 +1909,14 @@ def aca_panel(request):
 
 @login_required
 def aca_development(request):
-    context = _aca_global_services_context(request, request.GET.get('service'))
+    context = _aca_global_services_context(request)
+    for row in context.get('service_rows', []):
+        summary = row.get('summary') or {}
+        progress_percent = summary.get('average_progress_percent')
+        row['progress_width'] = _progress_width_css(progress_percent)
+        row['progress_color'] = _progress_color(progress_percent)
+        row['progress_label'] = summary.get('average_progress_label', 'N/A')
+        row['progress_order'] = float(progress_percent) if progress_percent is not None else -1
     return render(request, 'core/aca/aca_development.html', context)
 
 
@@ -1879,8 +2029,7 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
 
     columns = [
         ('avance_aca', 'Avance'),
-        ('fecha_creado', 'Fecha creado'),
-        ('ultimo_avance', 'Última modificación'),
+        ('fechas', 'Fechas'),
         ('ubicacion_tecnica', 'Ubicación Técnica'),
         ('descripcion_ut', 'Descripción U.Técnica'),
         ('equipo', 'Equipo'),
@@ -1945,6 +2094,7 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
             'avance_aca_missing_label': ', '.join(missing_names) if missing_names else 'Sin faltantes',
             'fecha_creado': fecha_creado,
             'ultimo_avance': ultimo_avance,
+            'fechas': f'{fecha_creado} {ultimo_avance}'.strip(),
             'ubicacion_tecnica': crit.equipo.ut_display if crit.equipo else '',
             'descripcion_ut': crit.equipo.descripcion_ut if crit.equipo else '',
             'equipo': crit.equipo.nombre_equipo if crit.equipo else '',

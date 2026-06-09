@@ -1,19 +1,30 @@
 import json
 import re
+from io import BytesIO
 from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core import models
 from core.access import get_accessible_services
-from rcm.forms import RCMRegistroForm, RCMTaskFormSet
+from rcm.forms import RCMExcelBulkUploadForm, RCMRegistroForm, RCMTaskFormSet
+from rcm.import_excel import Command as RCMExcelImportCommand
+from rcm.import_excel import BASE_ALIASES, ImportStats, TASK_ALIASES, clean_text
+from rcm.services.progress import (
+    build_fmeca_service_progress_summary,
+    filter_fmeca_by_hierarchy,
+    get_fmeca_progress_dimensions,
+    get_fmeca_queryset,
+    get_hierarchy_filter_options,
+)
 from core.views import (
     _decimal_or_none,
     _equipment_items_payload,
@@ -27,6 +38,9 @@ from core.views import (
     _service_equipment_browser_payload,
     _service_equipment_endpoints,
     _service_or_404,
+    clear_session_upload,
+    open_session_upload,
+    store_session_upload,
 )
 
 
@@ -34,9 +48,87 @@ from core.views import (
 def rcm_index(request):
     servicios = get_accessible_services(request.user)
     if servicios.count() == 1:
-        return redirect('service_rcm_list', pk=servicios.first().pk)
-    messages.info(request, 'Selecciona un servicio para ver sus registros RCM.')
+        return redirect('service_fmeca_list', pk=servicios.first().pk)
+    messages.info(request, 'Selecciona un servicio para ver su desarrollo RCM/FMECA.')
     return redirect('service_list')
+
+
+def _fmeca_service_rows(request):
+    services = list(get_accessible_services(request.user))
+    rows = []
+    for service in services:
+        summary = build_fmeca_service_progress_summary(service)
+        progress_percent = summary.get('average_progress_percent')
+        rows.append({
+            'service': service,
+            'summary': summary,
+            'progress_width': _progress_width_css(progress_percent),
+            'progress_color': _progress_color(progress_percent),
+            'progress_label': summary.get('average_progress_label', 'N/A'),
+            'progress_order': float(progress_percent) if progress_percent is not None else -1,
+        })
+    return services, rows
+
+
+@login_required
+def fmeca_development(request):
+    _services, rows = _fmeca_service_rows(request)
+    return render(request, 'core/rcm/fmeca_development.html', {
+        'service_rows': rows,
+    })
+
+
+@login_required
+def fmeca_panel(request):
+    services, rows = _fmeca_service_rows(request)
+    selected_service_id = request.GET.get('service') or ''
+    selected_service = None
+    context = {
+        'services': services,
+        'service_rows': rows,
+        'selected_service_id': selected_service_id,
+    }
+    if selected_service_id:
+        selected_service = next((service for service in services if str(service.pk) == str(selected_service_id)), None)
+        if not selected_service:
+            raise PermissionDenied('No tienes acceso al servicio seleccionado.')
+        fmeas = get_fmeca_queryset(selected_service)
+        selected_progress_nodo = request.GET.get('progress_nodo') or ''
+        selected_progress_nivel = request.GET.get('progress_nivel') or ''
+        if selected_progress_nodo:
+            fmeas = filter_fmeca_by_hierarchy(fmeas, selected_progress_nodo)
+        fmeas = list(fmeas)
+        progress_summary = build_fmeca_service_progress_summary(selected_service, fmeas=fmeas)
+        progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+        table_rows = []
+        for fmea in fmeas:
+            rcm = fmea.rcm
+            equipo = rcm.equipo
+            carga = rcm.carga
+            progress = progress_by_fmea_id.get(fmea.pk, {})
+            progress_percent = progress.get('progress_percent')
+            table_rows.append({
+                'id': rcm.pk,
+                'ut': equipo.ut_display if equipo else '',
+                'equipo': equipo.nombre_equipo if equipo else '',
+                'tag': equipo.tag_display if equipo else '',
+                'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y %H:%M') if carga and carga.creado_en else '',
+                'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y %H:%M') if carga and carga.actualizado else '',
+                'modo_de_falla': rcm.modo_de_falla,
+                'progress_label': progress.get('progress_label', 'N/A'),
+                'progress_order': float(progress_percent) if progress_percent is not None else -1,
+                'progress_width': _progress_width_css(progress_percent),
+                'progress_color': _progress_color(progress_percent),
+            })
+        context.update({
+            'selected_service': selected_service,
+            'progress_summary': progress_summary,
+            'hierarchy_filters': get_hierarchy_filter_options(selected_service),
+            'selected_progress_nivel': selected_progress_nivel,
+            'selected_progress_nodo': selected_progress_nodo,
+            'table_rows': table_rows,
+        })
+    return render(request, 'core/rcm/fmeca_panel.html', context)
 
 
 def _safe_task_slug(value, fallback='campo'):
@@ -78,6 +170,27 @@ def _service_family_payload(servicio):
             'equipos': _equipment_items_payload(equipos),
         })
     return payload
+
+
+def _progress_color(progress_percent):
+    if progress_percent is None:
+        return '#94a3b8'
+    try:
+        percent = max(0, min(100, float(progress_percent)))
+    except (TypeError, ValueError):
+        percent = 0
+    hue = int(percent * 1.2)
+    return f'hsl({hue}, 72%, 43%)'
+
+
+def _progress_width_css(progress_percent):
+    if progress_percent is None:
+        return '0'
+    try:
+        percent = max(0, min(100, float(progress_percent)))
+    except (TypeError, ValueError):
+        percent = 0
+    return f'{percent:.1f}'.rstrip('0').rstrip('.')
 
 
 def _task_config_payload(estrategia):
@@ -227,15 +340,15 @@ def _save_task_config(estrategia, payload):
 def service_rcm_task_config(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=True)
     if not servicio.estrategia_id:
-        messages.warning(request, 'El servicio debe tener una estrategia antes de configurar tareas RCM.')
+        messages.warning(request, 'El servicio debe tener una estrategia antes de configurar tareas RCM/FMECA.')
         return redirect('service_detail', pk=servicio.pk)
 
     if request.method == 'POST':
         payload = _json_payload(request, 'payload_json', []) or []
         with transaction.atomic():
             _save_task_config(servicio.estrategia, payload)
-        messages.success(request, 'La configuración de tareas RCM se guardó correctamente.')
-        return redirect('service_rcm_task_config', pk=servicio.pk)
+        messages.success(request, 'La configuración de tareas RCM/FMECA se guardó correctamente.')
+        return redirect('service_fmeca_task_config', pk=servicio.pk)
 
     return render(request, 'core/rcm/service_rcm_task_config.html', {
         'service': servicio,
@@ -245,10 +358,421 @@ def service_rcm_task_config(request, pk):
     })
 
 
+def _rcm_sheet_score(importer, ws):
+    header_row = importer.detect_header_row(ws)
+    if not header_row:
+        return 0, None
+    header_map = importer.build_header_map(ws, header_row)
+    score = 0
+    critical = [
+        ('funcion', 5),
+        ('falla_funcional', 6),
+        ('modo_de_falla', 6),
+        ('efecto', 5),
+        ('tag', 3),
+        ('ut', 3),
+        ('descripcion_equipo', 3),
+        ('npr', 3),
+    ]
+    for key, weight in critical:
+        if importer.column_for_aliases(header_map, BASE_ALIASES[key]):
+            score += weight
+    for task_aliases in TASK_ALIASES.values():
+        for aliases in task_aliases.values():
+            if importer.column_for_aliases(header_map, aliases):
+                score += 1
+    sheet_name = clean_text(ws.title).lower()
+    if any(term in sheet_name for term in ('rcm', 'fmea', 'fmeca')):
+        score += 8
+    return score, header_row
+
+
+def _select_rcm_excel_sheet(importer, workbook, requested_sheet=''):
+    requested_sheet = clean_text(requested_sheet)
+    if requested_sheet:
+        if requested_sheet in workbook.sheetnames:
+            ws = workbook[requested_sheet]
+            return requested_sheet, ws, importer.detect_header_row(ws)
+        lower_map = {name.lower(): name for name in workbook.sheetnames}
+        matched = lower_map.get(requested_sheet.lower())
+        if matched:
+            ws = workbook[matched]
+            return matched, ws, importer.detect_header_row(ws)
+        raise ValueError(f'El archivo no tiene hoja "{requested_sheet}". Hojas: {", ".join(workbook.sheetnames)}')
+
+    preferred = [name for name in workbook.sheetnames if any(term in name.lower() for term in ('rcm', 'fmea', 'fmeca'))]
+    candidates = preferred + [name for name in workbook.sheetnames if name not in preferred]
+    best = (0, None, None, None)
+    for name in candidates:
+        score, header_row = _rcm_sheet_score(importer, workbook[name])
+        if score > best[0]:
+            best = (score, name, workbook[name], header_row)
+    if not best[1]:
+        raise ValueError(f'No se detectó una hoja RCM/FMECA compatible. Hojas: {", ".join(workbook.sheetnames)}')
+    return best[1], best[2], best[3]
+
+
+def _rcm_excel_sample_rows(importer, ws, header_map, start_row, limit=10):
+    sample = []
+    stats = ImportStats()
+    last_values = {}
+    dims = []
+    try:
+        dims = importer.get_active_rcm_dimensions(getattr(importer, '_sample_strategy', None)) if getattr(importer, '_sample_strategy', None) else []
+    except Exception:
+        dims = []
+    for row_number in range(start_row, ws.max_row + 1):
+        if len(sample) >= limit:
+            break
+        raw_row = ws[row_number]
+        if importer.raw_row_is_empty(raw_row, header_map):
+            continue
+        row = importer.build_row_context(raw_row, header_map, last_values, stats)
+        if importer.row_is_empty(row, header_map):
+            continue
+        status = 'Listo'
+        npr = ''
+        if dims:
+            try:
+                resolved, _eval_stats = importer.resolve_dimensions(row, header_map, dims, stats)
+                npr_value = importer.find_resolved_value(resolved, ['npr'])
+                if npr_value and npr_value.number is not None:
+                    npr = str(npr_value.number)
+                    if npr_value.number == Decimal('0'):
+                        status = 'Omitida por NPR=0'
+            except Exception:
+                pass
+        tasks_found = 0
+        for task_key in ['actual', 'primaria', 'secundaria']:
+            if importer.task_payload(task_key, row, header_map).get('descripcion'):
+                tasks_found += 1
+        sample.append({
+            'excel_row': row_number,
+            'tag': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['tag'])),
+            'ut': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['ut'])),
+            'equipo': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['descripcion_equipo'])),
+            'componente': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['componente'])),
+            'funcion': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['funcion'])),
+            'modo': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['modo_de_falla'])),
+            'npr': npr or clean_text(importer.get_cell(row, header_map, BASE_ALIASES['npr'])),
+            'tasks_found': tasks_found,
+            'status': status,
+        })
+    return sample
+
+
+def _run_rcm_excel_upload(servicio, uploaded_file, sheet_name='', replace=False, create_task_types=False, preview=True):
+    from openpyxl import load_workbook
+
+    if not servicio.estrategia_id:
+        raise ValueError(f'El servicio {servicio.codigo_servicio} no tiene estrategia asociada.')
+    uploaded_file.seek(0)
+    workbook = load_workbook(uploaded_file, data_only=True, read_only=True)
+    importer = RCMExcelImportCommand()
+    resolved_sheet, ws, detected_header_row = _select_rcm_excel_sheet(importer, workbook, sheet_name)
+    if not detected_header_row:
+        raise ValueError('No se detectó una fila de encabezados compatible con RCM/FMECA.')
+    header_map = importer.build_header_map(ws, detected_header_row)
+    if not header_map:
+        raise ValueError('No se detectaron encabezados válidos.')
+
+    start_row = detected_header_row + 1
+    origin = f'RCM Excel: {uploaded_file.name}'
+    stats = ImportStats(header_row=detected_header_row, start_row=start_row, sheet_name=resolved_sheet)
+    dims = importer.get_active_rcm_dimensions(servicio.estrategia)
+    importer._sample_strategy = servicio.estrategia
+    sample_rows = _rcm_excel_sample_rows(importer, ws, header_map, start_row)
+    task_types = importer.resolve_task_types(servicio.estrategia, create_task_types, stats)
+    analysis_date = timezone.localdate()
+
+    with transaction.atomic():
+        if replace:
+            importer.replace_previous(servicio, origin)
+
+        processed = 0
+        last_values = {}
+        for row_number in range(start_row, ws.max_row + 1):
+            raw_row = ws[row_number]
+            if importer.raw_row_is_empty(raw_row, header_map):
+                continue
+            row = importer.build_row_context(raw_row, header_map, last_values, stats)
+            if importer.row_is_empty(row, header_map):
+                continue
+            stats.filas_leidas += 1
+            processed += 1
+            try:
+                importer.import_row(
+                    row=row,
+                    row_number=row_number,
+                    header_map=header_map,
+                    service=servicio,
+                    strategy=servicio.estrategia,
+                    dims=dims,
+                    task_types=task_types,
+                    analysis_date=analysis_date,
+                    origin=origin,
+                    stats=stats,
+                )
+            except Exception as exc:
+                stats.filas_omitidas += 1
+                stats.warn(f'Fila {row_number}: omitida por error: {exc}')
+
+        if preview:
+            transaction.set_rollback(True)
+
+    warning_total = len(stats.warnings) + sum(stats.unresolved_dimensions.values())
+    warnings = list(stats.warnings)
+    warnings.extend(
+        f'Dimensión "{dimension_name}" no resuelta en {count} fila(s).'
+        for dimension_name, count in stats.unresolved_dimensions.most_common()
+    )
+    return {
+        'sheet_name': resolved_sheet,
+        'origin': origin,
+        'header_row': stats.header_row,
+        'start_row': stats.start_row,
+        'rows_read': stats.filas_leidas,
+        'rows_imported': stats.filas_importadas,
+        'rows_skipped': stats.filas_omitidas,
+        'skipped_npr_zero': stats.filas_omitidas_npr_cero,
+        'equipos_creados': stats.equipos_creados,
+        'equipos_reutilizados': stats.equipos_reutilizados,
+        'servicio_equipo_creados': stats.servicio_equipo_creados,
+        'cargas': stats.cargas_creadas,
+        'rcm': stats.rcm_creados,
+        'fmea': stats.fmea_creados,
+        'evaluaciones': stats.evaluaciones_creadas,
+        'evaluaciones_calculadas': stats.evaluaciones_calculadas,
+        'dependientes': stats.dependientes_resueltas,
+        'tareas': stats.tareas_creadas,
+        'warning_total': warning_total,
+        'warnings': warnings,
+        'sample_rows': sample_rows,
+    }
+
+
+@login_required
+def service_rcm_excel_upload(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    if not permission.get('can_edit'):
+        raise PermissionDenied('No tienes permisos para cargar registros RCM/FMECA en este servicio.')
+
+    report = None
+    preview_only = True
+    upload_session_key = f'rcm_excel_upload_file_{servicio.pk}'
+    if request.method == 'POST':
+        form = RCMExcelBulkUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data.get('archivo')
+            if uploaded_file:
+                store_session_upload(request, upload_session_key, uploaded_file, 'rcm')
+            stored_file, _stored_ref = open_session_upload(request, upload_session_key)
+            if not stored_file:
+                form.add_error('archivo', 'Selecciona un archivo Excel para continuar.')
+            else:
+                form.cleaned_data['archivo'] = stored_file
+        if form.is_valid():
+            preview_only = request.POST.get('action') != 'confirm'
+            try:
+                report = _run_rcm_excel_upload(
+                    servicio,
+                    form.cleaned_data['archivo'],
+                    sheet_name=form.cleaned_data.get('hoja') or '',
+                    replace=form.cleaned_data.get('replace'),
+                    create_task_types=form.cleaned_data.get('create_task_types'),
+                    preview=preview_only,
+                )
+                if preview_only:
+                    messages.info(request, 'Previsualización RCM/FMECA lista. Puedes confirmar sin volver a seleccionar el archivo.')
+                else:
+                    clear_session_upload(request, upload_session_key)
+                    messages.success(request, f'Carga RCM/FMECA completada: {report["rcm"]} registros creados.')
+            except Exception as exc:
+                messages.error(request, str(exc))
+            finally:
+                try:
+                    form.cleaned_data['archivo'].close()
+                except Exception:
+                    pass
+    else:
+        clear_session_upload(request, upload_session_key)
+        form = RCMExcelBulkUploadForm()
+    stored_upload = request.session.get(upload_session_key)
+
+    return render(request, 'core/rcm/service_rcm_excel_upload.html', {
+        'service': servicio,
+        'permission': permission,
+        'form': form,
+        'report': report,
+        'preview_only': preview_only,
+        'stored_upload': stored_upload,
+    })
+
+
+@login_required
+def service_rcm_excel_template(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=False)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    headers = [
+        'Equipo / Componente',
+        'TAG',
+        'Ubicación Técnica',
+        'Componente',
+        'Función',
+        'Falla Funcional',
+        'Modo de Falla',
+        'Efecto/Consecuencia de la Falla',
+        'OP',
+        'SLD',
+        'MA',
+        'I&R',
+        'Severidad',
+        'Ocurrencia',
+        'Detección',
+        'NPR',
+        'Criticidad',
+        'Rango NPR',
+        'Actividad de Mantenimiento Primaria',
+        'Táctica FTM-CBM-RTF-FFM',
+        'ITEMS / COMPONENTE',
+        'Limite Aceptable',
+        'Pto. Trabajo',
+        'Frecuencia (s)',
+        'Cant. Pers ejecutante',
+        'Dur (min)',
+        'Dur (hr)',
+        'HH',
+        'Estado Equipo',
+        'Actividad de Mantenimiento Secundaria',
+        'Componente Involucrado',
+        'N° Parte / N° Ítem',
+        'N° SAP',
+        'Obs',
+    ]
+    rows = [
+        [
+            'Bomba de pulpa 1',
+            'A001',
+            'MIN-CH-MOL-PULP-BOM-A001',
+            'Impulsor',
+            'Transportar pulpa hacia clasificación',
+            'Pérdida de caudal',
+            'Desgaste abrasivo del impulsor',
+            'Pérdida de eficiencia y riesgo de detención del circuito',
+            4, 3, 2, 1, '', 3, 4, '', 'Alta', '',
+            'Inspeccionar desgaste de impulsor y holguras',
+            'CBM',
+            'Impulsor bomba',
+            'Holgura dentro del rango definido',
+            'Mecánico',
+            'Mensual',
+            1,
+            60,
+            1,
+            1,
+            'Operando',
+            'Revisar disponibilidad de repuesto crítico',
+            'Impulsor',
+            'REP-001',
+            '30001234',
+            'Ejemplo de tarea secundaria',
+        ],
+        [
+            'Motor ventilador',
+            'A002',
+            'MIN-CH-SER-VEN-EXT-A002',
+            'Rodamientos',
+            'Entregar ventilación al área',
+            'No entrega flujo de aire requerido',
+            'Falla de rodamiento por lubricación deficiente',
+            'Aumento de temperatura y detención del ventilador',
+            3, 2, 2, 1, '', 2, 5, '', 'Media', '',
+            'Medir vibración y temperatura de rodamientos',
+            'CBM',
+            'Rodamiento motor',
+            'Vibración bajo límite definido',
+            'Mecánico',
+            'Quincenal',
+            1,
+            45,
+            0.75,
+            0.75,
+            'Operando',
+            '',
+            '',
+            '',
+            '',
+            '',
+        ],
+    ]
+
+    workbook = Workbook()
+    ws = workbook.active
+    ws.title = 'RCM-FMEA'
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    header_fill = PatternFill('solid', fgColor='EAF1FF')
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+    for column_cells in ws.columns:
+        letter = column_cells[0].column_letter
+        max_length = max(len(str(cell.value or '')) for cell in column_cells)
+        ws.column_dimensions[letter].width = min(max(max_length + 2, 14), 42)
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    filename = f'plantilla_rcm_fmeca_{servicio.codigo_servicio}.xlsx'
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
 @login_required
 def service_rcm_list(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=False)
-    rows, rcm_count, fmea_count, fmeca_count = _service_rcm_rows(servicio)
+    fmeas = get_fmeca_queryset(servicio)
+    selected_progress_nivel = request.GET.get('progress_nivel') or ''
+    selected_progress_nodo = request.GET.get('progress_nodo') or ''
+    if selected_progress_nodo:
+        fmeas = filter_fmeca_by_hierarchy(fmeas, selected_progress_nodo)
+    fmeas = list(fmeas)
+    rows, rcm_count, fmea_count, fmeca_count = _service_rcm_rows(servicio, fmeas=fmeas)
+    progress_summary = build_fmeca_service_progress_summary(servicio, fmeas=fmeas)
+    progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+    for row in rows:
+        progress = progress_by_fmea_id.get(row.get('fmea').pk if row.get('fmea') else None, {})
+        progress_percent = progress.get('progress_percent')
+        row['avance_fmeca'] = progress.get('progress_label', 'N/A')
+        row['avance_fmeca_order'] = float(progress_percent) if progress_percent is not None else -1
+        row['avance_fmeca_width'] = _progress_width_css(progress_percent)
+        row['avance_fmeca_color'] = _progress_color(progress_percent)
+        row['avance_fmeca_missing_label'] = ', '.join(
+            item.dimension.nombre for item in progress.get('missing_dimensions', [])
+        ) or 'Sin faltantes'
+
+    hierarchy_filters = get_hierarchy_filter_options(servicio)
+    evaluation_columns = []
+    if servicio.estrategia_id:
+        evaluation_columns = list(
+            models.EstrategiaDimension.objects.filter(
+                estrategia=servicio.estrategia,
+                activo=True,
+                visible_en_listado_fmeca=True,
+                proceso_uso__in=[
+                    models.EstrategiaDimension.PROCESO_FMECA,
+                    models.EstrategiaDimension.PROCESO_AMBOS,
+                ],
+            )
+            .select_related('dimension')
+            .order_by('orden', 'id')
+        )
 
     return render(request, 'core/rcm/service_rcm_list.html', {
         'service': servicio,
@@ -257,25 +781,20 @@ def service_rcm_list(request, pk):
         'rcm_count': rcm_count,
         'fmea_count': fmea_count,
         'fmeca_count': fmeca_count,
+        'progress_summary': progress_summary,
+        'hierarchy_filters': hierarchy_filters,
+        'selected_progress_nivel': selected_progress_nivel,
+        'selected_progress_nodo': selected_progress_nodo,
+        'evaluation_columns': evaluation_columns,
     })
 
 
-def _service_rcm_rows(servicio):
-    registros_qs = (
-        models.RCM.objects.filter(carga__servicio=servicio)
-        .select_related('carga', 'equipo', 'fmea_fmeca')
-        .prefetch_related(
-            'fmea_fmeca__evaluaciones__estrategia_dimension__dimension',
-            'fmea_fmeca__tareas_rcm__tipo_tarea_estrategia',
-        )
-        .order_by('-fecha_analisis', '-id')
-    )
+def _service_rcm_rows(servicio, fmeas=None):
+    if fmeas is None:
+        fmeas = list(get_fmeca_queryset(servicio).order_by('-rcm__fecha_analisis', '-rcm__id'))
     rows = []
-    for registro in registros_qs:
-        try:
-            fmea = registro.fmea_fmeca
-        except models.FMEA_FMECA.DoesNotExist:
-            fmea = None
+    for fmea in fmeas:
+        registro = fmea.rcm
         evaluations = []
         tasks = []
         if fmea:
@@ -294,20 +813,25 @@ def _service_rcm_rows(servicio):
             'registro': registro,
             'fmea': fmea,
             'evaluations': evaluations,
+            'evaluations_by_ed': {evaluation.estrategia_dimension_id: evaluation for evaluation in evaluations},
             'tasks': tasks,
         })
 
+    rcm_count = len(rows)
+    fmea_count = sum(1 for row in rows if not row['registro'].criticidad)
+    fmeca_count = sum(1 for row in rows if row['registro'].criticidad)
     return (
         rows,
-        registros_qs.count(),
-        registros_qs.filter(criticidad__isnull=True).count(),
-        registros_qs.filter(criticidad__isnull=False).count(),
+        rcm_count,
+        fmea_count,
+        fmeca_count,
     )
 
 
 def _service_rcm_export_data(servicio):
     rows, _rcm_count, _fmea_count, _fmeca_count = _service_rcm_rows(servicio)
     columns = [
+        ('id', 'ID'),
         ('fecha_creacion', 'Fecha creación'),
         ('fecha_modificacion', 'Fecha modificación'),
         ('tipo', 'Tipo'),
@@ -337,6 +861,7 @@ def _service_rcm_export_data(servicio):
             for task in item['tasks']
         ]
         records.append({
+            'id': registro.pk,
             'fecha_creacion': registro.carga.creado_en if registro.carga_id else '',
             'fecha_modificacion': registro.carga.actualizado if registro.carga_id else '',
             'tipo': registro.tipo_analisis,
@@ -365,14 +890,14 @@ def service_rcm_export(request, pk, formato):
     if formato == 'excel':
         return _export_xlsx_response(
             _export_filename('RCM', servicio, 'xlsx'),
-            'Registros RCM',
+            'Desarrollo RCM/FMECA',
             columns,
             rows,
         )
     if formato == 'pdf':
         return _export_pdf_response(
             _export_filename('RCM', servicio, 'pdf'),
-            f'Registros RCM - {servicio.codigo_servicio}',
+            f'Desarrollo RCM/FMECA - {servicio.codigo_servicio}',
             columns,
             rows,
         )
@@ -779,11 +1304,11 @@ def service_rcm_new(request, pk):
                             equipo=equipo,
                             attachment_payload=attachment_payload,
                         )
-                    messages.success(request, f'Se crearon {len(equipos)} registros RCM para la familia {familia.nombre}.')
+                    messages.success(request, f'Se crearon {len(equipos)} registros RCM/FMECA para la familia {familia.nombre}.')
                 else:
                     _save_rcm_form(servicio, permission, form, task_formset=task_formset, attachment_payload=attachment_payload)
-                    messages.success(request, 'Registro RCM creado correctamente.')
-            return redirect('service_rcm_list', pk=servicio.pk)
+                    messages.success(request, 'Registro RCM/FMECA creado correctamente.')
+            return redirect('service_fmeca_list', pk=servicio.pk)
 
     return render(request, 'core/rcm/service_rcm_form.html', {
         'service': servicio,
@@ -794,8 +1319,8 @@ def service_rcm_new(request, pk):
         'task_field_config_payload': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False) if servicio.estrategia_id else '[]',
         'editing_rcm': None,
         'rcm_date_meta': _rcm_date_meta(),
-        'form_title': 'Nuevo registro RCM',
-        'submit_label': 'Guardar registro RCM',
+        'form_title': 'Nuevo registro RCM/FMECA',
+        'submit_label': 'Guardar registro RCM/FMECA',
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
         'service_family_payload': _service_family_payload(servicio),
@@ -838,8 +1363,8 @@ def service_rcm_edit(request, service_pk, rcm_pk):
                     rcm=rcm,
                     attachment_payload=attachment_payload,
                 )
-            messages.success(request, 'Registro RCM actualizado correctamente.')
-            return redirect('service_rcm_list', pk=servicio.pk)
+            messages.success(request, 'Registro RCM/FMECA actualizado correctamente.')
+            return redirect('service_fmeca_list', pk=servicio.pk)
 
     return render(request, 'core/rcm/service_rcm_form.html', {
         'service': servicio,
@@ -878,7 +1403,7 @@ def service_rcm_delete(request, service_pk, rcm_pk):
         rcm.delete()
         if carga and not carga.criticidades.exists() and not models.RCM.objects.filter(carga=carga).exists():
             carga.delete()
-        messages.success(request, 'Registro RCM eliminado correctamente.')
-        return redirect('service_rcm_list', pk=servicio.pk)
+        messages.success(request, 'Registro RCM/FMECA eliminado correctamente.')
+        return redirect('service_fmeca_list', pk=servicio.pk)
 
-    return redirect('service_rcm_list', pk=servicio.pk)
+    return redirect('service_fmeca_list', pk=servicio.pk)

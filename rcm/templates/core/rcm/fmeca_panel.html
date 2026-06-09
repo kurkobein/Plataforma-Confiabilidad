@@ -1,0 +1,228 @@
+{% extends 'core/base.html' %}
+{% load l10n %}
+
+{% block title %}Panel RCM/FMECA | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Panel RCM/FMECA</h2>
+        <p>Resumen global de avance RCM/FMECA por servicio.</p>
+    </div>
+</div>
+
+{% if selected_service %}
+    <div class="card">
+        <div class="aca-progress-summary">
+            <div class="aca-progress-donut-block">
+                <div class="aca-progress-donut" style="--progress-degrees: {{ progress_summary.average_progress_degrees|default:0|unlocalize }}deg;">
+                    <span>{{ progress_summary.average_progress_label }}</span>
+                </div>
+                <small>Avance</small>
+            </div>
+            <div class="aca-progress-donut-block">
+                <div class="aca-progress-donut aca-progress-donut-status" style="--progress-degrees: {{ progress_summary.complete_records_degrees|default:0|unlocalize }}deg;">
+                    <span>{{ progress_summary.complete_records_label }}</span>
+                </div>
+                <small>Finalizados</small>
+            </div>
+            <div class="aca-progress-summary-copy">
+                <h3 class="card-title">Avance RCM/FMECA | {{ selected_service.codigo_servicio }}</h3>
+                <p class="muted">
+                    {% if progress_summary.progress_available %}
+                        {{ progress_summary.dimension_count }} dimensiones consideradas para avance.
+                    {% else %}
+                        No hay dimensiones configuradas para avance FMECA.
+                    {% endif %}
+                </p>
+            </div>
+            <div class="aca-progress-kpis">
+                <div class="stat"><small>Total registros</small><strong>{{ progress_summary.total_records }}</strong></div>
+                <div class="stat"><small>Finalizados</small><strong>{{ progress_summary.complete_records }}</strong></div>
+                <div class="stat"><small>En desarrollo</small><strong>{{ progress_summary.incomplete_records }}</strong></div>
+            </div>
+            <div class="aca-progress-gap">
+                <small>Mayor brecha</small>
+                {% if progress_summary.major_gap %}
+                    <strong>{{ progress_summary.major_gap.name }}</strong>
+                    <span>{{ progress_summary.major_gap.missing_count }} registros sin completar</span>
+                {% else %}
+                    <strong>Sin brechas</strong>
+                    <span>No hay faltantes en las dimensiones consideradas.</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="actions">
+            <a class="btn" href="{% url 'service_fmeca_list' selected_service.pk %}">Desarrollo RCM/FMECA</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Filtros</h3>
+        <form class="aca-progress-filters" method="get">
+            <input type="hidden" name="service" value="{{ selected_service.pk }}">
+            <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
+            <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
+            <div class="aca-progress-filter-body" data-aca-progress-filter-body>
+                {% for level in hierarchy_filters.levels %}
+                    <div class="form-field">
+                        <label>{{ level.name }}</label>
+                        <select class="input-control" data-progress-nested-level="{{ level.id }}">
+                            <option value="">Todos</option>
+                            {% for node in hierarchy_filters.nodes %}
+                                {% if node.level_id == level.id %}
+                                    <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endfor %}
+                <div class="actions aca-progress-filter-actions">
+                    <button class="btn btn-primary" type="submit">Aplicar</button>
+                    <a class="btn" href="{% url 'fmeca_panel' %}?service={{ selected_service.pk }}">Limpiar</a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Registros filtrados</h3>
+        <div class="table-wrap">
+            <table class="datatable display compact-table" data-column-filters="true">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Avance</th>
+                        <th>UT</th>
+                        <th>Equipo</th>
+                        <th>TAG</th>
+                        <th>Modo de falla</th>
+                        <th>Fecha creado</th>
+                        <th>Última modificación</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in table_rows %}
+                        <tr>
+                            <td>{{ row.id }}</td>
+                            <td data-order="{{ row.progress_order }}">
+                                <span class="aca-progress-pill"
+                                      style="--progress-width: {{ row.progress_width }}%; --progress-color: {{ row.progress_color }};">
+                                    <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                                    <span class="aca-progress-pill-label">{{ row.progress_label }}</span>
+                                </span>
+                            </td>
+                            <td><span class="cell-ellipsis" title="{{ row.ut }}">{{ row.ut }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.equipo }}">{{ row.equipo }}</span></td>
+                            <td>{{ row.tag }}</td>
+                            <td><span class="cell-ellipsis" title="{{ row.modo_de_falla }}">{{ row.modo_de_falla }}</span></td>
+                            <td>{{ row.created }}</td>
+                            <td>{{ row.updated }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="8" class="muted">No hay registros para los filtros seleccionados.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% else %}
+    <div class="table-wrap">
+        <table class="datatable display compact-table" data-column-filters="true">
+            <thead>
+                <tr>
+                    <th>Servicio</th>
+                    <th>Descripción</th>
+                    <th>Registros</th>
+                    <th>Avance</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in service_rows %}
+                    <tr>
+                        <td><strong>{{ row.service.codigo_servicio }}</strong></td>
+                        <td>{{ row.service.descripcion|default:'-' }}</td>
+                        <td>{{ row.summary.total_records }}</td>
+                        <td data-order="{{ row.progress_order }}">
+                            <span class="aca-progress-pill"
+                                  style="--progress-width: {{ row.progress_width }}%; --progress-color: {{ row.progress_color }};">
+                                <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                                <span class="aca-progress-pill-label">{{ row.progress_label }}</span>
+                            </span>
+                        </td>
+                        <td><a class="btn" href="{% url 'fmeca_panel' %}?service={{ row.service.pk }}">Ver panel</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" class="muted">No hay servicios accesibles.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function syncNestedFmecaFilters(root) {
+    const scope = root || document;
+    const levelInput = scope.querySelector('[name="progress_nivel"]');
+    const nodeInput = scope.querySelector('[name="progress_nodo"]');
+    const nestedSelects = Array.from(scope.querySelectorAll('[data-progress-nested-level]'));
+    if (!levelInput || !nodeInput || !nestedSelects.length) return;
+
+    const selectedOption = nestedSelects
+        .flatMap(function (select) { return Array.from(select.options); })
+        .find(function (option) { return option.selected && option.value; });
+    const selectedPath = selectedOption?.dataset.path || '';
+    const selectedParts = selectedPath ? selectedPath.split('-') : [];
+    if (selectedParts.length) {
+        nestedSelects.forEach(function (select, index) {
+            if (select.value) return;
+            const expectedPath = selectedParts.slice(0, index + 1).join('-');
+            const match = Array.from(select.options).find(function (option) {
+                return option.value && option.dataset.path === expectedPath;
+            });
+            if (match) select.value = match.value;
+        });
+    }
+
+    let activePath = '';
+    let deepestLevel = '';
+    let deepestNode = '';
+    let previousLevelSelected = true;
+    nestedSelects.forEach(function (select, index) {
+        const field = select.closest('.form-field');
+        select.disabled = index > 0 && !previousLevelSelected;
+        if (select.disabled) select.value = '';
+        Array.from(select.options).forEach(function (option) {
+            if (!option.value) {
+                option.hidden = false;
+                return;
+            }
+            const path = option.dataset.path || '';
+            option.hidden = Boolean(activePath) && !(path === activePath || path.startsWith(activePath + '-'));
+        });
+        if (select.value && select.selectedOptions[0]?.hidden) select.value = '';
+        if (field) field.hidden = index > 0 && !previousLevelSelected;
+        const selected = select.selectedOptions[0];
+        if (select.value && selected) {
+            activePath = selected.dataset.path || '';
+            deepestLevel = select.dataset.progressNestedLevel || '';
+            deepestNode = select.value;
+        }
+        previousLevelSelected = Boolean(select.value);
+    });
+    levelInput.value = deepestLevel;
+    nodeInput.value = deepestNode;
+}
+
+document.addEventListener('change', function (event) {
+    const form = event.target.closest('.aca-progress-filters');
+    if (!form || !event.target.matches('[data-progress-nested-level]')) return;
+    syncNestedFmecaFilters(form);
+});
+
+syncNestedFmecaFilters(document);
+</script>
+{% endblock %}

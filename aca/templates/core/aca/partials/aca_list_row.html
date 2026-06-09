@@ -26,6 +26,9 @@
                         <span class="aca-progress-pill-fill" aria-hidden="true"></span>
                         <span class="aca-progress-pill-label">{{ cell_value }}</span>
                     </span>
+                {% elif key == 'fechas' %}
+                    <div class="date-inline"><small class="muted">Creación:</small> {{ row.fecha_creado|default:'-' }}</div>
+                    <div class="date-inline"><small class="muted">Modificación:</small> {{ row.ultimo_avance|default:'-' }}</div>
                 {% elif key == 'ubicacion_tecnica' or key == 'descripcion_ut' or key == 'equipo' or key == 'observacion' %}
                     <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ cell_value }}" data-copy="{{ cell_value }}">{{ cell_value }}</span>
                 {% elif key == 'criticidad_final' %}

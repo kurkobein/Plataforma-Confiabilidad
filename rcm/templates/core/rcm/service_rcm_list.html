@@ -1,39 +1,100 @@
 {% extends 'core/base.html' %}
-{% block title %}RCM | {{ service.codigo_servicio }}{% endblock %}
+{% load core_extras l10n %}
+
+{% block title %}RCM/FMECA | {{ service.codigo_servicio }}{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-            <h2>Registros RCM</h2>
-        <p>{{ service.codigo_servicio }} · FMEA/FMECA asociados al servicio.</p>
-    </div>
+            <h2>Desarrollo RCM/FMECA</h2>
+            <p>{{ service.codigo_servicio }} - FMEA/FMECA asociados al servicio.</p>
+        </div>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'service_rcm_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
-        <a class="btn" href="{% url 'service_rcm_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
-        <a class="btn" href="" style="pointer-events: none; cursor: default;  opacity: 0.4;">Carga masiva</a>
+        <a class="btn" href="{% url 'service_fmeca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
+        <a class="btn" href="{% url 'service_fmeca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
-            <a class="btn" href="{% url 'service_rcm_task_config' service.pk %}">Configurar tareas</a>
-            <a class="btn btn-primary" href="{% url 'service_rcm_new' service.pk %}">Registrar</a>
+            <a class="btn" href="{% url 'service_fmeca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
+            <a class="btn" href="{% url 'service_fmeca_task_config' service.pk %}">Configurar tareas</a>
+            <a class="btn btn-primary" href="{% url 'service_fmeca_new' service.pk %}">Registrar</a>
         {% endif %}
     </div>
 </div>
 
 <div class="card">
-    <h3 class="card-title">Resumen</h3>
-    <div class="grid-3">
-        <div class="stat"><small>Servicio</small><strong style="font-size:20px;">{{ service.codigo_servicio }}</strong></div>
-        <div class="stat"><small>Registros</small><strong>{{ rcm_count }}</strong></div>
-        <div class="stat"><small>FMEA</small><strong>{{ fmea_count }}</strong></div>
-        <div class="stat"><small>FMECA</small><strong>{{ fmeca_count }}</strong></div>
+    <div class="aca-progress-summary">
+        <div class="aca-progress-donut-block">
+            <div class="aca-progress-donut" style="--progress-degrees: {{ progress_summary.average_progress_degrees|default:0|unlocalize }}deg;">
+                <span>{{ progress_summary.average_progress_label }}</span>
+            </div>
+            <small>Avance</small>
+        </div>
+        <div class="aca-progress-donut-block">
+            <div class="aca-progress-donut aca-progress-donut-status" style="--progress-degrees: {{ progress_summary.complete_records_degrees|default:0|unlocalize }}deg;">
+                <span>{{ progress_summary.complete_records_label }}</span>
+            </div>
+            <small>Finalizados</small>
+        </div>
+        <div class="aca-progress-summary-copy">
+            <h3 class="card-title">Avance RCM/FMECA</h3>
+            <p class="muted">
+                {% if progress_summary.progress_available %}
+                    {{ progress_summary.dimension_count }} dimensiones consideradas para avance.
+                {% else %}
+                    No hay dimensiones configuradas para avance FMECA.
+                {% endif %}
+            </p>
+        </div>
+        <div class="aca-progress-kpis">
+            <div class="stat"><small>Total registros</small><strong>{{ progress_summary.total_records }}</strong></div>
+            <div class="stat"><small>Finalizados</small><strong>{{ progress_summary.complete_records }}</strong></div>
+            <div class="stat"><small>En desarrollo</small><strong>{{ progress_summary.incomplete_records }}</strong></div>
+        </div>
+        <div class="aca-progress-gap">
+            <small>Mayor brecha</small>
+            {% if progress_summary.major_gap %}
+                <strong>{{ progress_summary.major_gap.name }}</strong>
+                <span>{{ progress_summary.major_gap.missing_count }} registros sin completar</span>
+            {% else %}
+                <strong>Sin brechas</strong>
+                <span>No hay faltantes en las dimensiones consideradas.</span>
+            {% endif %}
+        </div>
     </div>
+
+    <form class="aca-progress-filters" method="get">
+        <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
+        <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
+        <div class="aca-progress-filter-body" data-aca-progress-filter-body>
+            {% for level in hierarchy_filters.levels %}
+                <div class="form-field">
+                    <label>{{ level.name }}</label>
+                    <select class="input-control" data-progress-nested-level="{{ level.id }}">
+                        <option value="">Todos</option>
+                        {% for node in hierarchy_filters.nodes %}
+                            {% if node.level_id == level.id %}
+                                <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endfor %}
+            <div class="actions aca-progress-filter-actions">
+                <button class="btn btn-primary" type="submit">Aplicar</button>
+                <a class="btn" href="{% url 'service_fmeca_list' service.pk %}">Limpiar</a>
+            </div>
+        </div>
+    </form>
 </div>
 
 <div class="table-wrap">
-    <table class="datatable display compact-table rcm-records-table">
+    <table class="datatable display compact-table rcm-records-table" data-column-filters="true" data-page-length="25" data-scroll-x="true">
         <thead>
             <tr>
+                <th>ID</th>
+                <th>Avance</th>
                 <th>Fechas</th>
                 <th>Tipo</th>
                 <th>Estado</th>
@@ -41,12 +102,15 @@
                 <th>Equipo</th>
                 <th>TAG</th>
                 <th>Componente</th>
-                <th>Funci&oacute;n</th>
+                <th>Función</th>
                 <th>Falla funcional</th>
                 <th>Modo de falla</th>
                 <th>Observación</th>
                 <th>Valores tarea principal</th>
                 <th>NPR</th>
+                {% for ed in evaluation_columns %}
+                    <th>{{ ed.dimension.nombre }}</th>
+                {% endfor %}
                 <th>Tareas</th>
                 <th>Acciones</th>
             </tr>
@@ -54,9 +118,18 @@
         <tbody>
             {% for row in rows %}
                 <tr>
+                    <td>{{ row.registro.pk }}</td>
+                    <td data-order="{{ row.avance_fmeca_order }}">
+                        <span class="aca-progress-pill"
+                              style="--progress-width: {{ row.avance_fmeca_width }}%; --progress-color: {{ row.avance_fmeca_color }};"
+                              title="Faltantes: {{ row.avance_fmeca_missing_label }}">
+                            <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                            <span class="aca-progress-pill-label">{{ row.avance_fmeca }}</span>
+                        </span>
+                    </td>
                     <td>
-                        <div class="date-inline"><small class="muted">Creación:</small> {{ row.registro.carga.creado_en|date:"d/m/Y" }}</div>
-                        <div class="date-inline"><small class="muted">Modificación:</small> {{ row.registro.carga.actualizado|date:"d/m/Y" }}</div>
+                        <div class="date-inline"><small class="muted">Creación:</small> {{ row.registro.carga.creado_en|date:"d/m/Y H:i" }}</div>
+                        <div class="date-inline"><small class="muted">Modificación:</small> {{ row.registro.carga.actualizado|date:"d/m/Y H:i" }}</div>
                     </td>
                     <td>{{ row.registro.tipo_analisis }}</td>
                     <td>{{ row.registro.get_estado_display }}</td>
@@ -71,8 +144,8 @@
                     <td>
                         {% for task in row.tasks %}
                             {% if task.tipo_tarea_estrategia.codigo == 'tarea_primaria' %}
-                                <span class="cell-ellipsis" title="Frecuencia: {{ task.frecuencia_texto|default:'-' }} · Especialidad: {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} · Estado: {{ task.estado_equipo|default:'-' }}">
-                                    {{ task.frecuencia_texto|default:'-' }} · {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} · {{ task.estado_equipo|default:'-' }}
+                                <span class="cell-ellipsis" title="Frecuencia: {{ task.frecuencia_texto|default:'-' }} - Especialidad: {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} - Estado: {{ task.estado_equipo|default:'-' }}">
+                                    {{ task.frecuencia_texto|default:'-' }} - {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} - {{ task.estado_equipo|default:'-' }}
                                 </span>
                             {% endif %}
                         {% empty %}
@@ -92,6 +165,11 @@
                             -
                         {% endif %}
                     </td>
+                    {% for ed in evaluation_columns %}
+                        {% with evaluation=row.evaluations_by_ed|get_item:ed.pk %}
+                            <td>{{ evaluation.valor_display|default:'-' }}</td>
+                        {% endwith %}
+                    {% endfor %}
                     <td>
                         {% if row.tasks %}
                             {% for task in row.tasks|slice:":3" %}
@@ -107,11 +185,11 @@
                     <td>
                         {% if permission.can_edit %}
                             <div class="actions">
-                                <a class="btn" href="{% url 'service_rcm_edit' service.pk row.registro.pk %}"><i class="bi bi-pencil"></i></a>
+                                <a class="btn" href="{% url 'service_fmeca_edit' service.pk row.registro.pk %}"><i class="bi bi-pencil"></i></a>
                                 <form method="post"
-                                      action="{% url 'service_rcm_delete' service.pk row.registro.pk %}"
+                                      action="{% url 'service_fmeca_delete' service.pk row.registro.pk %}"
                                       style="display:inline;"
-                                      onsubmit="return confirm('¿Seguro que deseas eliminar este registro RCM?');">
+                                      onsubmit="return confirm('¿Seguro que deseas eliminar este registro RCM/FMECA?');">
                                     {% csrf_token %}
                                     <button type="submit" class="btn btn-danger"><i class="bi bi-trash3"></i></button>
                                 </form>
@@ -122,9 +200,74 @@
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="15" class="muted">Todavía no hay registros RCM para este servicio.</td></tr>
+                <tr><td colspan="99" class="muted">Todavía no hay registros RCM/FMECA para este servicio.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function syncNestedFmecaFilters(root) {
+    const scope = root || document;
+    const levelInput = scope.querySelector('[name="progress_nivel"]');
+    const nodeInput = scope.querySelector('[name="progress_nodo"]');
+    const nestedSelects = Array.from(scope.querySelectorAll('[data-progress-nested-level]'));
+    if (!levelInput || !nodeInput || !nestedSelects.length) return;
+
+    const selectedOption = nestedSelects
+        .flatMap(function (select) { return Array.from(select.options); })
+        .find(function (option) { return option.selected && option.value; });
+    const selectedPath = selectedOption?.dataset.path || '';
+    const selectedParts = selectedPath ? selectedPath.split('-') : [];
+    if (selectedParts.length) {
+        nestedSelects.forEach(function (select, index) {
+            if (select.value) return;
+            const expectedPath = selectedParts.slice(0, index + 1).join('-');
+            const match = Array.from(select.options).find(function (option) {
+                return option.value && option.dataset.path === expectedPath;
+            });
+            if (match) select.value = match.value;
+        });
+    }
+
+    let activePath = '';
+    let deepestLevel = '';
+    let deepestNode = '';
+    let previousLevelSelected = true;
+    nestedSelects.forEach(function (select, index) {
+        const field = select.closest('.form-field');
+        select.disabled = index > 0 && !previousLevelSelected;
+        if (select.disabled) select.value = '';
+        Array.from(select.options).forEach(function (option) {
+            if (!option.value) {
+                option.hidden = false;
+                return;
+            }
+            const path = option.dataset.path || '';
+            option.hidden = Boolean(activePath) && !(path === activePath || path.startsWith(activePath + '-'));
+        });
+        if (select.value && select.selectedOptions[0]?.hidden) select.value = '';
+        if (field) field.hidden = index > 0 && !previousLevelSelected;
+        const selected = select.selectedOptions[0];
+        if (select.value && selected) {
+            activePath = selected.dataset.path || '';
+            deepestLevel = select.dataset.progressNestedLevel || '';
+            deepestNode = select.value;
+        }
+        previousLevelSelected = Boolean(select.value);
+    });
+    levelInput.value = deepestLevel;
+    nodeInput.value = deepestNode;
+}
+
+document.addEventListener('change', function (event) {
+    const form = event.target.closest('.aca-progress-filters');
+    if (!form || !event.target.matches('[data-progress-nested-level]')) return;
+    syncNestedFmecaFilters(form);
+});
+
+syncNestedFmecaFilters(document);
+</script>
 {% endblock %}

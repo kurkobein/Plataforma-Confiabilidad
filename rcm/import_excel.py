@@ -54,10 +54,15 @@ BASE_ALIASES = {
 
 BASE_ALIASES['descripcion_equipo'].extend([
     'nombre equipo',
+    'descripcion equipo',
+    'descripción equipo',
     'equipo componente',
     'equipo / componente',
     'equipo/componente',
 ])
+BASE_ALIASES['funcion'].extend(['funcion equipo', 'función equipo'])
+BASE_ALIASES['modo_de_falla'].extend(['ds modo de falla elemento problema causa raiz'])
+BASE_ALIASES['efecto'].extend(['efecto de la falla', 'ds efecto de modo de falla'])
 BASE_ALIASES['deteccion'].extend(['detencion', 'detención'])
 
 DIMENSION_ALIASES = {
@@ -116,26 +121,43 @@ TASK_ALIASES = {
         'hh': ['hh sap'],
     },
     'primaria': {
-        'tactica': ['tactica ftm cbm rtf ffm', 'táctica ftm-cbm-rtf-ffm'],
-        'descripcion': ['actividad de mantenimiento primaria', 'actividad primaria'],
+        'tactica': ['tactica ftm cbm rtf ffm', 'táctica ftm-cbm-rtf-ffm', 'estrategia', 'estrategia cbm otf ftm'],
+        'descripcion': [
+            'actividad de mantenimiento primaria',
+            'actividad primaria',
+            'accion recomendada',
+            'acción recomendada',
+            'tarea de mtto',
+            'ds descripcion de la tarea accion para prevenir el modo de falla',
+        ],
         'componente_involucrado': ['items componente', 'items / componente'],
         'operacion_hoja_ruta': ['operacion hruta_1', 'operación hruta_1'],
         'operacion_pauta': ['operacion pauta', 'operación pauta'],
         'limite_aceptable': ['limite aceptable', 'límite aceptable'],
         'puesto_trabajo': ['pto trabajo', 'pto. trabajo'],
-        'frecuencia_texto': ['frecuencia s', 'frecuencia (s)', 'frecuencia'],
-        'cantidad_personas': ['cant pers ejecutante', 'cant. pers ejecutante'],
-        'duracion_min': ['dur min', 'dur (min)'],
+        'frecuencia_texto': ['frecuencia s', 'frecuencia (s)', 'frecuencia', 'no freq'],
+        'frecuencia_unidad': ['cd freq unit horas'],
+        'cantidad_personas': ['cant pers ejecutante', 'cant. pers ejecutante', 'no persons'],
+        'especialidad': ['especialidad', 'cd esp electrico mecanico instrumentista lubricacion moncon', 'esp'],
+        'duracion_min': ['dur min', 'dur (min)', 'no time min'],
         'duracion_hr': ['dur hr', 'dur (hr)'],
+        'parametros': ['parametros'],
+        'riesgo_material': ['riesgo material de la tarea'],
+        'repuesto': ['repuesto para pm cod sap o descripcion', 'descrip repuesto'],
+        'procedimiento_trabajo': ['procedimiento de trabajo'],
+        'descripcion_plan': ['descripcion plan', 'descripción plan'],
+        'hoja_ruta': ['hr', 'hoja de ruta'],
+        'pauta': ['codigo pauta', 'código pauta', 'pauta final'],
+        'titulo_pauta': ['titulo pauta', 'título pauta'],
         'hh': ['hh'],
         'estado_equipo': ['estado equipo'],
     },
     'secundaria': {
-        'descripcion': ['actividad de mantenimiento secundaria', 'actividad secundaria'],
+        'descripcion': ['actividad de mantenimiento secundaria', 'actividad secundaria', 'ds accion secundaria', 'ds acción secundaria'],
         'limite_aceptable': ['limite aceptable secundaria si existe', 'límite aceptable secundaria si existe'],
         'puesto_trabajo': ['pto trabajo secundaria si existe', 'pto. trabajo secundaria si existe'],
-        'cantidad_personas': ['pers secundaria si existe'],
-        'duracion_hr': ['dur secundaria si existe'],
+        'cantidad_personas': ['pers secundaria si existe', 'cantidad de personas'],
+        'duracion_hr': ['dur secundaria si existe', 'duracion trabajo en hrs', 'duración trabajo en hrs'],
         'hh': ['hh secundaria si existe'],
         'componente_involucrado': ['componente involucrado'],
         'numero_parte': ['n parte n item', 'n° parte / n° ítem', 'numero parte item'],

@@ -130,10 +130,48 @@
     grid-column: 1/-1;
   }
 
+  .editor-check-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 470px;
+    min-height: 34px;
+    margin-top: 18px;
+  }
+
+  .editor-check-option {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    gap: 7px;
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .editor-check-option input {
+    accent-color: var(--primary);
+    margin: 0;
+  }
+
+  .editor-check-option.is-hidden {
+    display: none;
+  }
+
+  .readonly-key {
+    background: #f8fafc !important;
+    color: var(--muted);
+  }
+
   .builder {
     display: grid;
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     gap: 10px;
+    margin-top: 15px;
   }
 
   .subpanel {
@@ -171,7 +209,16 @@
 
   #columnsWrap .table-mini th,
   #columnsWrap .table-mini td {
-    min-width: 112px;
+    max-width: 100%;
+  }
+
+  #columnsWrap .table-mini th:nth-child(1),
+  #columnsWrap .table-mini td:nth-child(1),
+  #columnsWrap .table-mini th:nth-child(2),
+  #columnsWrap .table-mini td:nth-child(2) {
+    max-width: 130px;
+    min-width: 130px;
+    width: 130px;
   }
 
   #rowsWrap .table-mini th,
@@ -389,8 +436,7 @@
             </datalist>
           </div>
           <div>
-            <label>Campo interno</label><input class="input-control" id="fCampo"
-              oninput="updateField('campo', this.value)" />
+            <label>Campo interno</label><input class="input-control" id="fCampo" readonly />
           </div>
           <div>
             <label>Descripción</label><textarea class="input-textarea" id="fDescripcion" rows="2"
@@ -454,19 +500,28 @@
           <div id="dependencyBlock">
             <label>Depende de resultado</label>
             <select class="input-control" id="fDependencia" onchange="updateDependency(this.value)"></select>
-            <small class="muted">Selecciona la dimensión calculada o tabla que resolverá automáticamente la fila.</small>
           </div>
-          <div style="display: flex; align-items: end">
-            <label><input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
-              Obligatorio</label>
-          </div>
-          <div style="display: flex; align-items: end">
-            <label><input type="checkbox" id="fConsiderarAvanceAca" onchange="updateField('considerar_avance_aca', this.checked)" />
-              Considerar en avance ACA</label>
-          </div>
-          <div style="display: flex; align-items: end">
-            <label><input type="checkbox" id="fVisibleListadoAca" onchange="updateField('visible_en_listado_aca', this.checked)" />
-              Mostrar en listado ACA</label>
+          <div class="editor-check-grid">
+            <label class="editor-check-option">
+              <input type="checkbox" id="fObligatorio" onchange="updateField('obligatorio', this.checked)" />
+              <span>Obligatorio</span>
+            </label>
+            <label class="editor-check-option" data-aca-only-option>
+              <input type="checkbox" id="fConsiderarAvanceAca" onchange="updateField('considerar_avance_aca', this.checked)" />
+              <span>Considerar en avance ACA</span>
+            </label>
+            <label class="editor-check-option" data-aca-only-option>
+              <input type="checkbox" id="fVisibleListadoAca" onchange="updateField('visible_en_listado_aca', this.checked)" />
+              <span>Mostrar en listado ACA</span>
+            </label>
+            <label class="editor-check-option" data-fmeca-only-option>
+              <input type="checkbox" id="fConsiderarAvanceFmeca" onchange="updateField('considerar_avance_fmeca', this.checked)" />
+              <span>Considerar en avance FMECA</span>
+            </label>
+            <label class="editor-check-option" data-fmeca-only-option>
+              <input type="checkbox" id="fVisibleListadoFmeca" onchange="updateField('visible_en_listado_fmeca', this.checked)" />
+              <span>Mostrar en listado FMECA</span>
+            </label>
           </div>
         </div>
 
@@ -510,6 +565,7 @@
   }
   const CATALOG_NUMBER_MAX = 9999999999.99;
   const CATALOG_DECIMAL_PLACES = 2;
+  const RESERVED_COLUMN_KEYS = new Set(['etiqueta', 'valor_numerico', 'valor_texto', 'valor_booleano', 'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max']);
   const RANGE_LOWER_KEYS = ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'];
   const RANGE_UPPER_KEYS = ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'];
 
@@ -668,10 +724,38 @@
       input.checked = selected.includes(input.value);
     });
   }
+  function syncProcessSpecificOptions(item) {
+    const processValue = normalizeProcessValue(item?.proceso_uso);
+    const isAcaOnly = processValue === acaProcessValue;
+    const isFmecaOnly = processValue === fmecaProcessValue;
+    document.querySelectorAll('[data-aca-only-option]').forEach(option => {
+      option.classList.toggle('is-hidden', isFmecaOnly);
+      const input = option.querySelector('input');
+      if (input) input.disabled = isFmecaOnly;
+    });
+    document.querySelectorAll('[data-fmeca-only-option]').forEach(option => {
+      option.classList.toggle('is-hidden', isAcaOnly);
+      const input = option.querySelector('input');
+      if (input) input.disabled = isAcaOnly;
+    });
+    if (isFmecaOnly && item) {
+      item.considerar_avance_aca = false;
+      item.visible_en_listado_aca = false;
+      fConsiderarAvanceAca.checked = false;
+      fVisibleListadoAca.checked = false;
+    }
+    if (isAcaOnly && item) {
+      item.considerar_avance_fmeca = false;
+      item.visible_en_listado_fmeca = false;
+      fConsiderarAvanceFmeca.checked = false;
+      fVisibleListadoFmeca.checked = false;
+    }
+  }
   function updateProcessUsage() {
     const item = current(); if (!item) return;
     const selected = Array.from(document.querySelectorAll('[data-process-checkbox]:checked')).map(input => input.value);
     item.proceso_uso = processValueFromSelection(selected);
+    syncProcessSpecificOptions(item);
     expandItemGroup(item);
     syncProcessCheckboxes(item);
     renderList();
@@ -796,8 +880,10 @@
           it.tipo_funcional || '-',
           it.tipo_dato || '-',
           it.tipo_calculo ? 'calc: ' + it.tipo_calculo : (it.tipo || 'opciones'),
-          it.considerar_avance_aca === false ? '' : 'avance ACA',
-          it.visible_en_listado_aca === false ? 'oculta listado ACA' : 'listado ACA'
+          normalizeProcessValue(it.proceso_uso) === fmecaProcessValue ? '' : (it.considerar_avance_aca === false ? '' : 'avance ACA'),
+          normalizeProcessValue(it.proceso_uso) === fmecaProcessValue ? '' : (it.visible_en_listado_aca === false ? 'oculta listado ACA' : 'listado ACA'),
+          normalizeProcessValue(it.proceso_uso) === acaProcessValue ? '' : (it.considerar_avance_fmeca === false ? '' : 'avance FMECA'),
+          normalizeProcessValue(it.proceso_uso) === acaProcessValue ? '' : (it.visible_en_listado_fmeca === false ? 'oculta listado FMECA' : 'listado FMECA')
         ];
         if (dep) meta.push('depende: ' + dep);
         return `<div class="item-card ${activeClass}" onclick="selectItem('${escapeHtml(it.id)}')"><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong><div class="meta">${escapeHtml(meta.join(' | '))}</div></div>`;
@@ -815,7 +901,7 @@
     ensureColumns(item); ensureRows(item);
     document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
     fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
-    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false; fVisibleListadoAca.checked = item.visible_en_listado_aca !== false;
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false; fVisibleListadoAca.checked = item.visible_en_listado_aca !== false; fConsiderarAvanceFmeca.checked = item.considerar_avance_fmeca !== false; fVisibleListadoFmeca.checked = item.visible_en_listado_fmeca !== false; syncProcessSpecificOptions(item);
     const calculated = isCalculated(item);
     catalogTypeBlock.style.display = calculated ? 'none' : '';
     catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
@@ -999,7 +1085,7 @@
         <input value="${col.nombre_columna || ''}" oninput="updateColumn(${idx},'nombre_columna',this.value)">
         </td>
       <td>
-        <input value="${col.clave_interna || ''}" oninput="updateColumn(${idx},'clave_interna',this.value)">
+        <input class="readonly-key" value="${col.clave_interna || ''}" readonly title="Clave tecnica generada automaticamente">
         </td>
       <td>
         <select onchange="updateColumn(${idx},'tipo_dato',this.value)">${columnTypeOptions.map(opt => `<option value="${opt.value}" ${opt.value === col.tipo_dato ? 'selected' : ''}>${opt.label}</option>`).join('')}</select>
@@ -1038,7 +1124,7 @@
   function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
   function newItem() {
     const id = 'new_' + Date.now();
-    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, visible_en_listado_aca: true, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, visible_en_listado_aca: true, considerar_avance_fmeca: false, visible_en_listado_fmeca: false, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
     store.active = id; expandItemGroup(current()); renderList(); renderEditor();
   }
   function duplicateItem() {
@@ -1056,8 +1142,7 @@
       item.campo = slugifyLite(value);
       fCampo.value = item.campo;
     } else if (field === 'campo') {
-      item.campo = slugifyLite(value);
-      fCampo.value = item.campo;
+      return;
     } else {
       item[field] = value;
     }
@@ -1079,7 +1164,7 @@
     }
     renderEditor();
   }
-  function addColumn() { const item = current(); if (!item) return; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: 'Nueva columna', clave_interna: 'col_' + (item.columnas.length + 1), tipo_dato: 'texto', visible_en_registro: true }); renderColumns(); renderRows(); renderValidation(); }
+  function addColumn() { const item = current(); if (!item) return; const next = item.columnas.length + 1; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: `Nueva columna ${next}`, clave_interna: `nueva_columna_${next}`, tipo_dato: 'texto', visible_en_registro: true }); renderColumns(); renderRows(); renderValidation(); }
   function toggleColumnVisibility(idx) {
     const item = current(); if (!item) return;
     const col = item.columnas[idx]; if (!col) return;
@@ -1095,35 +1180,31 @@
     if(!col) return;
 
     if(field === 'clave_interna'){
-      const oldKey = col.clave_interna;
-      const newKey = slugifyLite(value) || value;
+      return;
+    }
 
-      if(oldKey && newKey && oldKey !== newKey){
+    if(field === 'nombre_columna'){
+      const oldKey = col.clave_interna;
+      const generatedKey = slugifyLite(value || `columna_${idx + 1}`) || `col_${idx + 1}`;
+      const canRegenerateKey = !oldKey || /^nueva_columna(_\d+)?$/.test(oldKey) || /^col_\d+$/.test(oldKey);
+      if(canRegenerateKey && oldKey !== generatedKey && !RESERVED_COLUMN_KEYS.has(oldKey)){
         item.filas.forEach(row => {
           row.valores = row.valores || {};
-          if(Object.prototype.hasOwnProperty.call(row.valores, oldKey)){
-            row.valores[newKey] = row.valores[oldKey];
+          if(oldKey && Object.prototype.hasOwnProperty.call(row.valores, oldKey)){
+            row.valores[generatedKey] = row.valores[oldKey];
             delete row.valores[oldKey];
           }
         });
+        col.clave_interna = generatedKey;
       }
-
-      col.clave_interna = newKey;
+      col.nombre_columna = value;
+      renderColumns();
       renderRows();
       renderValidation();
       return;
     }
 
     col[field] = value;
-
-    if(field === 'nombre_columna'){
-      const th = rowsWrap.querySelectorAll('thead th')[idx];
-      if(th){
-        th.textContent = value || col.clave_interna || `Columna ${idx + 1}`;
-      }
-      renderValidation();
-      return;
-    }
 
     renderRows();
     renderValidation();
@@ -1193,14 +1274,17 @@
       tipo_funcional: item.tipo_funcional || 'atributo',
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
       proceso_uso: item.proceso_uso || 'aca',
-      considerar_avance_aca: item.considerar_avance_aca !== false,
-      visible_en_listado_aca: item.visible_en_listado_aca !== false,
+      considerar_avance_aca: normalizeProcessValue(item.proceso_uso) === fmecaProcessValue ? false : item.considerar_avance_aca !== false,
+      visible_en_listado_aca: normalizeProcessValue(item.proceso_uso) === fmecaProcessValue ? false : item.visible_en_listado_aca !== false,
+      considerar_avance_fmeca: normalizeProcessValue(item.proceso_uso) === acaProcessValue ? false : item.considerar_avance_fmeca !== false,
+      visible_en_listado_fmeca: normalizeProcessValue(item.proceso_uso) === acaProcessValue ? false : item.visible_en_listado_fmeca !== false,
       tipo_calculo: item.tipo_calculo || '',
       config_calculo: item.tipo_calculo
         ? normalizedCalculationConfig(item)
         : ((['rangos', 'opciones'].includes(item.tipo) && normalizedDependency(item)) ? { dependencia: normalizedDependency(item) } : null),
       obligatorio: item.obligatorio !== false,
       columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : withoutSecondaryColumns(item.columnas).map((col, colIdx) => ({
+        id: col.id || null,
         nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,
         clave_interna: col.clave_interna || slugifyLite(col.nombre_columna || `col_${colIdx + 1}`),
         tipo_dato: col.tipo_dato || 'texto',
@@ -1209,7 +1293,11 @@
       filas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : (item.filas || []).map((row, rowIdx) => {
         const valores = Object.assign({}, row.valores || {});
         delete valores.valor_secundario;
-        return { etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores };
+        const valoresPorColumna = {};
+        withoutSecondaryColumns(item.columnas).forEach(col => {
+          if (col.id) valoresPorColumna[String(col.id)] = valores[col.clave_interna] ?? '';
+        });
+        return { etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores, valores_por_columna: valoresPorColumna };
       })
     }));
   }

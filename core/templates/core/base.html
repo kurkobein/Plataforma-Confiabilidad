@@ -49,6 +49,12 @@
             <a class="nav-link" href="{% url 'aca_development' %}">Desarrollo</a>
         </div>
 
+        <div class="nav-group">
+            <div class="nav-group-title">RCM/FMECA</div>
+            <a class="nav-link" href="{% url 'fmeca_panel' %}">Panel</a>
+            <a class="nav-link" href="{% url 'fmeca_development' %}">Desarrollo RCM/FMECA</a>
+        </div>
+
 
         {% if request.user.is_superuser %}
             {% for group, items in navigation_groups.items %}
@@ -437,13 +443,14 @@ document.addEventListener("DOMContentLoaded", function () {
             return crumbs;
         }
 
-        if (section === 'rcm') {
-            fixedCrumb(crumbs, 'Desarrollo RCM', `${serviceHref}rcm/`);
-            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro RCM');
+        if (section === 'rcm' || section === 'fmeca') {
+            fixedCrumb(crumbs, 'Desarrollo RCM/FMECA', `${serviceHref}fmeca/`);
+            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro RCM/FMECA');
             else if (parts[3] === 'tareas') fixedCrumb(crumbs, 'Configurar tareas');
-            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro RCM');
-            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro RCM');
-            else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar RCM');
+            else if (parts[3] === 'carga-masiva') fixedCrumb(crumbs, 'Carga masiva RCM/FMECA');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro RCM/FMECA');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro RCM/FMECA');
+            else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar RCM/FMECA');
             return crumbs;
         }
 
@@ -571,6 +578,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 { label: 'Carga masiva', url: '' }
             ];
         }
+        if (parts[0] === 'fmeca') {
+            const crumbs = [{ label: 'Inicio', url: '/' }];
+            fixedCrumb(crumbs, 'RCM/FMECA', '/fmeca/desarrollo/');
+            if (parts[1] === 'panel') fixedCrumb(crumbs, 'Panel');
+            else if (parts[1] === 'desarrollo') fixedCrumb(crumbs, 'Desarrollo');
+            return crumbs;
+        }
         const crumbs = genericFixedCrumbs(parts);
         if (crumbs.length === 1 && pageTitle().toLowerCase() !== 'inicio') fixedCrumb(crumbs, pageTitle());
         return crumbs;
@@ -646,6 +660,8 @@ document.addEventListener("DOMContentLoaded", function () {
         const hasServiceContext = (stack || []).some(item => /^\/servicios\/\d+\/?$/.test(pathOnly(item.url)));
         if (!hasServiceContext) return '';
         if (/^\/estrategias\/\d+\/tablas\/?$/.test(currentPath)) return '/servicio/';
+        if (/^\/servicios\/\d+\/fmeca\//.test(currentPath) || /^\/servicios\/\d+\/fmeca\/?$/.test(currentPath)) return '/fmeca/desarrollo/';
+        if (/^\/servicios\/\d+\/rcm\//.test(currentPath) || /^\/servicios\/\d+\/rcm\/?$/.test(currentPath)) return '/fmeca/desarrollo/';
         return '';
     }
 
@@ -764,11 +780,302 @@ document.addEventListener("DOMContentLoaded", function () {
             };
         }
         try {
-            $(table).DataTable(options);
+            const dataTable = $(table).DataTable(options);
+            if (table.dataset.columnFilters === 'true') {
+                window.setTimeout(function () {
+                    attachColumnFilters(table, dataTable);
+                }, 0);
+            }
         } catch (error) {
             console.warn('No se pudo inicializar DataTable', table, error);
         }
     }
+
+    function escapeRegex(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function searchPattern(type, value) {
+        const term = String(value || '').trim();
+        if (type === 'empty') return { value: '^$', regex: true };
+        if (type === 'notEmpty') return { value: '^(?!$).+', regex: true };
+        if (!term) return { value: '', regex: false };
+        const escaped = escapeRegex(term);
+        if (type === 'equal') return { value: '^' + escaped + '$', regex: true };
+        if (type === 'notEqual') return { value: '^(?!' + escaped + '$).*$', regex: true };
+        if (type === 'starts') return { value: '^' + escaped, regex: true };
+        if (type === 'ends') return { value: escaped + '$', regex: true };
+        if (type === 'notContains') return { value: '^(?!.*' + escaped + ').*$', regex: true };
+        return { value: term, regex: false };
+    }
+
+    function filterMarkup(index) {
+        return [
+            '<div class="dt-column-filter" data-dt-column-filter="' + index + '">',
+            '<select aria-label="Tipo de filtro">',
+            '<option value="contains">Contiene</option>',
+            '<option value="notContains">No contiene</option>',
+            '<option value="equal">Igual</option>',
+            '<option value="notEqual">Distinto</option>',
+            '<option value="starts">Empieza</option>',
+            '<option value="ends">Termina</option>',
+            '<option value="empty">Vacío</option>',
+            '<option value="notEmpty">No vacío</option>',
+            '</select>',
+            '<input type="text" placeholder="Buscar por...">',
+            '<button type="button" aria-label="Limpiar filtro"><i class="bi bi-x"></i></button>',
+            '</div>'
+        ].join('');
+    }
+
+    function attachColumnFilters(table, dataTable) {
+        const container = dataTable.table().container();
+        const heads = container.querySelectorAll('thead tr:first-child');
+        heads.forEach(function (row) {
+            Array.from(row.cells).forEach(function (cell, index) {
+                if (cell.querySelector('[data-dt-column-filter]')) return;
+                const holder = document.createElement('div');
+                holder.innerHTML = filterMarkup(index);
+                cell.appendChild(holder.firstElementChild);
+            });
+        });
+        container.querySelectorAll('[data-dt-column-filter]').forEach(function (filter) {
+            if (filter.dataset.bound === 'true') return;
+            filter.dataset.bound = 'true';
+            const index = Number(filter.dataset.dtColumnFilter);
+            const select = filter.querySelector('select');
+            const input = filter.querySelector('input');
+            const clear = filter.querySelector('button');
+            const apply = function () {
+                const pattern = searchPattern(select.value, input.value);
+                dataTable.column(index).search(pattern.value, pattern.regex, !pattern.regex).draw();
+                filter.classList.toggle('is-active', Boolean(input.value.trim()) || ['empty', 'notEmpty'].includes(select.value));
+            };
+            filter.addEventListener('click', function (event) { event.stopPropagation(); });
+            filter.addEventListener('keydown', function (event) { event.stopPropagation(); });
+            select.addEventListener('change', apply);
+            input.addEventListener('input', apply);
+            clear.addEventListener('click', function () {
+                input.value = '';
+                select.value = 'contains';
+                apply();
+            });
+        });
+        dataTable.columns.adjust();
+    }
+
+    function columnTitle(cell) {
+        return (cell.querySelector('.dt-column-title')?.textContent || cell.textContent || '').trim();
+    }
+
+    function filterColumnKey(table, index) {
+        if (!table.id) table.id = 'dt-filter-' + Math.random().toString(36).slice(2);
+        return table.id + '-' + index;
+    }
+
+    function newFilterButtonMarkup(index, progressColumn) {
+        return '<button class="dt-column-filter-trigger" type="button" data-dt-column-filter-trigger="' + index + '" data-dt-column-filter-kind="' + (progressColumn ? 'range' : 'text') + '" aria-label="Filtrar columna"><i class="bi bi-list"></i></button>';
+    }
+
+    function newTextPopoverMarkup(key, title) {
+        return [
+            '<div class="dtcc-content dtcc-search dtcc-searchText dt-column-filter-popover" data-dt-column-filter-popover="' + key + '">',
+            '<div class="dtcc-search-title">' + title + '</div>',
+            '<div class="dtcc-search-row">',
+            '<div class="dtcc-search-type-icon"><i class="bi bi-columns-gap"></i></div>',
+            '<select aria-label="Tipo de filtro">',
+            '<option value="contains">Contains</option>',
+            '<option value="notContains">Does not contain</option>',
+            '<option value="equal">Equals</option>',
+            '<option value="notEqual">Does not equal</option>',
+            '<option value="starts">Starts</option>',
+            '<option value="ends">Ends</option>',
+            '<option value="empty">Empty</option>',
+            '<option value="notEmpty">Not empty</option>',
+            '</select>',
+            '<div class="dtcc-search-icon"><i class="bi bi-search"></i></div>',
+            '<span class="dtcc-search-clear" role="button" tabindex="0"><i class="bi bi-x-lg"></i></span>',
+            '<input type="text" placeholder="Buscar por...">',
+            '</div>',
+            '</div>'
+        ].join('');
+    }
+
+    function newRangePopoverMarkup(key, title) {
+        return [
+            '<div class="dtcc-content dtcc-search dt-column-filter-popover dt-column-filter-range" data-dt-column-filter-popover="' + key + '">',
+            '<div class="dtcc-search-title">' + title + '</div>',
+            '<div class="progress-range-filter dt-column-progress-range" data-column-progress-range>',
+            '<div class="progress-range-head"><label>Avance</label><strong data-column-progress-label>0% - 100%</strong></div>',
+            '<div class="progress-range-slider">',
+            '<input type="range" min="0" max="100" value="0" step="1" data-column-progress-min>',
+            '<input type="range" min="0" max="100" value="100" step="1" data-column-progress-max>',
+            '</div>',
+            '</div>',
+            '<div class="dt-column-filter-actions"><button class="btn" type="button" data-column-range-clear>Limpiar</button></div>',
+            '</div>'
+        ].join('');
+    }
+
+    function closeColumnFilterPopovers(exceptPopover) {
+        document.querySelectorAll('.dt-column-filter-popover.is-open').forEach(function (popover) {
+            if (popover !== exceptPopover) popover.classList.remove('is-open');
+        });
+    }
+
+    function positionColumnPopover(popover, button) {
+        const rect = button.getBoundingClientRect();
+        const maxLeft = window.scrollX + document.documentElement.clientWidth - 304;
+        popover.style.top = Math.round(rect.bottom + window.scrollY + 6) + 'px';
+        popover.style.left = Math.round(Math.max(window.scrollX + 8, Math.min(rect.left + window.scrollX, maxLeft))) + 'px';
+    }
+
+    function ensureColumnRangeSearch(table, dataTable) {
+        if (table.dataset.rangeSearchBound === 'true') return;
+        table.dataset.rangeSearchBound = 'true';
+        table._dtColumnRanges = table._dtColumnRanges || {};
+        const tableId = table.id;
+        $.fn.dataTable.ext.search.push(function (settings, _data, dataIndex) {
+            if (settings.nTable.id !== tableId) return true;
+            const ranges = table._dtColumnRanges || {};
+            const indexes = Object.keys(ranges);
+            if (!indexes.length) return true;
+            const rowNode = dataTable.row(dataIndex).node();
+            return indexes.every(function (columnIndex) {
+                const range = ranges[columnIndex];
+                const cell = rowNode?.cells?.[Number(columnIndex)];
+                const raw = cell?.dataset.order || cell?.textContent || '';
+                const match = String(raw).replace(',', '.').match(/-?\d+(\.\d+)?/);
+                if (!match) return true;
+                const value = Number(match[0]);
+                return value >= range.min && value <= range.max;
+            });
+        });
+    }
+
+    function bindTextColumnPopover(popover, dataTable, index, triggers) {
+        if (popover.dataset.bound === 'true') return;
+        popover.dataset.bound = 'true';
+        const select = popover.querySelector('select');
+        const input = popover.querySelector('input');
+        const clear = popover.querySelector('.dtcc-search-clear');
+        const apply = function () {
+            const pattern = searchPattern(select.value, input.value);
+            dataTable.column(index).search(pattern.value, pattern.regex, !pattern.regex).draw();
+            const active = Boolean(input.value.trim()) || ['empty', 'notEmpty'].includes(select.value);
+            triggers.forEach(trigger => trigger.classList.toggle('is-active', active));
+        };
+        popover.addEventListener('click', event => event.stopPropagation());
+        popover.addEventListener('keydown', event => event.stopPropagation());
+        select.addEventListener('change', apply);
+        input.addEventListener('input', apply);
+        clear.addEventListener('click', function () {
+            input.value = '';
+            select.value = 'contains';
+            apply();
+        });
+    }
+
+    function bindRangeColumnPopover(table, popover, dataTable, index, triggers) {
+        if (popover.dataset.bound === 'true') return;
+        popover.dataset.bound = 'true';
+        ensureColumnRangeSearch(table, dataTable);
+        const rangeFilter = popover.querySelector('[data-column-progress-range]');
+        const minInput = popover.querySelector('[data-column-progress-min]');
+        const maxInput = popover.querySelector('[data-column-progress-max]');
+        const label = popover.querySelector('[data-column-progress-label]');
+        const clear = popover.querySelector('[data-column-range-clear]');
+        const sync = function () {
+            let min = Number(minInput.value || 0);
+            let max = Number(maxInput.value || 100);
+            if (min > max) {
+                if (document.activeElement === minInput) {
+                    max = min;
+                    maxInput.value = String(max);
+                } else {
+                    min = max;
+                    minInput.value = String(min);
+                }
+            }
+            rangeFilter.style.setProperty('--range-min', min + '%');
+            rangeFilter.style.setProperty('--range-max', max + '%');
+            label.textContent = min + '% - ' + max + '%';
+            const active = min > 0 || max < 100;
+            if (active) table._dtColumnRanges[index] = { min, max };
+            else delete table._dtColumnRanges[index];
+            triggers.forEach(trigger => trigger.classList.toggle('is-active', active));
+            dataTable.draw();
+        };
+        popover.addEventListener('click', event => event.stopPropagation());
+        minInput.addEventListener('input', sync);
+        maxInput.addEventListener('input', sync);
+        clear.addEventListener('click', function () {
+            minInput.value = '0';
+            maxInput.value = '100';
+            sync();
+        });
+        sync();
+    }
+
+    function attachColumnFilters(table, dataTable) {
+        const container = dataTable.table().container();
+        const heads = container.querySelectorAll('thead tr:first-child');
+        const metaByColumn = {};
+        heads.forEach(function (row) {
+            Array.from(row.cells).forEach(function (cell, index) {
+                if (cell.querySelector('[data-dt-column-filter-trigger]')) return;
+                const title = columnTitle(cell);
+                const isProgress = title.toLowerCase().includes('avance');
+                metaByColumn[index] = metaByColumn[index] || { title, kind: isProgress ? 'range' : 'text' };
+                const holder = document.createElement('span');
+                holder.innerHTML = newFilterButtonMarkup(index, isProgress);
+                const trigger = holder.firstElementChild;
+                const header = cell.querySelector('.dt-column-header') || cell;
+                const order = header.querySelector('.dt-column-order');
+                if (order) {
+                    header.insertBefore(trigger, order);
+                } else {
+                    header.appendChild(trigger);
+                }
+            });
+        });
+        Object.keys(metaByColumn).forEach(function (key) {
+            const index = Number(key);
+            const meta = metaByColumn[index];
+            const popoverKey = filterColumnKey(table, index);
+            const triggers = Array.from(container.querySelectorAll('[data-dt-column-filter-trigger="' + index + '"]'));
+            let popover = document.querySelector('[data-dt-column-filter-popover="' + popoverKey + '"]');
+            if (!popover) {
+                const holder = document.createElement('div');
+                holder.innerHTML = meta.kind === 'range' ? newRangePopoverMarkup(popoverKey, meta.title) : newTextPopoverMarkup(popoverKey, meta.title);
+                popover = holder.firstElementChild;
+                document.body.appendChild(popover);
+            }
+            triggers.forEach(function (trigger) {
+                if (trigger.dataset.bound === 'true') return;
+                trigger.dataset.bound = 'true';
+                trigger.addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    closeColumnFilterPopovers(popover);
+                    positionColumnPopover(popover, trigger);
+                    popover.classList.toggle('is-open');
+                    const input = popover.querySelector('input[type="text"]');
+                    if (popover.classList.contains('is-open') && input) window.setTimeout(() => input.focus(), 0);
+                });
+            });
+            if (meta.kind === 'range') bindRangeColumnPopover(table, popover, dataTable, index, triggers);
+            else bindTextColumnPopover(popover, dataTable, index, triggers);
+        });
+        dataTable.columns.adjust();
+    }
+
+    document.addEventListener('click', function () {
+        closeColumnFilterPopovers();
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeColumnFilterPopovers();
+    });
 
     function initDataTables(root) {
         (root || document).querySelectorAll('table').forEach(initDataTable);

@@ -2639,6 +2639,24 @@ table.dataTable.rcm-records-table.compact-table > tfoot > tr > td {
     width: auto;
 }
 
+.aca-table-tools-inline {
+    display: inline-flex;
+    margin: 0 0 0 10px;
+    vertical-align: middle;
+}
+
+.dt-layout-start .aca-table-tools-inline .aca-comment-toggle {
+    min-height: 28px;
+    padding: 4px 7px;
+}
+
+.dt-layout-start:has(.aca-table-tools-inline) {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .aca-dimension-comment {
     color: #7c3aed;
     font-style: italic;
@@ -2923,6 +2941,109 @@ table.dataTable.rcm-records-table.compact-table > tfoot > tr > td {
     background: #fff;
     box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
     padding: 6px;
+}
+
+.aca-bulk-equipment-popover {
+    position: fixed;
+    z-index: 3600;
+    width: min(620px, calc(100vw - 24px));
+    max-height: min(520px, calc(100vh - 24px));
+    overflow: auto;
+}
+
+.aca-bulk-equipment-popover-head {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.aca-bulk-equipment-open {
+    max-width: 340px;
+}
+
+.aca-bulk-equipment-selected {
+    justify-content: flex-start;
+}
+
+.aca-bulk-equipment-selected span {
+    display: inline-block;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aca-bulk-equipment-levels {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    margin: 8px 0;
+}
+
+.aca-bulk-equipment-level-field {
+    display: grid;
+    gap: 3px;
+}
+
+.aca-bulk-equipment-level-field label {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.aca-bulk-equipment-results {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 0;
+    margin-top: 8px;
+    max-height: 260px;
+    overflow: auto;
+}
+
+.aca-bulk-equipment-option {
+    align-items: center;
+    background: #fff;
+    border: 0;
+    border-bottom: 1px solid #eef2f7;
+    cursor: pointer;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: 82px minmax(150px, 1fr) minmax(180px, 1.2fr) auto;
+    padding: 7px 8px;
+    text-align: left;
+    width: 100%;
+}
+
+.aca-bulk-equipment-option:hover,
+.aca-bulk-equipment-option.is-selected {
+    background: #eef6ff;
+}
+
+.aca-bulk-equipment-option.has-aca {
+    background: #fff7ed;
+}
+
+.aca-bulk-equipment-option strong,
+.aca-bulk-equipment-option span,
+.aca-bulk-equipment-option small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aca-bulk-equipment-option em {
+    color: var(--danger);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.aca-bulk-equipment-empty {
+    padding: 10px;
 }
 
 .aca-bulk-family-popover {
@@ -3530,8 +3651,9 @@ table.dataTable.rcm-records-table.compact-table > tfoot > tr > td {
 
 .aca-progress-filter-body {
     display: grid;
-    grid-template-columns: minmax(150px, 0.8fr) minmax(260px, 1.7fr) auto;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 8px;
+    align-items: end;
 }
 
 .aca-progress-filters .form-field {
@@ -4275,4 +4397,168 @@ table td .actions {
 
 .aca-datatable-wrap .dt-scroll-headInner table {
     width: 100% !important;
+}
+
+.dt-column-filter {
+    align-items: center;
+    display: grid;
+    gap: 3px;
+    grid-template-columns: minmax(72px, .9fr) minmax(84px, 1fr) 24px;
+    margin-top: 5px;
+    max-width: 100%;
+}
+
+.dt-column-filter select,
+.dt-column-filter input {
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font-size: 11px;
+    height: 24px;
+    min-width: 0;
+    padding: 2px 5px;
+    width: 100%;
+}
+
+.dt-column-filter button {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--muted);
+    display: inline-flex;
+    height: 24px;
+    justify-content: center;
+    padding: 0;
+    width: 24px;
+}
+
+.dt-column-filter.is-active select,
+.dt-column-filter.is-active input {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.dt-scroll-head .dt-column-filter {
+    pointer-events: auto;
+}
+
+table.dataTable thead .dt-column-header {
+    align-items: center;
+    display: flex;
+    gap: 2px;
+    width: 100%;
+}
+
+table.dataTable thead .dt-column-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+table.dataTable thead .dt-column-order {
+    flex: 0 0 auto;
+}
+
+.dt-column-filter-trigger {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: #94a3b8;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 20px;
+    justify-content: center;
+    margin: 0 2px 0 auto;
+    padding: 0;
+    vertical-align: middle;
+    width: 20px;
+}
+
+.dt-column-filter-trigger:hover,
+.dt-column-filter-trigger.is-active {
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+
+.dt-column-filter-popover {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .18);
+    display: none;
+    min-width: 282px;
+    padding: 9px;
+    position: absolute;
+    z-index: 1100;
+}
+
+.dt-column-filter-popover.is-open {
+    display: block;
+}
+
+.dtcc-search-title {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.dtcc-search-row {
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    display: grid;
+    gap: 4px;
+    grid-template-columns: 20px minmax(86px, .9fr) 20px 20px minmax(90px, 1fr);
+    padding: 4px 5px;
+}
+
+.dtcc-search-type-icon,
+.dtcc-search-icon,
+.dtcc-search-clear {
+    align-items: center;
+    color: var(--muted);
+    display: inline-flex;
+    justify-content: center;
+}
+
+.dtcc-search-clear {
+    cursor: pointer;
+}
+
+.dtcc-search-row select,
+.dtcc-search-row input {
+    border: 0;
+    font-size: 12px;
+    height: 26px;
+    min-width: 0;
+    outline: none;
+    width: 100%;
+}
+
+.dtcc-search-row select {
+    background: #f8fafc;
+    border-radius: 5px;
+    padding: 2px 4px;
+}
+
+.dt-column-filter-range {
+    min-width: 260px;
+}
+
+.dt-column-progress-range {
+    border-radius: 8px;
+    padding: 8px 9px;
+}
+
+.dt-column-filter-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 7px;
 }

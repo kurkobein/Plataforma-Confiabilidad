@@ -14,9 +14,9 @@
         <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
         <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
-            <a class="btn" href="{% url 'service_aca_excel_upload' service.pk %}">Carga masiva</a>
-            <a class="btn" href="{% url 'service_aca_bulk_new' service.pk %}">Nueva carga grupal</a>
-            <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo</a>
+            <a class="btn" href="{% url 'service_aca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
+            <a class="btn btn-primary" href="{% url 'service_aca_bulk_new' service.pk %}"> Carga grupal</a>
+            <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo ACA</a>
         {% endif %}
     </div>
 </div>
@@ -28,14 +28,14 @@
 </div>
 
 {% if aca_list_items %}
-<div class="aca-table-tools">
+<div class="aca-table-tools" data-aca-comment-toggle-holder>
     <label class="check-option aca-comment-toggle">
         <input type="checkbox" data-aca-toggle-dimension-comments checked>
         <span>Mostrar comentarios de evaluaciones vacías</span>
     </label>
 </div>
 <div class="table-wrap aca-datatable-wrap">
-    <table class="compact-table aca-records-table" data-page-length="25" data-scroll-y="52vh" data-scroll-x="true" data-scroll-collapse="false" data-aca-records-table>
+    <table class="compact-table aca-records-table" data-page-length="25" data-scroll-y="52vh" data-scroll-x="true" data-scroll-collapse="false" data-column-filters="true" data-aca-records-table>
         <thead>
             <tr>
                 <th>ID</th>
@@ -61,8 +61,9 @@
                                         <span class="aca-progress-pill-fill" aria-hidden="true"></span>
                                         <span class="aca-progress-pill-label">Grupo</span>
                                     </span>
-                                {% elif key == 'fecha_creado' or key == 'ultimo_avance' %}
-                                    {{ group.meta }}
+                                {% elif key == 'fechas' %}
+                                    <div class="date-inline"><small class="muted">Creación:</small> {{ group.meta }}</div>
+                                    <div class="date-inline"><small class="muted">Modificación:</small> {{ group.meta }}</div>
                                 {% elif key == 'ubicacion_tecnica' %}
                                     <span class="cell-ellipsis" title="{{ group.label }}">{{ group.label }}</span>
                                 {% elif key == 'descripcion_ut' %}
@@ -145,7 +146,6 @@ function getAcaProgressFormValues(form) {
     return {
         progress_nivel: form.querySelector('[name="progress_nivel"]')?.value || '',
         progress_nodo: form.querySelector('[name="progress_nodo"]')?.value || '',
-        progress_chart_level: form.querySelector('[name="progress_chart_level"]')?.value || '',
     };
 }
 
@@ -155,65 +155,74 @@ function saveAcaProgressPrefsFromForm(form, extra) {
 
 function applyAcaProgressPanelState(form) {
     if (!form) return;
-    const prefs = readAcaProgressPrefs();
     const filterBody = form.querySelector('[data-aca-progress-filter-body]');
-    const chartPanel = form.querySelector('[data-aca-progress-chart-panel]');
-    const filterToggle = form.querySelector('[data-aca-progress-toggle-filters]');
-    const chartToggle = form.querySelector('[data-aca-progress-toggle-chart]');
-    const filtersOpen = prefs.filters_open === true;
-    const chartOpen = prefs.chart_open === true;
-    if (filterBody) filterBody.hidden = !filtersOpen;
-    if (chartPanel) chartPanel.hidden = !chartOpen;
-    if (filterToggle) filterToggle.setAttribute('aria-expanded', filtersOpen ? 'true' : 'false');
-    if (chartToggle) chartToggle.setAttribute('aria-expanded', chartOpen ? 'true' : 'false');
+    if (filterBody) filterBody.hidden = false;
 }
 
 function syncAcaProgressNodeOptions(root) {
     const scope = root || document;
-    const level = scope.querySelector('[data-progress-level-filter]');
-    const node = scope.querySelector('[data-progress-node-filter]');
-    if (!level || !node) return;
-    const selectedLevel = level.value || '';
-    let selectedOptionVisible = true;
-    Array.from(node.options).forEach(function (option) {
-        if (!option.value) {
-            option.hidden = false;
-            return;
+    const levelInput = scope.querySelector('[name="progress_nivel"]');
+    const nodeInput = scope.querySelector('[name="progress_nodo"]');
+    const nestedSelects = Array.from(scope.querySelectorAll('[data-progress-nested-level]'));
+    if (!levelInput || !nodeInput || !nestedSelects.length) return;
+
+    const selectedOption = nestedSelects
+        .flatMap(function (select) { return Array.from(select.options); })
+        .find(function (option) { return option.selected && option.value; });
+    const selectedPath = selectedOption?.dataset.path || '';
+    const selectedParts = selectedPath ? selectedPath.split('-') : [];
+    if (selectedParts.length) {
+        nestedSelects.forEach(function (select, index) {
+            if (select.value) return;
+            const expectedPath = selectedParts.slice(0, index + 1).join('-');
+            const match = Array.from(select.options).find(function (option) {
+                return option.value && option.dataset.path === expectedPath;
+            });
+            if (match) select.value = match.value;
+        });
+    }
+
+    let activePath = '';
+    let deepestLevel = '';
+    let deepestNode = '';
+    let previousLevelSelected = true;
+    nestedSelects.forEach(function (select, index) {
+        const field = select.closest('.form-field');
+        select.disabled = index > 0 && !previousLevelSelected;
+        if (select.disabled) {
+            select.value = '';
         }
-        const visible = !selectedLevel || option.dataset.levelId === selectedLevel;
-        option.hidden = !visible;
-        if (option.selected && !visible) selectedOptionVisible = false;
+        const options = Array.from(select.options);
+        options.forEach(function (option) {
+            if (!option.value) {
+                option.hidden = false;
+                return;
+            }
+            const path = option.dataset.path || '';
+            option.hidden = Boolean(activePath) && !(path === activePath || path.startsWith(activePath + '-'));
+        });
+        if (select.value && select.selectedOptions[0]?.hidden) {
+            select.value = '';
+        }
+
+        if (field) field.hidden = index > 0 && !previousLevelSelected;
+
+        const selected = select.selectedOptions[0];
+        if (select.value && selected) {
+            activePath = selected.dataset.path || '';
+            deepestLevel = select.dataset.progressNestedLevel || '';
+            deepestNode = select.value;
+        }
+        previousLevelSelected = Boolean(select.value);
     });
-    if (!selectedOptionVisible) node.value = '';
+    levelInput.value = deepestLevel;
+    nodeInput.value = deepestNode;
 }
 
 function applySavedAcaProgressValues(form) {
     if (!form) return false;
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('progress_nivel') || params.has('progress_nodo') || params.has('progress_chart_level')) {
-        saveAcaProgressPrefsFromForm(form);
-        return false;
-    }
-    const prefs = readAcaProgressPrefs();
-    let changed = false;
-    const level = form.querySelector('[name="progress_nivel"]');
-    const node = form.querySelector('[name="progress_nodo"]');
-    const chartLevel = form.querySelector('[name="progress_chart_level"]');
-    if (level && optionExists(level, prefs.progress_nivel || '') && level.value !== prefs.progress_nivel) {
-        level.value = prefs.progress_nivel;
-        changed = true;
-    }
     syncAcaProgressNodeOptions(form);
-    if (node && optionExists(node, prefs.progress_nodo || '') && node.value !== prefs.progress_nodo) {
-        node.value = prefs.progress_nodo;
-        changed = true;
-    }
-    syncAcaProgressNodeOptions(form);
-    if (chartLevel && optionExists(chartLevel, prefs.progress_chart_level || '') && chartLevel.value !== prefs.progress_chart_level) {
-        chartLevel.value = prefs.progress_chart_level;
-        changed = true;
-    }
-    return changed;
+    return false;
 }
 
 function setAcaProgressStatus(container, text, isError) {
@@ -253,7 +262,8 @@ function updateAcaProgressSummary(form) {
 
             const pageUrl = new URL(window.location.href);
             pageUrl.searchParams.delete('progress_group_level');
-            ['progress_nivel', 'progress_nodo', 'progress_chart_level'].forEach(function (key) {
+            pageUrl.searchParams.delete('progress_chart_level');
+            ['progress_nivel', 'progress_nodo'].forEach(function (key) {
                 const value = params.get(key);
                 if (value) pageUrl.searchParams.set(key, value);
                 else pageUrl.searchParams.delete(key);
@@ -269,13 +279,13 @@ function updateAcaProgressSummary(form) {
 document.addEventListener('change', function (event) {
     const form = event.target.closest('[data-aca-progress-form]');
     if (!form) return;
-    if (event.target.closest('[data-progress-level-filter]')) {
+    if (event.target.closest('[data-progress-nested-level]')) {
         syncAcaProgressNodeOptions(form);
     }
     if (
         event.target.matches('[name="progress_nivel"]') ||
         event.target.matches('[name="progress_nodo"]') ||
-        event.target.matches('[name="progress_chart_level"]')
+        event.target.matches('[data-progress-nested-level]')
     ) {
         updateAcaProgressSummary(form);
     }
@@ -289,35 +299,6 @@ document.addEventListener('click', function (event) {
     }
     if (!form) return;
 
-    const filterToggle = event.target.closest('[data-aca-progress-toggle-filters]');
-    if (filterToggle) {
-        const body = form.querySelector('[data-aca-progress-filter-body]');
-        if (!body) return;
-        const open = body.hidden;
-        body.hidden = !open;
-        filterToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        saveAcaProgressPrefsFromForm(form, { filters_open: open });
-        return;
-    }
-
-    const chartToggle = event.target.closest('[data-aca-progress-toggle-chart]');
-    if (chartToggle) {
-        const panel = form.querySelector('[data-aca-progress-chart-panel]');
-        if (!panel) return;
-        const open = panel.hidden;
-        panel.hidden = !open;
-        chartToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        saveAcaProgressPrefsFromForm(form, { chart_open: open });
-        return;
-    }
-
-    if (event.target.closest('[data-aca-progress-save]')) {
-        saveAcaProgressPrefsFromForm(form);
-        setAcaProgressStatus(document.getElementById('aca-progress-container'), 'Vista guardada', false);
-        window.setTimeout(function () {
-            setAcaProgressStatus(document.getElementById('aca-progress-container'), '', false);
-        }, 1200);
-    }
 });
 
 const initialAcaProgressForm = document.querySelector('[data-aca-progress-form]');
@@ -326,6 +307,20 @@ syncAcaProgressNodeOptions(document);
 if (applySavedAcaProgressValues(initialAcaProgressForm)) {
     updateAcaProgressSummary(initialAcaProgressForm);
 }
+
+function placeAcaCommentToggleInDataTableToolbar() {
+    const holder = document.querySelector('[data-aca-comment-toggle-holder]');
+    const table = document.querySelector('[data-aca-records-table]');
+    if (!holder || !table) return;
+    const container = table.closest('.dt-container');
+    const startCell = container?.querySelector('.dt-layout-row:first-child .dt-layout-start');
+    if (!startCell || startCell.contains(holder)) return;
+    holder.classList.add('aca-table-tools-inline');
+    startCell.appendChild(holder);
+}
+
+window.setTimeout(placeAcaCommentToggleInDataTableToolbar, 0);
+window.setTimeout(placeAcaCommentToggleInDataTableToolbar, 150);
 
 function removeAcaGroupRows(parentRow) {
     let nextRow = parentRow ? parentRow.nextElementSibling : null;
@@ -420,8 +415,8 @@ function acaColumnWidthRules(table, commentsVisible) {
             return className.indexOf('aca-col-dim_') === 0;
         })) {
             width = commentsVisible ? 128 : 88;
-        } else if (classes.includes('aca-col-fecha_creado') || classes.includes('aca-col-ultimo_avance')) {
-            width = 132;
+        } else if (classes.includes('aca-col-fechas')) {
+            width = 176;
         } else if (classes.includes('aca-col-avance_aca')) {
             width = 96;
         } else if (classes.includes('aca-col-ubicacion_tecnica')) {

@@ -66,10 +66,10 @@
                 <small>RCM/FMECA</small>
                 <strong style="font-size:18px;">{{ rcm_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
-                    <a class="btn btn-primary" href="{% url 'service_rcm_list' service.pk %}">
+                    <a class="btn btn-primary" href="{% url 'service_fmeca_list' service.pk %}">
                         Desarrollo
                     </a>
-                    <a class="btn" href="{% url 'service_rcm_list' service.pk %}">
+                    <a class="btn" href="{% url 'fmeca_panel' %}?service={{ service.pk }}">
                         Ver reporte
                     </a>
                 </div>

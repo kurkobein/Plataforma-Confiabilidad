@@ -559,6 +559,8 @@ class EstrategiaDimension(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
     considerar_avance_aca = models.BooleanField('Considerar en avance ACA', default=True)
     visible_en_listado_aca = models.BooleanField('Visible en listado ACA', default=True)
+    considerar_avance_fmeca = models.BooleanField('Considerar en avance FMECA', default=True)
+    visible_en_listado_fmeca = models.BooleanField('Visible en listado FMECA', default=True)
     proceso_uso = models.CharField(max_length=10, choices=PROCESO_USO_CHOICES, default=PROCESO_ACA)
     dimension = models.ForeignKey(Dimension, on_delete=models.DO_NOTHING, db_column='dimension_id', related_name='estrategias_dimension')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='dimensiones_estrategia')
@@ -687,7 +689,7 @@ class TipoTareaEstrategia(BaseUnmanagedModel):
         ]
 
     def __str__(self):
-        return f'{self.estrategia} / {self.nombre}'
+        return f'{self.nombre}'
 
 
 class CampoTareaEstrategia(BaseUnmanagedModel):
