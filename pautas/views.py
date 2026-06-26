@@ -5,10 +5,12 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse
+from core.access import get_service_permission
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
-
+from django.views.decorators.http import require_POST
 from core import models
 from pautas.forms import GenerarPautasForm, MapeoPlantillaPautaForm, PlantillaPautaForm
 from pautas.services.exporter import (
@@ -46,10 +48,29 @@ def _service_pauta_template_queryset(servicio, active_only=False):
         | Q(servicio__isnull=True, empresa=servicio.empresa)
         | Q(servicio__isnull=True, estrategia=servicio.estrategia)
         | Q(servicio__isnull=True, empresa__isnull=True, estrategia__isnull=True)
-    ).select_related('empresa', 'servicio', 'estrategia').distinct()
+    ).select_related('empresa', 'servicio', 'estrategia', 'mapeo').distinct()
     if active_only:
         qs = qs.filter(activa=True)
     return qs.order_by('-activa', 'nombre')
+
+
+def _template_mapping_stats(plantilla):
+    mapeo = getattr(plantilla, 'mapeo', None)
+    config = getattr(mapeo, 'config', None) or {}
+    celdas = config.get('celdas') if isinstance(config.get('celdas'), list) else []
+    tablas = config.get('tablas') if isinstance(config.get('tablas'), list) else []
+    columnas = 0
+    for tabla in tablas:
+        if isinstance(tabla, dict) and isinstance(tabla.get('columnas'), list):
+            columnas += len(tabla.get('columnas'))
+    return {
+        'mapeo': mapeo,
+        'celdas_count': len(celdas),
+        'tablas_count': len(tablas),
+        'columnas_count': columnas,
+        'total_count': len(celdas) + columnas,
+        'is_mapped': bool(len(celdas) or columnas),
+    }
 
 
 def _service_pauta_or_404(servicio, pauta_pk):
@@ -160,11 +181,33 @@ def service_pauta_templates(request, pk):
     else:
         form = PlantillaPautaForm()
 
+    templates_qs = _service_pauta_template_queryset(servicio).annotate(pautas_count=Count('pautas', distinct=True))
+    template_rows = []
+    for plantilla in templates_qs:
+        mapping_stats = _template_mapping_stats(plantilla)
+        template_rows.append({
+            'item': plantilla,
+            **mapping_stats,
+            'pautas_count': getattr(plantilla, 'pautas_count', 0),
+        })
+    templates_total = len(template_rows)
+    templates_active = sum(1 for row in template_rows if row['item'].activa)
+    templates_mapped = sum(1 for row in template_rows if row['is_mapped'])
+    template_summary = {
+        'total': templates_total,
+        'active': templates_active,
+        'inactive': templates_total - templates_active,
+        'mapped': templates_mapped,
+        'unmapped': templates_total - templates_mapped,
+    }
+
     return render(request, 'core/pautas/service_pauta_templates.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
-        'templates': _service_pauta_template_queryset(servicio),
+        'templates': templates_qs,
+        'template_rows': template_rows,
+        'template_summary': template_summary,
     })
 
 
@@ -193,26 +236,29 @@ def service_pauta_template_edit(request, service_pk, template_pk):
 
 
 @login_required
+@require_POST
 def service_pauta_template_delete(request, service_pk, template_pk):
-    servicio, permission = _service_or_404(request, service_pk, edit=True)
-    plantilla = get_object_or_404(_service_pauta_template_queryset(servicio), pk=template_pk)
-    pautas_count = models.Pauta.objects.filter(plantilla=plantilla).count()
-    if request.method == 'POST':
-        archivo = plantilla.archivo
-        with transaction.atomic():
-            models.Pauta.objects.filter(plantilla=plantilla).update(plantilla=None)
-            models.MapeoPlantillaPauta.objects.filter(plantilla=plantilla).delete()
-            plantilla.delete()
-        if archivo:
-            archivo.delete(save=False)
-        messages.success(request, 'Plantilla de pauta eliminada correctamente.')
-        return redirect('service_pauta_templates', pk=servicio.pk)
-    return render(request, 'core/pautas/service_pauta_template_delete.html', {
-        'service': servicio,
-        'permission': permission,
-        'plantilla': plantilla,
-        'pautas_count': pautas_count,
-    })
+    service, _permission = _service_or_404(request, service_pk, edit=True)
+
+    template = get_object_or_404(
+        models.PlantillaPauta,
+        pk=template_pk,
+        servicio=service,
+    )
+
+    with transaction.atomic():
+        models.Pauta.objects.filter(plantilla=template).update(plantilla=None)
+
+        mapping_ids = list(
+            models.MapeoPlantillaPauta.objects.filter(plantilla=template).values_list("id", flat=True)
+        )
+        if mapping_ids:
+            models.MapeoPlantillaPauta.objects.filter(id__in=mapping_ids).delete()
+
+        template.delete()
+
+    messages.success(request, "Plantilla de pauta eliminada correctamente.")
+    return redirect("service_pauta_templates", pk=service.pk)
 
 
 @login_required

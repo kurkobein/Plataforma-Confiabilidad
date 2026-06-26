@@ -13,7 +13,7 @@ from django.utils import timezone
 from . import models as app_models
 from .access import get_service_equipment, resolve_auth_user_for_email, get_users_for_service_access
 from .user_sync import split_full_name, sync_auth_user_from_profile
-from .models import Empresa, Servicio, Servicio, Metodologia, ServicioMetodologia
+from .models import Empresa, Servicio, Servicio
 
 class BaseModelForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
@@ -474,12 +474,7 @@ class EquipoBulkUploadForm(forms.Form):
 
 
 class ServicioForm(BaseModelForm):
-    metodologias = forms.ModelMultipleChoiceField(
-        queryset=Metodologia.objects.all().order_by('nombre'),
-        required=False,
-        widget=forms.SelectMultiple(attrs={'class': 'input-control'}),
-        label='Metodologías',
-    )
+
 
     def __init__(self, *args, creador_usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -489,22 +484,17 @@ class ServicioForm(BaseModelForm):
         self.fields['creado_por_usuario'].help_text = 'Usuario administrador del servicio.'
         self.fields['responsable_usuario'].label = 'Responsable'
         self.fields['responsable_usuario'].help_text = 'Usuario responsable operativo del servicio.'
-
-        if self.instance and self.instance.pk:
-            self.fields['metodologias'].initial = self.instance.metodologias.all()
-        else:
-            self.fields['creado_en'].initial = timezone.localtime().replace(
-                second=0,
-                microsecond=0,
-            )
-            if creador_usuario:
-                self.fields['creado_por_usuario'].initial = creador_usuario.pk
-                self.initial['creado_por_usuario'] = creador_usuario.pk
+        self.fields['creado_en'].initial = timezone.localtime().replace(
+            second=0,
+            microsecond=0,
+        )
+        if creador_usuario:
+            self.fields['creado_por_usuario'].initial = creador_usuario.pk
+            self.initial['creado_por_usuario'] = creador_usuario.pk
 
     class Meta:
         model = Servicio
         fields = '__all__'
-        exclude = ['metodologias']
         widgets = {
             'codigo_servicio': forms.TextInput(attrs={'class': 'input-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'input-textarea', 'rows': 3}),
@@ -523,15 +513,6 @@ class ServicioForm(BaseModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=commit)
-
-        if commit:
-            ServicioMetodologia.objects.filter(servicio=instance).delete()
-
-            for metodologia in self.cleaned_data.get('metodologias', []):
-                ServicioMetodologia.objects.create(
-                    servicio=instance,
-                    metodologia=metodologia,
-                )
 
         return instance
 

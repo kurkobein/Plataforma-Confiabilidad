@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Any
 
 from django.db import transaction
@@ -238,7 +239,7 @@ def read_xlsx_rows(file, sheet_name=None, limit=None):
     if load_workbook is None:
         raise ValueError('openpyxl no esta instalado en el entorno de Django.')
     file.seek(0)
-    workbook = load_workbook(file, read_only=True, data_only=True)
+    workbook = load_workbook(BytesIO(file.read()), read_only=True, data_only=True)
     selected_sheet_name = sheet_name
     if sheet_name:
         if sheet_name not in workbook.sheetnames:
@@ -290,6 +291,7 @@ def read_xlsx_rows(file, sheet_name=None, limit=None):
         })
         if limit and len(rows) >= limit:
             break
+    workbook.close()
     return headers, rows
 
 

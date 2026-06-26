@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}Configuración tareas RCM/FMECA | {{ service.codigo_servicio }}{% endblock %}
+{% block title %}Configuración tareas FMECA | {{ service.codigo_servicio }}{% endblock %}
 {% block extra_head %}
 <style>
   .task-config-shell {
@@ -179,12 +179,12 @@
   <div class="page-title-group">
     <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
     <div class="page-title-copy">
-    <h2>Configuración de tareas RCM/FMECA</h2>
+    <h2>Configuración de tareas FMECA</h2>
     <p>{{ service.codigo_servicio }} · {{ service.estrategia }}</p>
   </div>
   </div>
   <div class="actions">
-    <a class="btn" href="{% url 'service_fmeca_list' service.pk %}">Desarrollo RCM/FMECA</a>
+    <a class="btn" href="{% url 'service_fmeca_list' service.pk %}">Desarrollo FMECA</a>
     <button class="btn btn-primary" type="button" onclick="saveConfig()">Guardar cambios</button>
   </div>
 </div>

@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}Carga masiva RCM/FMECA | {{ service.codigo_servicio }}{% endblock %}
+{% block title %}Carga masiva FMECA | {{ service.codigo_servicio }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -9,11 +9,6 @@
             <h2>Carga masiva RCM/FMECA</h2>
             <p>{{ service.codigo_servicio }} - carga por Excel con previsualizaci&oacute;n antes de guardar.</p>
         </div>
-    </div>
-    <div class="actions">
-        <a class="btn" href="{% url 'service_fmeca_excel_template' service.pk %}">
-            <i class="bi bi-download"></i> Descargar plantilla
-        </a>
     </div>
 </div>
 
@@ -59,27 +54,36 @@
                 <button class="btn" type="submit" name="action" value="preview" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Previsualizar</button>
                 <button class="btn btn-primary" type="submit" name="action" value="confirm" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Confirmar carga</button>
             </div>
-            <p class="muted">La previsualizaci&oacute;n no guarda datos. Si confirmas, cada fila v&aacute;lida crear&aacute; su propio RCM, FMEA/FMECA, evaluaciones y tareas.</p>
+            <p class="muted">La previsualizaci&oacute;n no guarda datos. Si confirmas, cada fila v&aacute;lida crear&aacute; su propio RCM, FMECA, evaluaciones y tareas.</p>
         </form>
     </div>
 
-    <div class="card">
+    <div class="card hierarchy-side-card bulk-format-card">
         <h3 class="card-title">Formatos soportados</h3>
         <p class="muted">El sistema reconoce encabezados flexibles y dimensiones configuradas por estrategia. Puede cargar archivos simplificados o planillas reales con encabezados largos.</p>
-        <div class="aca-upload-hints">
-            <span>Equipo / Componente</span>
-            <span>TAG</span>
-            <span>Ubicaci&oacute;n T&eacute;cnica</span>
-            <span>Funci&oacute;n</span>
-            <span>Falla funcional</span>
-            <span>Modo de falla</span>
-            <span>Efecto</span>
-            <span>Severidad</span>
-            <span>Ocurrencia</span>
-            <span>Detecci&oacute;n</span>
-            <span>NPR</span>
-            <span>Actividad / tarea</span>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Formato</th>
+                        <th>Encabezados de ejemplo</th>
+                        <th>Plantilla</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>RCM/FMECA</td>
+                        <td>Equipo / Componente, TAG, Ubicaci&oacute;n T&eacute;cnica, Funci&oacute;n, Falla funcional, Modo de falla, Efecto, NPR y tareas.</td>
+                        <td>
+                            <a class="btn" href="{% url 'service_fmeca_excel_template' service.pk %}">
+                                <i class="bi bi-download"></i> Descargar Excel
+                            </a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
+        <p class="muted">La plantilla incluye columnas base de RCM/FMECA, tareas y dimensiones configuradas para la estrategia del servicio.</p>
     </div>
 </div>
 
@@ -99,7 +103,7 @@
                 <div class="preview-group">
                     <div class="preview-group-title">Registros</div>
                     <div class="preview-metric"><span>RCM</span><strong>{{ report.rcm }}</strong></div>
-                    <div class="preview-metric"><span>FMEA/FMECA</span><strong>{{ report.fmea }}</strong></div>
+                    <div class="preview-metric"><span>FMECA</span><strong>{{ report.fmea }}</strong></div>
                     <div class="preview-metric"><span>Cargas</span><strong>{{ report.cargas }}</strong></div>
                     <div class="preview-metric"><span>Omitidas NPR=0</span><strong>{{ report.skipped_npr_zero }}</strong></div>
                 </div>

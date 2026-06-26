@@ -101,6 +101,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const selectedInitial = selectedNode ? JSON.parse(selectedNode.textContent || '[]') : [];
     const selected = new Map();
     const visibleItems = new Map();
+    let autoSelectedNodeId = '';
     let searchTimer = null;
 
     function escapeHtml(value) {
@@ -162,7 +163,9 @@ document.addEventListener('DOMContentLoaded', function () {
         for (let index = selects.length - 1; index >= 0; index--) {
             if (selects[index].value) return selects[index].value;
         }
-        return '';
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return autoSelectedNodeId || '';
     }
 
     async function loadNodes(parentId) {
@@ -172,19 +175,75 @@ document.addEventListener('DOMContentLoaded', function () {
         return data.nodes || [];
     }
 
-    async function repopulateFilters(changedIndex) {
-        const selects = Array.from(levelWrap.querySelectorAll('[data-family-level-filter]'));
-        for (let index = changedIndex + 1; index < selects.length; index++) {
-            selects[index].innerHTML = '<option value="">Todos</option>';
+    async function renderFilterLevel(parentId, levelIndex, skipLeadingSingles) {
+        if (!levelWrap || levelIndex >= levels.length) return;
+        levelWrap.querySelectorAll('[data-family-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = levels[levelIndex];
+        let nodes = [];
+        try {
+            nodes = (await loadNodes(parentId || ''))
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (_error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.familyLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>Sin datos</option></select>
+            `;
+            levelWrap.appendChild(field);
+            return;
         }
-        const nextIndex = changedIndex + 1;
-        if (nextIndex >= selects.length) return;
-        const parentId = changedIndex >= 0 ? selects[changedIndex].value : '';
-        if (changedIndex >= 0 && !parentId) return;
-        const nodes = await loadNodes(parentId);
-        selects[nextIndex].innerHTML = '<option value="">Todos</option>' + nodes.map((node) => (
-            `<option value="${node.id}">${escapeHtml(node.label)}</option>`
-        )).join('');
+
+        if (!nodes.length) {
+            autoSelectedNodeId = parentId || autoSelectedNodeId || '';
+            return;
+        }
+
+        if (nodes.length === 1 && skipLeadingSingles) {
+            autoSelectedNodeId = String(nodes[0].id || '');
+            await renderFilterLevel(autoSelectedNodeId, levelIndex + 1, true);
+            return;
+        }
+
+        autoSelectedNodeId = parentId || '';
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.familyLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-family-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${nodes.map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        levelWrap.appendChild(field);
+
+        const select = field.querySelector('[data-family-level-filter]');
+        if (nodes.length === 1) {
+            select.value = String(nodes[0].id || '');
+            autoSelectedNodeId = select.value;
+            await renderFilterLevel(select.value, levelIndex + 1, false);
+        }
+        select.addEventListener('change', async function () {
+            const value = select.value;
+            if (!value) {
+                autoSelectedNodeId = select.dataset.parentId || '';
+                levelWrap.querySelectorAll('[data-family-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                searchEquipment();
+                return;
+            }
+            await renderFilterLevel(value, levelIndex + 1, false);
+            searchEquipment();
+        });
     }
 
     async function searchEquipment() {
@@ -216,21 +275,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function initFilters() {
         if (!levelWrap) return;
-        levelWrap.innerHTML = levels.map((level, index) => `
-            <div class="form-field">
-                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
-                <select class="input-control" data-family-level-filter data-level-index="${index}">
-                    <option value="">Todos</option>
-                </select>
-            </div>
-        `).join('');
-        levelWrap.querySelectorAll('[data-family-level-filter]').forEach((select) => {
-            select.addEventListener('change', async function () {
-                await repopulateFilters(Number(select.dataset.levelIndex || 0));
-                searchEquipment();
-            });
-        });
-        repopulateFilters(-1);
+        levelWrap.innerHTML = '';
+        renderFilterLevel('', 0, true).then(searchEquipment);
     }
 
     selectedInitial.forEach((item) => selected.set(String(item.id), item));

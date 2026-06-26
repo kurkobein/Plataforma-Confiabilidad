@@ -38,8 +38,8 @@ def _node_path_code(node, node_by_id):
 
 def _node_option_label(node, node_by_id):
     code = _node_path_code(node, node_by_id) or node.codigo
-    level_name = node.nivel.nombre if node.nivel_id else 'Sin nivel'
-    return f'{level_name}: {code} - {node.nombre}'
+    name = node.nombre or node.codigo or 'Sin nombre'
+    return f'{name} - {code}' if code else name
 
 
 def get_aca_progress_dimensions(estrategia):
@@ -324,10 +324,32 @@ def get_descendant_node_ids(nodo):
     return descendant_ids
 
 
+def _normalize_node_ids(value):
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = value
+    else:
+        raw_values = str(value).replace(';', ',').split(',')
+    node_ids = []
+    for raw in raw_values:
+        try:
+            node_id = int(str(raw).strip())
+        except (TypeError, ValueError):
+            continue
+        if node_id not in node_ids:
+            node_ids.append(node_id)
+    return node_ids
+
+
 def filter_criticidades_by_hierarchy(queryset, nodo_id=None):
-    if not nodo_id:
+    node_ids_input = _normalize_node_ids(nodo_id)
+    if not node_ids_input:
         return queryset
-    node_ids = get_descendant_node_ids(nodo_id)
+    node_ids = []
+    for selected_node_id in node_ids_input:
+        node_ids.extend(get_descendant_node_ids(selected_node_id))
+    node_ids = list(dict.fromkeys(node_ids))
     if not node_ids:
         return queryset.none()
     return queryset.filter(equipo__nodo_id__in=node_ids)

@@ -191,8 +191,19 @@ def get_service_equipment(servicio):
     return base_qs.filter(servicios_equipo__servicio_id=servicio.pk).distinct()
 
 
-def get_users_for_service_access(servicio):
-    return models.Usuario.objects.select_related('cargo', 'empresa').order_by('empresa__nombre', 'nombre_completo')
+def get_users_for_service_access(servicio, user=None):
+    qs = models.Usuario.objects.select_related('cargo', 'empresa').order_by('empresa__nombre', 'nombre_completo')
+    if not servicio:
+        return qs.none()
+
+    assigned_ids = models.AccesoUsuario.objects.filter(servicio=servicio).values_list('usuario_id', flat=True)
+    qs = qs.exclude(id__in=assigned_ids)
+
+    current_profile = get_profile_for_user(user) if user is not None else None
+    if current_profile:
+        qs = qs.exclude(pk=current_profile.pk)
+
+    return qs
 
 
 def is_mindco_user(user):

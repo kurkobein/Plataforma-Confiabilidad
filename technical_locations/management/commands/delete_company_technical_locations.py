@@ -132,7 +132,7 @@ class Command(BaseCommand):
         self.stdout.write(f'ACA: {len(summary["criticidad_ids"])}')
         self.stdout.write(f'Dimensiones ACA: {summary["criticidad_dimension_count"]}')
         self.stdout.write(f'RCM: {len(summary["rcm_ids"])}')
-        self.stdout.write(f'FMEA/FMECA: {len(summary["fmea_ids"])}')
+        self.stdout.write(f'FMECA: {len(summary["fmea_ids"])}')
         self.stdout.write(f'Evaluaciones FMEA: {summary["evaluacion_fmea_count"]}')
         self.stdout.write(f'Tareas RCM: {len(summary["tarea_ids"])}')
         self.stdout.write(f'Valores tarea RCM: {summary["valor_campo_tarea_count"]}')

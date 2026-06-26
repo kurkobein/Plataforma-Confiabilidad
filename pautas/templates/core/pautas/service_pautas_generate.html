@@ -73,11 +73,11 @@
                                     {% if row.selected %}checked{% endif %}
                                     aria-label="Crear pauta {{ forloop.counter }}">
                             </td>
-                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.equipo|default:'-' }}" data-copy="{{ row.equipo|default:'-' }}">{{ row.equipo|default:'-' }}</span></td>
-                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.ubicacion_tecnica|default:'-' }}" data-copy="{{ row.ubicacion_tecnica|default:'-' }}">{{ row.ubicacion_tecnica|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="{{ row.equipo|default:'-' }}" data-copy="{{ row.equipo|default:'-' }}">{{ row.equipo|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="{{ row.ubicacion_tecnica|default:'-' }}" data-copy="{{ row.ubicacion_tecnica|default:'-' }}">{{ row.ubicacion_tecnica|default:'-' }}</span></td>
                             <td>{{ row.frecuencia|default:'-' }}</td>
-                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.especialidad|default:'-' }}" data-copy="{{ row.especialidad|default:'-' }}">{{ row.especialidad|default:'-' }}</span></td>
-                            <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.estado_equipo|default:'-' }}" data-copy="{{ row.estado_equipo|default:'-' }}">{{ row.estado_equipo|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="{{ row.especialidad|default:'-' }}" data-copy="{{ row.especialidad|default:'-' }}">{{ row.especialidad|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis copy-cell" title="{{ row.estado_equipo|default:'-' }}" data-copy="{{ row.estado_equipo|default:'-' }}">{{ row.estado_equipo|default:'-' }}</span></td>
                             <td>
                                 <details>
                                     <summary>{{ row.tareas_count }} tarea{{ row.tareas_count|pluralize }}</summary>

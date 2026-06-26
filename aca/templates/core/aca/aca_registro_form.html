@@ -138,18 +138,19 @@
 
                 {% elif form.input_mode == 'escala' %}
                     <div class="option-compact-row">
-                        <div class="form-field">
+                        <div class="form-field catalog-picker-field">
                             <label>{{ form.escala_valor.label }}</label>
-                            {{ form.escala_valor }}
+                            <div class="hidden-picker-select">{{ form.escala_valor }}</div>
+                            <input class="input-control picker-display"
+                                   type="text"
+                                   value=""
+                                   readonly
+                                   data-picker-display-for="{{ form.escala_valor.id_for_label }}"
+                                   data-option-toggle
+                                   data-panel-id="option-panel-{{ forloop.counter0 }}"
+                                   data-option-target="{{ form.escala_valor.id_for_label }}"
+                                   placeholder="Selecciona desde la tabla">
                         </div>
-                        <button type="button"
-                                class="btn btn-toggle-option"
-                                data-option-toggle
-                                data-panel-id="option-panel-{{ forloop.counter0 }}"
-                                data-option-target="{{ form.escala_valor.id_for_label }}"
-                                aria-expanded="false">
-                            Ver tabla
-                        </button>
                     </div>
                     <div id="option-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
                         <div class="table-wrap">
@@ -172,19 +173,19 @@
                         <div class="form-field catalog-picker-field">
                             <label>{{ form.catalogo_fila.label }}</label>
                             <div class="hidden-picker-select">{{ form.catalogo_fila }}</div>
-                            <input class="input-control picker-display" type="text" value="" readonly data-picker-display-for="{{ form.catalogo_fila.id_for_label }}" placeholder="{% if form.is_dependent_catalog %}Se calculará automáticamente{% else %}Selecciona desde la tabla{% endif %}">
+                            <input class="input-control picker-display"
+                                   type="text"
+                                   value=""
+                                   readonly
+                                   data-picker-display-for="{{ form.catalogo_fila.id_for_label }}"
+                                   data-option-toggle
+                                   data-panel-id="option-panel-{{ forloop.counter0 }}"
+                                   data-option-target="{{ form.catalogo_fila.id_for_label }}"
+                                   placeholder="{% if form.is_dependent_catalog %}Se calculará automáticamente{% else %}Selecciona desde la tabla{% endif %}">
                             {% if form.is_dependent_catalog %}
                                 <small class="muted">Depende de {{ form.catalog_dependency }}.</small>
                             {% endif %}
                         </div>
-                        <button type="button"
-                                class="btn btn-toggle-option"
-                                data-option-toggle
-                                data-panel-id="option-panel-{{ forloop.counter0 }}"
-                                data-option-target="{{ form.catalogo_fila.id_for_label }}"
-                                aria-expanded="false">
-                            {% if form.is_dependent_catalog and form.catalog_type == 'rangos' %}Ver rangos{% else %}Ver tabla{% endif %}
-                        </button>
                     </div>
                     <div id="option-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
                         <div class="table-wrap">
@@ -253,8 +254,8 @@
                             <label for="matrix-prob-select">{{ matrix_selector.prob_axis_label|default:"Probabilidad" }}</label>
                             <select id="matrix-prob-select" class="input-control">
                                 <option value="">Selecciona probabilidad</option>
-                                {% for row in matrix_selector.rows %}
-                                    <option value="{{ row.id }}" data-level-value="{{ row.value }}">{{ row.label }} ({{ row.value }})</option>
+                                {% for col in matrix_selector.columns %}
+                                    <option value="{{ col.id }}" data-level-value="{{ col.value }}">{{ col.label }} ({{ col.value }})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -262,8 +263,8 @@
                             <label for="matrix-impact-select">{{ matrix_selector.impact_axis_label|default:"Consecuencia" }}</label>
                             <select id="matrix-impact-select" class="input-control">
                                 <option value="">Selecciona consecuencia</option>
-                                {% for col in matrix_selector.columns %}
-                                    <option value="{{ col.id }}" data-level-value="{{ col.value }}">{{ col.label }} ({{ col.value }})</option>
+                                {% for row in matrix_selector.rows %}
+                                    <option value="{{ row.id }}" data-level-value="{{ row.value }}">{{ row.label }} ({{ row.value }})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -292,7 +293,7 @@
                     <table class="matrix-compact">
                         <thead>
                             <tr>
-                                <th>Probabilidad \ Consecuencia</th>
+                                <th>Consecuencia \ Probabilidad</th>
                                 {% for col in matrix_selector.columns %}
                                     <th>{{ col.label }}<br><span class="muted">{{ col.value }}</span></th>
                                 {% endfor %}
@@ -770,6 +771,7 @@
     const lazyEquipmentById = new Map();
     let lazyEquipmentSearchTimer = null;
     let lazyEquipmentRequestId = 0;
+    let lazyEquipmentAutoNodeId = '';
 
     async function lazyFetchJson(url) {
         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -796,7 +798,9 @@
         for (let index = selects.length - 1; index >= 0; index -= 1) {
             if (selects[index].value) return selects[index].value;
         }
-        return '';
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return lazyEquipmentAutoNodeId || '';
     }
 
     function lazyOptionLabelForEquipment(item) {
@@ -869,64 +873,90 @@
         }, 250);
     }
 
-    async function lazyRepopulateEquipmentFilters(changedIndex) {
+    async function lazyRenderEquipmentFilterLevel(parentId, levelIndex, skipLeadingSingles, preferredPathIds) {
         if (!equipmentFilterBox) return;
-        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
-        for (let index = changedIndex + 1; index < selects.length; index += 1) {
-            selects[index].value = '';
-        }
-        for (const [index, select] of selects.entries()) {
-            const previous = index > 0 ? selects[index - 1].value : '';
-            const level = equipmentLevels[index];
-            const wrapper = select.closest('.form-field');
-            if (wrapper) wrapper.hidden = index > 0 && !previous;
-            if (!level) continue;
-            const selected = select.value;
-            select.disabled = index > 0 && !previous;
-            if (select.disabled) {
-                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
-                continue;
-            }
-            select.innerHTML = '<option value="">Cargando...</option>';
-            if (index > changedIndex + 1) {
-                select.disabled = true;
-                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
-                continue;
-            }
-            let options = [];
-            try {
-                options = await lazyLoadEquipmentNodes(index === 0 ? '' : previous);
-            } catch (error) {
-                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
-                continue;
-            }
-            options = options
+        if (levelIndex >= equipmentLevels.length) return;
+        equipmentFilterBox.querySelectorAll('[data-equipment-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = equipmentLevels[levelIndex];
+        let options = [];
+        try {
+            options = (await lazyLoadEquipmentNodes(parentId || ''))
                 .filter(node => Number(node.level_id) === Number(level.id))
-                .sort((a, b) => a.label.localeCompare(b.label));
-            select.innerHTML = '<option value="">Todos</option>' + options
-                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
-                .join('');
-            if (options.some(node => String(node.id) === String(selected))) {
-                select.value = selected;
-            }
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.equipmentLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>No se pudieron cargar datos</option></select>
+            `;
+            equipmentFilterBox.appendChild(field);
+            return;
         }
+
+        if (!options.length) {
+            lazyEquipmentAutoNodeId = parentId || lazyEquipmentAutoNodeId || '';
+            return;
+        }
+
+        if (options.length === 1 && skipLeadingSingles) {
+            lazyEquipmentAutoNodeId = String(options[0].id || '');
+            await lazyRenderEquipmentFilterLevel(lazyEquipmentAutoNodeId, levelIndex + 1, true, preferredPathIds || []);
+            return;
+        }
+
+        lazyEquipmentAutoNodeId = parentId || '';
+        const preferred = (preferredPathIds || []).map(String).find(nodeId => (
+            options.some(option => String(option.id) === String(nodeId))
+        ));
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.equipmentLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-equipment-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${options.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        equipmentFilterBox.appendChild(field);
+
+        const select = field.querySelector('[data-equipment-level-filter]');
+        if (preferred) {
+            select.value = String(preferred);
+        } else if (options.length === 1) {
+            select.value = String(options[0].id || '');
+        }
+        if (select.value) {
+            lazyEquipmentAutoNodeId = select.value;
+            await lazyRenderEquipmentFilterLevel(select.value, levelIndex + 1, false, preferredPathIds || []);
+        }
+        select.addEventListener('change', function () {
+            const value = select.value;
+            if (!value) {
+                lazyEquipmentAutoNodeId = select.dataset.parentId || '';
+                equipmentFilterBox.querySelectorAll('[data-equipment-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                lazyRefreshEquipmentResults(false);
+                return;
+            }
+            lazyRenderEquipmentFilterLevel(value, levelIndex + 1, false, []).then(function () {
+                lazyRefreshEquipmentResults(false);
+            });
+        });
     }
 
     function lazySelectEquipmentFromResult() {
         if (!equipmentInput || !equipmentResults) return;
         equipmentInput.value = equipmentResults.value || '';
         lazySyncEquipmentInfo(lazyEquipmentById.get(String(equipmentInput.value || '')) || null);
-    }
-
-    async function lazyApplySelectedEquipmentPath(item) {
-        if (!equipmentInput || !equipmentInput.value || !equipmentFilterBox || !item) return;
-        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
-        for (const [index, select] of selects.entries()) {
-            await lazyRepopulateEquipmentFilters(index - 1);
-            const nodeId = (item.path_node_ids || [])[index];
-            if (nodeId) select.value = String(nodeId);
-        }
-        await lazyRepopulateEquipmentFilters(selects.length - 1);
     }
 
     async function lazyLoadSelectedEquipment() {
@@ -951,31 +981,17 @@
 
     async function initEquipmentBrowser() {
         if (!equipmentFilterBox || !equipmentResults) return;
-        equipmentFilterBox.innerHTML = equipmentLevels.map((level, index) => `
-            <div class="form-field">
-                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
-                <select class="input-control" data-equipment-level-filter data-level-index="${index}">
-                    <option value="">Todos</option>
-                </select>
-            </div>
-        `).join('');
-        equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
-            select.addEventListener('change', function () {
-                lazyRepopulateEquipmentFilters(Number(select.dataset.levelIndex || 0)).then(function () {
-                    lazyRefreshEquipmentResults(false);
-                });
-            });
-        });
+        equipmentFilterBox.innerHTML = '';
         if (equipmentSearch) equipmentSearch.addEventListener('input', lazyScheduleEquipmentSearch);
         equipmentResults.addEventListener('change', lazySelectEquipmentFromResult);
-        await lazyRepopulateEquipmentFilters(-1);
         const selected = await lazyLoadSelectedEquipment();
         if (selected) {
-            await lazyApplySelectedEquipmentPath(selected);
+            await lazyRenderEquipmentFilterLevel('', 0, true, selected.path_node_ids || []);
             equipmentResults.innerHTML = `<option value="${selected.id}">${escapeHtml(lazyOptionLabelForEquipment(selected))}</option>`;
             equipmentResults.value = String(selected.id);
             if (equipmentCount) equipmentCount.textContent = 'Equipo seleccionado.';
         } else {
+            await lazyRenderEquipmentFilterLevel('', 0, true, []);
             await lazyRefreshEquipmentResults(true);
         }
     }
@@ -985,7 +1001,10 @@
         if (!panel) return;
         panel.hidden = !open;
         button.setAttribute('aria-expanded', String(open));
-        button.textContent = open ? 'Ocultar tabla' : 'Ver tabla';
+        button.classList.toggle('is-open', open);
+        if (button.tagName.toLowerCase() === 'button') {
+            button.textContent = open ? 'Ocultar tabla' : 'Ver tabla';
+        }
     }
 
     function openOptionPanelForSelect(select) {
@@ -1014,7 +1033,9 @@
         const display = document.querySelector('[data-picker-display-for="' + select.id + '"]');
         if (!display) return;
         const selected = select.options[select.selectedIndex];
-        display.value = selected && select.value ? selected.textContent.trim() : '';
+        const label = selected && select.value ? selected.textContent.trim() : '';
+        display.value = label;
+        display.classList.toggle('has-value', Boolean(label));
     }
 
     function pickValue(targetId, value, numericValue) {
@@ -1061,7 +1082,7 @@
             impactDisplay.value = button.dataset.impactLabel + ' (' + button.dataset.impactValue + ')';
         }
         if (critDisplay) {
-            critDisplay.value = (button.dataset.classification || '-') + ' [' + (button.dataset.result || '-') + ']';
+            critDisplay.value = button.dataset.classification || '-';
         }
     }
 
@@ -1333,7 +1354,8 @@
             return configured
                 .map(step => ({
                     operation: step.operacion || step.tipo_calculo || step.operation || type,
-                    operands: step.operandos || step.campos || step.sources || []
+                    operands: step.operandos || step.campos || step.sources || [],
+                    mode: step.modo || (step.ponderado === true ? 'ponderado' : '')
                 }))
                 .filter(step => step.operation && Array.isArray(step.operands));
         }
@@ -1341,6 +1363,28 @@
             operation: type,
             operands: config.operandos || config.campos || config.sources || []
         }];
+    }
+
+    function calculationOperandWeight(operand) {
+        if (!operand || typeof operand !== 'object') return null;
+        return toNumber(operand.peso ?? operand.ponderador ?? operand.weight);
+    }
+
+    function weightedCalculationValues(operands, values) {
+        if (!operands.length || operands.length !== values.length) return null;
+        let weights = operands.map(calculationOperandWeight);
+        if (weights.every(weight => weight === null)) {
+            weights = weights.map(() => 1 / weights.length);
+        } else if (weights.some(weight => weight === null)) {
+            const assigned = weights.reduce((total, weight) => total + (weight ?? 0), 0);
+            const missing = weights.filter(weight => weight === null).length;
+            const remaining = 1 - assigned;
+            if (remaining < 0) return null;
+            weights = weights.map(weight => weight === null ? remaining / missing : weight);
+        }
+        const total = weights.reduce((sum, weight) => sum + weight, 0);
+        if (weights.some(weight => weight < 0 || weight > 1) || Math.abs(total - 1) > 0.0001) return null;
+        return values.map((value, index) => value * weights[index]);
     }
 
     function evaluateCalculation(type, config, sourceValues) {
@@ -1353,6 +1397,12 @@
                     values.push(value);
                 }
             });
+            if (step.mode === 'ponderado' && step.operation === 'suma') {
+                if (values.length !== step.operands.length) return null;
+                const weightedValues = weightedCalculationValues(step.operands, values);
+                if (!weightedValues) return null;
+                values.splice(0, values.length, ...weightedValues);
+            }
             result = applyOperation(step.operation || type, values);
             if (result === null) return null;
         }

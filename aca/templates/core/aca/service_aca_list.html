@@ -15,18 +15,15 @@
         <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_aca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
-            <a class="btn btn-primary" href="{% url 'service_aca_bulk_new' service.pk %}"> Carga grupal</a>
-            <a class="btn btn-primary" href="{% url 'service_aca_new' service.pk %}">Nuevo ACA</a>
+            <a class="btn btn-primary" href="{% url 'service_aca_bulk_new' service.pk %}"> Carga grupal ACA</a>
         {% endif %}
     </div>
 </div>
-
 <div class="card">
     <div id="aca-progress-container">
         {% include 'core/aca/partials/aca_progress_summary.html' %}
     </div>
 </div>
-
 {% if aca_list_items %}
 <div class="aca-table-tools" data-aca-comment-toggle-holder>
     <label class="check-option aca-comment-toggle">
@@ -53,17 +50,19 @@
                             </button>
                         </td>
                         {% for key, label in columns %}
-                            <td class="aca-col-{{ key }}"{% if key == 'acciones' %} data-order="Configurar"{% endif %}>
+                            <td class="aca-col-{{ key }}"{% if key == 'acciones' %} data-order="Configurar"{% elif key == 'avance_aca' %} data-order="{{ group.avance_aca_order }}"{% endif %}>
                                 {% if key == 'cliente' %}
                                     {{ service.codigo_servicio }}
                                 {% elif key == 'avance_aca' %}
-                                    <span class="aca-progress-pill aca-progress-pill-group" style="--progress-width: 100%; --progress-color: #64748b;">
+                                    <span class="aca-progress-pill aca-progress-pill-group"
+                                          style="--progress-width: {{ group.avance_aca_width }}%; --progress-color: {{ group.avance_aca_color }};"
+                                          title="Avance promedio del grupo">
                                         <span class="aca-progress-pill-fill" aria-hidden="true"></span>
-                                        <span class="aca-progress-pill-label">Grupo</span>
+                                        <span class="aca-progress-pill-label">{{ group.avance_aca }}</span>
                                     </span>
                                 {% elif key == 'fechas' %}
                                     <div class="date-inline"><small class="muted">Creación:</small> {{ group.meta }}</div>
-                                    <div class="date-inline"><small class="muted">Modificación:</small> {{ group.meta }}</div>
+                                    <div class="date-inline"><small class="muted">Editado:</small> {{ group.meta }}</div>
                                 {% elif key == 'ubicacion_tecnica' %}
                                     <span class="cell-ellipsis" title="{{ group.label }}">{{ group.label }}</span>
                                 {% elif key == 'descripcion_ut' %}
@@ -73,13 +72,22 @@
                                 {% elif key == 'acciones' %}
                                     {% if group.anchor %}
                                         <button class="btn" type="button" data-aca-group-toggle data-template-id="aca-group-template-{{ forloop.parentloop.counter }}" aria-expanded="false">
-                                            <i class="bi bi-eye"></i>
+                                            <i class="bi bi-folder2"></i>
                                         </button>
                                     {% endif %}
                                     {% if permission.can_edit and group.anchor %}
                                         <a class="btn" href="{% url 'service_aca_bulk_group_edit' service.pk group.anchor %}">
                                             <i class="bi bi-sliders"></i>
                                         </a>
+                                        <button type="button"
+                                                class="btn btn-danger"
+                                                title="Eliminar carpeta ACA"
+                                                data-aca-delete-open
+                                                data-delete-url="{% url 'service_aca_bulk_group_delete' service.pk group.anchor %}"
+                                                data-delete-title="Eliminar carpeta ACA"
+                                                data-delete-message="Se eliminará esta carpeta ACA y sus {{ group.count }} registros asociados.">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
                                     {% else %}
                                         -
                                     {% endif %}
@@ -110,6 +118,26 @@
     {% endif %}
 {% endfor %}
 
+{% if permission.can_edit %}
+<div class="logout-modal" id="aca-delete-modal" hidden>
+    <div class="logout-modal-backdrop" data-aca-delete-close></div>
+    <div class="logout-modal-card" role="dialog" aria-modal="true" aria-labelledby="aca-delete-modal-title">
+        <h3 id="aca-delete-modal-title">Eliminar registro ACA</h3>
+        <p class="muted" id="aca-delete-modal-message">Confirma la eliminación del registro ACA.</p>
+        <form method="post" id="aca-delete-modal-form">
+            {% csrf_token %}
+            <div class="actions">
+                <button class="btn" type="button" data-aca-delete-close>Cancelar</button>
+                <button class="btn btn-danger hold-confirm-button" type="button" id="aca-delete-confirm">
+                    <span>Eliminar</span>
+                    <span class="hold-confirm-progress" aria-hidden="true"></span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {% else %}
 <div class="card">
     <p class="muted">No hay registros ACA asociados a este servicio.</p>
@@ -120,6 +148,60 @@
 {% block extra_js %}
 <script>
 const ACA_PROGRESS_PREF_KEY = 'mindco_aca_progress_preferences_{{ service.pk }}';
+
+function setupAcaDeleteModal() {
+    const modal = document.getElementById('aca-delete-modal');
+    const form = document.getElementById('aca-delete-modal-form');
+    const title = document.getElementById('aca-delete-modal-title');
+    const message = document.getElementById('aca-delete-modal-message');
+    const confirmButton = document.getElementById('aca-delete-confirm');
+    if (!modal || !form || !confirmButton) return;
+
+    let holdTimer = null;
+    let holdStarted = false;
+
+    function cancelHold() {
+        holdStarted = false;
+        if (holdTimer) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+        }
+        confirmButton.classList.remove('is-holding');
+    }
+
+    function closeModal() {
+        modal.hidden = true;
+        cancelHold();
+    }
+
+    document.addEventListener('click', function (event) {
+        const opener = event.target.closest('[data-aca-delete-open]');
+        if (!opener) return;
+        form.action = opener.dataset.deleteUrl || '';
+        if (title) title.textContent = opener.dataset.deleteTitle || 'Eliminar registro ACA';
+        if (message) message.textContent = opener.dataset.deleteMessage || 'Confirma la eliminación del registro ACA.';
+        modal.hidden = false;
+    });
+
+    modal.querySelectorAll('[data-aca-delete-close]').forEach(function (button) {
+        button.addEventListener('click', closeModal);
+    });
+
+    confirmButton.addEventListener('pointerdown', function () {
+        if (holdStarted || !form.action) return;
+        holdStarted = true;
+        confirmButton.classList.add('is-holding');
+        holdTimer = setTimeout(function () {
+            holdTimer = null;
+            holdStarted = false;
+            form.submit();
+        }, 2000);
+    });
+
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (eventName) {
+        confirmButton.addEventListener(eventName, cancelHold);
+    });
+}
 
 function optionExists(select, value) {
     if (!select || !value) return false;
@@ -160,6 +242,10 @@ function applyAcaProgressPanelState(form) {
 }
 
 function syncAcaProgressNodeOptions(root) {
+    if (window.MindcoNestedHierarchyFilters) {
+        window.MindcoNestedHierarchyFilters.sync(root);
+        return;
+    }
     const scope = root || document;
     const levelInput = scope.querySelector('[name="progress_nivel"]');
     const nodeInput = scope.querySelector('[name="progress_nodo"]');
@@ -219,9 +305,41 @@ function syncAcaProgressNodeOptions(root) {
     nodeInput.value = deepestNode;
 }
 
+function syncAcaProgressRange(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-progress-range-filter]').forEach(function (rangeFilter) {
+        const minInput = rangeFilter.querySelector('[data-progress-min]');
+        const maxInput = rangeFilter.querySelector('[data-progress-max]');
+        const label = rangeFilter.querySelector('[data-progress-range-label]');
+        const slider = rangeFilter.querySelector('.progress-range-slider');
+        if (!minInput || !maxInput || !label) return;
+        let min = Number(minInput.value || 0);
+        let max = Number(maxInput.value || 100);
+        if (min > max) {
+            if (document.activeElement === minInput) {
+                max = min;
+                maxInput.value = String(max);
+            } else {
+                min = max;
+                minInput.value = String(min);
+            }
+        }
+        min = Math.max(0, Math.min(100, min));
+        max = Math.max(0, Math.min(100, max));
+        rangeFilter.style.setProperty('--range-min', min + '%');
+        rangeFilter.style.setProperty('--range-max', max + '%');
+        if (slider) {
+            slider.style.setProperty('--range-min', min + '%');
+            slider.style.setProperty('--range-max', max + '%');
+        }
+        label.textContent = min + '% - ' + max + '%';
+    });
+}
+
 function applySavedAcaProgressValues(form) {
     if (!form) return false;
     syncAcaProgressNodeOptions(form);
+    syncAcaProgressRange(form);
     return false;
 }
 
@@ -232,10 +350,51 @@ function setAcaProgressStatus(container, text, isError) {
     status.classList.toggle('error', Boolean(isError));
 }
 
+function ensureAcaRecordsProgressRangeFilter(table) {
+    if (!table || !window.jQuery || !jQuery.fn || !jQuery.fn.dataTable) return null;
+    if (!table.id) table.id = 'aca-records-' + Math.random().toString(36).slice(2);
+    if (table.dataset.acaProgressRangeSearchBound !== 'true') {
+        table.dataset.acaProgressRangeSearchBound = 'true';
+        const tableId = table.id;
+        jQuery.fn.dataTable.ext.search.push(function (settings, _data, dataIndex) {
+            if (settings.nTable.id !== tableId) return true;
+            const range = table._acaProgressRange;
+            if (!range) return true;
+            const dataTable = jQuery(table).DataTable();
+            const rowNode = dataTable.row(dataIndex).node();
+            if (rowNode?.classList?.contains('aca-group-row')) return true;
+            const cell = rowNode?.querySelector('.aca-col-avance_aca');
+            const raw = cell?.dataset.order || cell?.textContent || '';
+            const match = String(raw).replace(',', '.').match(/-?\d+(\.\d+)?/);
+            if (!match) return true;
+            const value = Number(match[0]);
+            return value >= range.min && value <= range.max;
+        });
+    }
+    if (!jQuery.fn.dataTable.isDataTable(table)) return null;
+    return jQuery(table).DataTable();
+}
+
+function applyAcaRecordsProgressRange(form) {
+    const table = document.querySelector('[data-aca-records-table]');
+    const dataTable = ensureAcaRecordsProgressRangeFilter(table);
+    if (!table || !dataTable) return;
+    const min = Number(form?.querySelector('[name="avance_min"]')?.value || 0);
+    const max = Number(form?.querySelector('[name="avance_max"]')?.value || 100);
+    if (min <= 0 && max >= 100) {
+        delete table._acaProgressRange;
+    } else {
+        table._acaProgressRange = { min: Math.min(min, max), max: Math.max(min, max) };
+    }
+    dataTable.draw();
+}
+
 function updateAcaProgressSummary(form) {
     const container = document.getElementById('aca-progress-container');
     if (!form || !container) return;
     syncAcaProgressNodeOptions(form);
+    syncAcaProgressRange(form);
+    applyAcaRecordsProgressRange(form);
     saveAcaProgressPrefsFromForm(form);
 
     const progressUrl = form.dataset.progressUrl;
@@ -259,11 +418,13 @@ function updateAcaProgressSummary(form) {
             const nextForm = container.querySelector('[data-aca-progress-form]');
             applyAcaProgressPanelState(nextForm);
             syncAcaProgressNodeOptions(nextForm || container);
+            syncAcaProgressRange(nextForm || container);
+            applyAcaRecordsProgressRange(nextForm || form);
 
             const pageUrl = new URL(window.location.href);
             pageUrl.searchParams.delete('progress_group_level');
             pageUrl.searchParams.delete('progress_chart_level');
-            ['progress_nivel', 'progress_nodo'].forEach(function (key) {
+            ['progress_nivel', 'progress_nodo', 'avance_min', 'avance_max'].forEach(function (key) {
                 const value = params.get(key);
                 if (value) pageUrl.searchParams.set(key, value);
                 else pageUrl.searchParams.delete(key);
@@ -276,19 +437,33 @@ function updateAcaProgressSummary(form) {
         });
 }
 
+document.addEventListener('input', function (event) {
+    const form = event.target.closest('[data-aca-progress-form]');
+    if (!form) return;
+
+    if (event.target.closest('[data-progress-range-filter]')) {
+        syncAcaProgressRange(form);
+        applyAcaRecordsProgressRange(form);
+    }
+});
+
 document.addEventListener('change', function (event) {
     const form = event.target.closest('[data-aca-progress-form]');
     if (!form) return;
     if (event.target.closest('[data-progress-nested-level]')) {
         syncAcaProgressNodeOptions(form);
     }
-    if (
-        event.target.matches('[name="progress_nivel"]') ||
-        event.target.matches('[name="progress_nodo"]') ||
-        event.target.matches('[data-progress-nested-level]')
-    ) {
-        updateAcaProgressSummary(form);
+    if (event.target.closest('[data-progress-range-filter]')) {
+        syncAcaProgressRange(form);
     }
+});
+
+document.addEventListener('submit', function (event) {
+    const form = event.target.closest('[data-aca-progress-form]');
+    if (!form) return;
+    syncAcaProgressNodeOptions(form);
+    syncAcaProgressRange(form);
+    saveAcaProgressPrefsFromForm(form);
 });
 
 document.addEventListener('click', function (event) {
@@ -304,9 +479,9 @@ document.addEventListener('click', function (event) {
 const initialAcaProgressForm = document.querySelector('[data-aca-progress-form]');
 applyAcaProgressPanelState(initialAcaProgressForm);
 syncAcaProgressNodeOptions(document);
-if (applySavedAcaProgressValues(initialAcaProgressForm)) {
-    updateAcaProgressSummary(initialAcaProgressForm);
-}
+syncAcaProgressRange(document);
+applyAcaRecordsProgressRange(initialAcaProgressForm);
+applySavedAcaProgressValues(initialAcaProgressForm);
 
 function placeAcaCommentToggleInDataTableToolbar() {
     const holder = document.querySelector('[data-aca-comment-toggle-holder]');
@@ -355,7 +530,7 @@ function setAcaGroupButtonState(templateId, expanded) {
         if (button.classList.contains('aca-group-toggle')) {
             icon.className = expanded ? 'bi bi-folder2-open' : 'bi bi-folder2';
         } else {
-            icon.className = expanded ? 'bi bi-eye-slash' : 'bi bi-eye';
+            icon.className = expanded ? 'bi bi-folder2-open' : 'bi bi-folder2';
         }
     });
 }
@@ -414,7 +589,7 @@ function acaColumnWidthRules(table, commentsVisible) {
         if (classes.some(function (className) {
             return className.indexOf('aca-col-dim_') === 0;
         })) {
-            width = commentsVisible ? 128 : 88;
+            width = commentsVisible ? 136 : 118;
         } else if (classes.includes('aca-col-fechas')) {
             width = 176;
         } else if (classes.includes('aca-col-avance_aca')) {
@@ -521,6 +696,17 @@ function restoreAcaOpenGroups(templateIds) {
     });
 }
 
+function syncAcaDataTableOnly(table) {
+    if (!table) return;
+    bindAcaScrollSync(table);
+    syncAcaColumnWidths(table, currentAcaCommentsVisible());
+    syncAcaDataTableHeader(table);
+    window.requestAnimationFrame(function () {
+        syncAcaColumnWidths(table, currentAcaCommentsVisible());
+        syncAcaDataTableHeader(table);
+    });
+}
+
 function adjustAcaDataTable(table, commentsVisible, options) {
     if (!window.jQuery || !jQuery.fn || !jQuery.fn.dataTable || !jQuery.fn.dataTable.isDataTable(table)) return;
     const opts = options || {};
@@ -587,6 +773,16 @@ function setAcaDimensionCommentsVisibility(visible, options) {
     });
 }
 
+document.addEventListener('mindco:datatable-column-filters-ready', function (event) {
+    const table = event.target;
+    if (!(table instanceof HTMLTableElement) || !table.matches('[data-aca-records-table]')) return;
+    adjustAcaDataTable(table, currentAcaCommentsVisible(), {
+        resetWidths: true,
+        draw: false,
+        preserveGroups: true,
+    });
+});
+
 const acaCommentToggle = document.querySelector('[data-aca-toggle-dimension-comments]');
 if (acaCommentToggle) {
     setAcaDimensionCommentsVisibility(acaCommentToggle.checked);
@@ -594,6 +790,8 @@ if (acaCommentToggle) {
         setAcaDimensionCommentsVisibility(acaCommentToggle.checked, { hideDuringAdjust: true });
     });
 }
+
+setupAcaDeleteModal();
 
 document.addEventListener('click', function (event) {
     const copyCell = event.target.closest('.copy-cell');
@@ -621,7 +819,7 @@ document.addEventListener('click', function (event) {
     }
     const table = button.closest('table') || document.querySelector('[data-aca-records-table]');
     if (table) {
-        adjustAcaDataTable(table, currentAcaCommentsVisible(), { resetWidths: false });
+        syncAcaDataTableOnly(table);
     }
 });
 

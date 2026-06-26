@@ -1,7 +1,7 @@
 import json
 import re
 from io import BytesIO
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -24,6 +24,9 @@ from rcm.services.progress import (
     get_fmeca_progress_dimensions,
     get_fmeca_queryset,
     get_hierarchy_filter_options,
+)
+from core.services.criticality_rules import (
+    sync_fmeca_criticality_rules,
 )
 from core.views import (
     _decimal_or_none,
@@ -49,7 +52,7 @@ def rcm_index(request):
     servicios = get_accessible_services(request.user)
     if servicios.count() == 1:
         return redirect('service_fmeca_list', pk=servicios.first().pk)
-    messages.info(request, 'Selecciona un servicio para ver su desarrollo RCM/FMECA.')
+    messages.info(request, 'Selecciona un servicio para ver su desarrollo FMECA.')
     return redirect('service_list')
 
 
@@ -93,13 +96,86 @@ def fmeca_panel(request):
         if not selected_service:
             raise PermissionDenied('No tienes acceso al servicio seleccionado.')
         fmeas = get_fmeca_queryset(selected_service)
-        selected_progress_nodo = request.GET.get('progress_nodo') or ''
-        selected_progress_nivel = request.GET.get('progress_nivel') or ''
+        hierarchy_filters = get_hierarchy_filter_options(selected_service)
+        available_node_ids = {
+            int(node['id']) for node in hierarchy_filters.get('nodes', []) if node.get('id')
+        }
+        selected_panel_node_ids = {
+            int(node_id)
+            for node_id in request.GET.getlist('panel_nodes')
+            if str(node_id).isdigit() and int(node_id) in available_node_ids
+        }
+        legacy_progress_nodo = request.GET.get('progress_nodo') or ''
+        if not selected_panel_node_ids and legacy_progress_nodo:
+            selected_panel_node_ids = {
+                int(value.strip())
+                for value in legacy_progress_nodo.replace(';', ',').split(',')
+                if value.strip().isdigit() and int(value.strip()) in available_node_ids
+            }
+        levels = hierarchy_filters.get('levels', [])
+        level_order = {int(level['id']): index for index, level in enumerate(levels)}
+        node_by_id = {
+            int(node['id']): node for node in hierarchy_filters.get('nodes', []) if node.get('id')
+        }
+        selected_nodes = [node_by_id[node_id] for node_id in selected_panel_node_ids if node_id in node_by_id]
+        deepest_level_id = None
+        if selected_nodes:
+            deepest_level_id = max(
+                selected_nodes,
+                key=lambda node: level_order.get(int(node.get('level_id') or 0), -1),
+            ).get('level_id')
+        deepest_node_ids = [
+            node['id'] for node in selected_nodes if str(node.get('level_id')) == str(deepest_level_id)
+        ]
+        selected_by_level = {}
+        for node in selected_nodes:
+            selected_by_level.setdefault(int(node.get('level_id') or 0), set()).add(int(node['id']))
+        panel_hierarchy_levels = []
+        allowed_parent_paths = None
+        for level in levels:
+            level_id = int(level['id'])
+            level_nodes = [
+                node for node in hierarchy_filters.get('nodes', [])
+                if str(node.get('level_id')) == str(level_id)
+            ]
+            if allowed_parent_paths:
+                level_nodes = [
+                    node for node in level_nodes
+                    if any(
+                        str(node.get('path') or '') == parent_path
+                        or str(node.get('path') or '').startswith(parent_path + '-')
+                        for parent_path in allowed_parent_paths
+                    )
+                ]
+            selected_in_level = selected_by_level.get(level_id, set())
+            panel_hierarchy_levels.append({
+                **level,
+                'nodes': level_nodes,
+                'selected_ids': selected_in_level,
+            })
+            if selected_in_level:
+                allowed_parent_paths = {
+                    str(node.get('path') or '')
+                    for node in level_nodes
+                    if int(node['id']) in selected_in_level and node.get('path')
+                }
+        selected_progress_nodo = ','.join(str(node_id) for node_id in deepest_node_ids)
+        selected_progress_nivel = str(deepest_level_id or '')
+        selected_avance_min, selected_avance_max = _progress_range_from_params(request.GET)
         if selected_progress_nodo:
             fmeas = filter_fmeca_by_hierarchy(fmeas, selected_progress_nodo)
         fmeas = list(fmeas)
         progress_summary = build_fmeca_service_progress_summary(selected_service, fmeas=fmeas)
         progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+        fmeas = _filter_fmeas_by_progress_range(
+            fmeas,
+            progress_by_fmea_id,
+            selected_avance_min,
+            selected_avance_max,
+        )
+        if selected_avance_min != 0 or selected_avance_max != 100:
+            progress_summary = build_fmeca_service_progress_summary(selected_service, fmeas=fmeas)
+            progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
         table_rows = []
         for fmea in fmeas:
             rcm = fmea.rcm
@@ -110,11 +186,14 @@ def fmeca_panel(request):
             table_rows.append({
                 'id': rcm.pk,
                 'ut': equipo.ut_display if equipo else '',
+                'descripcion_ut': equipo.descripcion_ut if equipo else '',
                 'equipo': equipo.nombre_equipo if equipo else '',
                 'tag': equipo.tag_display if equipo else '',
                 'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y %H:%M') if carga and carga.creado_en else '',
                 'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y %H:%M') if carga and carga.actualizado else '',
+                'date_order': timezone.localtime(carga.actualizado or carga.creado_en).strftime('%Y%m%d%H%M%S') if carga and (carga.actualizado or carga.creado_en) else '',
                 'modo_de_falla': rcm.modo_de_falla,
+                'progress_percent': progress_percent if progress_percent is not None else '',
                 'progress_label': progress.get('progress_label', 'N/A'),
                 'progress_order': float(progress_percent) if progress_percent is not None else -1,
                 'progress_width': _progress_width_css(progress_percent),
@@ -123,9 +202,13 @@ def fmeca_panel(request):
         context.update({
             'selected_service': selected_service,
             'progress_summary': progress_summary,
-            'hierarchy_filters': get_hierarchy_filter_options(selected_service),
+            'hierarchy_filters': hierarchy_filters,
+            'panel_hierarchy_levels': panel_hierarchy_levels,
             'selected_progress_nivel': selected_progress_nivel,
             'selected_progress_nodo': selected_progress_nodo,
+            'selected_progress_node_ids': [str(node_id) for node_id in selected_panel_node_ids],
+            'selected_avance_min': selected_avance_min,
+            'selected_avance_max': selected_avance_max,
             'table_rows': table_rows,
         })
     return render(request, 'core/rcm/fmeca_panel.html', context)
@@ -467,7 +550,7 @@ def _run_rcm_excel_upload(servicio, uploaded_file, sheet_name='', replace=False,
     if not servicio.estrategia_id:
         raise ValueError(f'El servicio {servicio.codigo_servicio} no tiene estrategia asociada.')
     uploaded_file.seek(0)
-    workbook = load_workbook(uploaded_file, data_only=True, read_only=True)
+    workbook = load_workbook(BytesIO(uploaded_file.read()), data_only=True, read_only=True)
     importer = RCMExcelImportCommand()
     resolved_sheet, ws, detected_header_row = _select_rcm_excel_sheet(importer, workbook, sheet_name)
     if not detected_header_row:
@@ -526,6 +609,7 @@ def _run_rcm_excel_upload(servicio, uploaded_file, sheet_name='', replace=False,
         f'Dimensión "{dimension_name}" no resuelta en {count} fila(s).'
         for dimension_name, count in stats.unresolved_dimensions.most_common()
     )
+    workbook.close()
     return {
         'sheet_name': resolved_sheet,
         'origin': origin,
@@ -585,6 +669,10 @@ def service_rcm_excel_upload(request, pk):
                 if preview_only:
                     messages.info(request, 'Previsualización RCM/FMECA lista. Puedes confirmar sin volver a seleccionar el archivo.')
                 else:
+                    try:
+                        form.cleaned_data['archivo'].close()
+                    except Exception:
+                        pass
                     clear_session_upload(request, upload_session_key)
                     messages.success(request, f'Carga RCM/FMECA completada: {report["rcm"]} registros creados.')
             except Exception as exc:
@@ -740,12 +828,27 @@ def service_rcm_list(request, pk):
     fmeas = get_fmeca_queryset(servicio)
     selected_progress_nivel = request.GET.get('progress_nivel') or ''
     selected_progress_nodo = request.GET.get('progress_nodo') or ''
+    selected_avance_min, selected_avance_max = _progress_range_from_params(request.GET)
+    selected_progress_node_ids = [
+        value.strip()
+        for value in selected_progress_nodo.replace(';', ',').split(',')
+        if value.strip().isdigit()
+    ]
     if selected_progress_nodo:
         fmeas = filter_fmeca_by_hierarchy(fmeas, selected_progress_nodo)
     fmeas = list(fmeas)
-    rows, rcm_count, fmea_count, fmeca_count = _service_rcm_rows(servicio, fmeas=fmeas)
     progress_summary = build_fmeca_service_progress_summary(servicio, fmeas=fmeas)
     progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+    fmeas = _filter_fmeas_by_progress_range(
+        fmeas,
+        progress_by_fmea_id,
+        selected_avance_min,
+        selected_avance_max,
+    )
+    if selected_avance_min != 0 or selected_avance_max != 100:
+        progress_summary = build_fmeca_service_progress_summary(servicio, fmeas=fmeas)
+        progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+    rows, rcm_count, fmea_count, fmeca_count = _service_rcm_rows(servicio, fmeas=fmeas)
     for row in rows:
         progress = progress_by_fmea_id.get(row.get('fmea').pk if row.get('fmea') else None, {})
         progress_percent = progress.get('progress_percent')
@@ -785,8 +888,44 @@ def service_rcm_list(request, pk):
         'hierarchy_filters': hierarchy_filters,
         'selected_progress_nivel': selected_progress_nivel,
         'selected_progress_nodo': selected_progress_nodo,
+        'selected_progress_node_ids': selected_progress_node_ids,
+        'selected_avance_min': selected_avance_min,
+        'selected_avance_max': selected_avance_max,
         'evaluation_columns': evaluation_columns,
     })
+
+
+def _progress_range_from_params(params):
+    def parse(value, fallback):
+        try:
+            number = int(str(value).strip())
+        except (TypeError, ValueError):
+            return fallback
+        return max(0, min(100, number))
+
+    min_value = parse(params.get('avance_min'), 0)
+    max_value = parse(params.get('avance_max'), 100)
+    if min_value > max_value:
+        min_value, max_value = max_value, min_value
+    return min_value, max_value
+
+
+def _filter_fmeas_by_progress_range(fmeas, progress_by_fmea_id, min_value, max_value):
+    if min_value <= 0 and max_value >= 100:
+        return list(fmeas)
+    filtered = []
+    for fmea in fmeas:
+        progress = progress_by_fmea_id.get(fmea.pk, {})
+        progress_percent = progress.get('progress_percent')
+        if progress_percent is None:
+            continue
+        try:
+            value = float(progress_percent)
+        except (TypeError, ValueError):
+            continue
+        if min_value <= value <= max_value:
+            filtered.append(fmea)
+    return filtered
 
 
 def _service_rcm_rows(servicio, fmeas=None):
@@ -795,6 +934,7 @@ def _service_rcm_rows(servicio, fmeas=None):
     rows = []
     for fmea in fmeas:
         registro = fmea.rcm
+        criticality_trace = _json_loads_safe(getattr(registro, 'trazabilidad_criticidad_json', ''), {})
         evaluations = []
         tasks = []
         if fmea:
@@ -807,14 +947,18 @@ def _service_rcm_rows(servicio, fmeas=None):
             tasks = list(
                 fmea.tareas_rcm.select_related(
                     'tipo_tarea_estrategia',
-                ).order_by('orden', 'id')
+                )
+                .prefetch_related('valores_campos')
+                .order_by('orden', 'id')
             )
+            tasks = [task for task in tasks if _task_has_meaningful_content(task)]
         rows.append({
             'registro': registro,
             'fmea': fmea,
             'evaluations': evaluations,
             'evaluations_by_ed': {evaluation.estrategia_dimension_id: evaluation for evaluation in evaluations},
             'tasks': tasks,
+            'criticality_trace': criticality_trace,
         })
 
     rcm_count = len(rows)
@@ -890,14 +1034,14 @@ def service_rcm_export(request, pk, formato):
     if formato == 'excel':
         return _export_xlsx_response(
             _export_filename('RCM', servicio, 'xlsx'),
-            'Desarrollo RCM/FMECA',
+            'Desarrollo FMECA',
             columns,
             rows,
         )
     if formato == 'pdf':
         return _export_pdf_response(
             _export_filename('RCM', servicio, 'pdf'),
-            f'Desarrollo RCM/FMECA - {servicio.codigo_servicio}',
+            f'Desarrollo FMECA - {servicio.codigo_servicio}',
             columns,
             rows,
         )
@@ -952,8 +1096,11 @@ def _rcm_task_initials(rcm):
     tasks = list(
         fmea.tareas_rcm.select_related(
             'tipo_tarea_estrategia',
-        ).order_by('orden', 'id')
+        )
+        .prefetch_related('valores_campos')
+        .order_by('orden', 'id')
     )
+    tasks = [task for task in tasks if _task_has_meaningful_content(task)]
     initials = []
     for task in tasks:
         dynamic_values = {
@@ -1001,12 +1148,11 @@ def _rcm_task_initials(rcm):
             'oportunidad_mejora': task.oportunidad_mejora,
             'estado': task.estado,
         })
-    initials.append({})
     return initials
 
 
 def _rcm_task_formset(request, servicio, rcm=None):
-    initial = _rcm_task_initials(rcm) if rcm else [{}]
+    initial = _rcm_task_initials(rcm) if rcm else []
     return RCMTaskFormSet(
         request.POST or None,
         prefix='tasks',
@@ -1053,6 +1199,26 @@ _TASK_DECIMAL_FIELDS = {
     'tarifa_servicios',
     'costo_total',
 }
+
+
+def _task_has_meaningful_content(task):
+    dynamic_values = list(task.valores_campos.all()) if hasattr(task, '_prefetched_objects_cache') else list(task.valores_campos.all())
+    for value in dynamic_values:
+        if value.valor_display not in (None, ''):
+            return True
+
+    type_name = (task.tipo_tarea_estrategia.nombre if task.tipo_tarea_estrategia_id else '') or ''
+    description = (task.descripcion or '').strip()
+    if description and description != type_name:
+        return True
+
+    for name in _TASK_TEXT_FIELDS - {'descripcion'}:
+        if str(getattr(task, name, '') or '').strip():
+            return True
+    for name in _TASK_DECIMAL_FIELDS:
+        if getattr(task, name, None) is not None:
+            return True
+    return False
 
 
 def _task_config_for_type(tipo_tarea):
@@ -1262,10 +1428,64 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
     models.EvaluacionFMEA.objects.filter(fmea=fmea).exclude(
         estrategia_dimension_id__in=saved_dimension_ids,
     ).delete()
+    sync_fmeca_criticality_rules(rcm, fmea, servicio)
     if task_formset is not None:
         _save_rcm_tasks(fmea, task_formset)
     _save_rcm_attachments(rcm, attachment_payload, permission.get('profile'))
     return rcm
+
+
+def _service_aca_criticality_payload(servicio):
+    def key_segment(value):
+        return (str(value or '').strip().split('-')[-1] or '').strip().upper()
+
+    items = []
+    records = (
+        models.Criticidad.objects.filter(
+            aca_carga__servicio=servicio,
+            equipo_id__isnull=False,
+        )
+        .select_related('equipo', 'aca_carga')
+        .order_by('equipo__tag_equipo', '-aca_carga__fecha_analisis', '-id')
+    )
+    for record in records:
+        numeric_value = record.valor_criticidad_equipo
+        if numeric_value is None:
+            continue
+        try:
+            fmeca_value = int(Decimal(numeric_value).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        except (TypeError, ValueError):
+            continue
+        equipo = record.equipo
+        fecha = record.aca_carga.fecha_analisis if record.aca_carga_id else None
+        label_parts = [
+            f'ACA #{record.pk}',
+            f'Valor {numeric_value}',
+        ]
+        if record.criticidad_final:
+            label_parts.append(record.criticidad_final)
+        if fecha:
+            label_parts.append(fecha.strftime('%d/%m/%Y'))
+        items.append({
+            'id': record.pk,
+            'equipo_id': record.equipo_id,
+            'tag': getattr(equipo, 'tag_equipo', '') if equipo else '',
+            'ut': getattr(equipo, 'ut', '') if equipo else '',
+            'ut_segment': key_segment(getattr(equipo, 'ut', '') if equipo else ''),
+            'value': fmeca_value,
+            'numeric_value': str(numeric_value),
+            'classification': record.criticidad_final or '',
+            'label': ' | '.join(label_parts),
+            'equipment_label': ' | '.join(
+                item for item in [
+                    getattr(equipo, 'ut_display', '') if equipo else '',
+                    getattr(equipo, 'tag_display', '') if equipo else '',
+                    getattr(equipo, 'nombre_equipo', '') if equipo else '',
+                ]
+                if item
+            ),
+        })
+    return items
 
 
 @login_required
@@ -1319,11 +1539,12 @@ def service_rcm_new(request, pk):
         'task_field_config_payload': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False) if servicio.estrategia_id else '[]',
         'editing_rcm': None,
         'rcm_date_meta': _rcm_date_meta(),
-        'form_title': 'Nuevo registro RCM/FMECA',
-        'submit_label': 'Guardar registro RCM/FMECA',
+        'form_title': 'Nuevo registro FMECA',
+        'submit_label': 'Guardar registro FMECA',
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
         'service_family_payload': _service_family_payload(servicio),
+        'service_aca_criticality_payload': _service_aca_criticality_payload(servicio),
         'existing_attachments': [],
     })
 
@@ -1380,6 +1601,7 @@ def service_rcm_edit(request, service_pk, rcm_pk):
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_equipment_endpoints': _service_equipment_endpoints(servicio),
         'service_family_payload': _service_family_payload(servicio),
+        'service_aca_criticality_payload': _service_aca_criticality_payload(servicio),
         'existing_attachments': rcm.adjuntos.all(),
     })
 

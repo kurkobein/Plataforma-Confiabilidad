@@ -3,157 +3,151 @@
 {% block title %}Matriz | {{ matriz.nombre }}{% endblock %}
 {% block content %}
 <div class="page-header">
-    <div>
-        <h2>{{ matriz.nombre }}</h2>
-        <p>{{ service.codigo_servicio }} · estrategia {{ service.estrategia|default:'—' }}</p>
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}" aria-label="Volver" title="Volver">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <div class="page-title-copy">
+            <h2>{{ matriz.nombre }}</h2>
+            <p>{{ service.codigo_servicio }} · estrategia {{ service.estrategia|default:'-' }}</p>
+        </div>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'service_detail' service.pk %}">Volver al servicio</a>
+        {% if mindco_viewer and homologation %}
+            <button class="btn" type="button" data-matrix-homologation-toggle>
+                <i class="bi bi-grid-3x3-gap"></i> Ver homologada Mindco
+            </button>
+        {% endif %}
         {% if request.user.is_superuser %}
-            <a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Editor visual</a>
+            <a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">
+                <i class="bi bi-pencil-square"></i> Editor visual
+            </a>
         {% endif %}
     </div>
 </div>
 
-<div class="grid-3">
-    <div class="stat">
-        <small>Matriz original</small>
-        <strong style="font-size:20px;">{{ original_stats.rows }}x{{ original_stats.cols }}</strong>
-        <div class="muted">Cliente ve este formato</div>
-    </div>
-    <div class="stat">
-        <small>Servicio</small>
-        <strong style="font-size:20px;">{{ service.codigo_servicio }}</strong>
-        <div class="muted">{{ service.empresa.sigla }} · {{ service.empresa.nombre }}</div>
-    </div>
-    <div class="stat">
-        <small>Vista activa</small>
-        <strong style="font-size:20px;">{% if mindco_viewer %}Mindco{% else %}Cliente{% endif %}</strong>
-        <div class="muted">{% if mindco_viewer %}Original + homologada 5x5{% else %}Solo original{% endif %}</div>
-    </div>
-</div>
+<div class="matrix-view-shell">
+    {% if mindco_viewer and homologation %}
+        <div class="matrix-homologation-popover" data-matrix-homologation-panel hidden>
+            <div class="matrix-homologation-head">
+                <div>
+                    <strong>Vista homologada Mindco 5x5</strong>
+                    <span>{{ homologation.source_shape }} a {{ homologation.target_shape }} · {% if homologation.is_exact %}exacta{% else %}proyectada{% endif %}</span>
+                </div>
+                <button class="btn" type="button" data-matrix-homologation-close aria-label="Cerrar">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="matriz-wrap matrix-view-wrap">
+                <table class="matrix-view-table no-datatable" data-datatable="false">
+                    <thead>
+                        <tr>
+                            <th>Consecuencia homologada</th>
+                            {% for col in homologation.preview.x_defs %}
+                                <th>
+                                    <strong>{{ col.nombre }}</strong>
+                                    <span>{{ col.descripcion }}</span>
+                                </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in homologation.preview.rows %}
+                            <tr>
+                                <th>
+                                    <strong>{{ row.header.nombre }}</strong>
+                                    <span>{{ row.header.descripcion }}</span>
+                                </th>
+                                {% for cell in row.cells %}
+                                    <td style="--cell-color: {{ cell.color|default:'#ffffff' }};">
+                                        <strong>{{ cell.resultado_num }}</strong>
+                                        <span>{{ cell.clasificacion|default:'-' }}</span>
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
 
-<div class="card">
-    <h3 class="card-title">Matriz original del cliente</h3>
-    <p class="muted">Esta es la matriz base configurada para el servicio. Siempre se conserva y los usuarios cliente la visualizan sin transformación.</p>
-    <div class="matriz-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>{% if original_preview.x_axis == 'impacto' %}Probabilidad{% else %}Consecuencia{% endif %}</th>
-                    {% for col in original_preview.x_defs %}
-                        <th>
-                            <div><strong>{{ col.nombre }}</strong></div>
-                            <div class="muted">{{ col.valor }}</div>
-                        </th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in original_preview.rows %}
+    <section class="matrix-view-main">
+        <div class="matrix-view-main-head">
+            <div>
+                <h3>Matriz del servicio</h3>
+                <p class="muted">Matriz principal definida para {{ service.codigo_servicio }}. Esta es la referencia usada por el servicio.</p>
+            </div>
+            <div class="matrix-view-meta">
+                <span>{{ original_stats.rows }}x{{ original_stats.cols }}</span>
+                <small>{{ service.empresa.sigla }} · {{ service.empresa.nombre }}</small>
+            </div>
+        </div>
+
+        <div class="matriz-wrap matrix-view-wrap matrix-view-primary">
+            <table class="matrix-view-table no-datatable" data-datatable="false">
+                <thead>
                     <tr>
-                        <th>
-                            <div><strong>{{ row.header.nombre }}</strong></div>
-                            <div class="muted">{{ row.header.valor }}</div>
-                        </th>
-                        {% for cell in row.cells %}
-                            <td style="background: {{ cell.color|default:'#ffffff' }}; min-width:90px;">
-                                <div><strong>{{ cell.resultado_num }}</strong></div>
-                                <div>{{ cell.clasificacion|default:'—' }}</div>
-                            </td>
+                        <th>{% if original_preview.x_axis == 'probabilidad' %}Consecuencia \ Probabilidad{% else %}Probabilidad \ Consecuencia{% endif %}</th>
+                        {% for col in original_preview.x_defs %}
+                            <th>
+                                <strong>{{ col.nombre }}</strong>
+                                <span>{{ col.valor }}</span>
+                            </th>
                         {% endfor %}
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+                </thead>
+                <tbody>
+                    {% for row in original_preview.rows %}
+                        <tr>
+                            <th>
+                                <strong>{{ row.header.nombre }}</strong>
+                                <span>{{ row.header.valor }}</span>
+                            </th>
+                            {% for cell in row.cells %}
+                                <td style="--cell-color: {{ cell.color|default:'#ffffff' }};">
+                                    <strong>{{ cell.resultado_num }}</strong>
+                                    <span>{{ cell.clasificacion|default:'-' }}</span>
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 </div>
 
 {% if mindco_viewer and homologation %}
-<div class="card">
-    <h3 class="card-title">Vista homologada Mindco 5x5</h3>
-    <p class="muted">Mindco puede revisar la misma matriz proyectada a una base canónica 5x5 para comparar servicios con tamaños distintos. La matriz original del cliente se mantiene intacta y sigue disponible arriba.</p>
-    <div class="grid-3" style="margin-bottom:12px;">
-        <div class="stat"><small>Origen</small><strong>{{ homologation.source_shape }}</strong></div>
-        <div class="stat"><small>Destino canónico</small><strong>{{ homologation.target_shape }}</strong></div>
-        <div class="stat"><small>Tipo de homologación</small><strong>{% if homologation.is_exact %}Exacta{% else %}Proyectada{% endif %}</strong></div>
-    </div>
-    <div class="matriz-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Probabilidad homologada</th>
-                    {% for col in homologation.preview.x_defs %}
-                        <th>
-                            <div><strong>{{ col.nombre }}</strong></div>
-                            <div class="muted">{{ col.descripcion }}</div>
-                        </th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in homologation.preview.rows %}
-                    <tr>
-                        <th>
-                            <div><strong>{{ row.header.nombre }}</strong></div>
-                            <div class="muted">{{ row.header.descripcion }}</div>
-                        </th>
-                        {% for cell in row.cells %}
-                            <td style="background: {{ cell.color|default:'#ffffff' }}; min-width:90px;">
-                                <div><strong>{{ cell.resultado_num }}</strong></div>
-                                <div>{{ cell.clasificacion|default:'—' }}</div>
-                            </td>
-                        {% endfor %}
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const toggle = document.querySelector('[data-matrix-homologation-toggle]');
+    const panel = document.querySelector('[data-matrix-homologation-panel]');
+    const close = document.querySelector('[data-matrix-homologation-close]');
+    if (!toggle || !panel) return;
 
-<div class="grid-2">
-    <div class="card">
-        <h3 class="card-title">Homologación de probabilidad</h3>
-        <p class="muted">{{ homologation.prob_method }}</p>
-        <div class="table-wrap">
-            <table>
-                <thead><tr><th>Original</th><th>Valor</th><th>5x5</th><th>Base</th></tr></thead>
-                <tbody>
-                    {% for row in homologation.prob_mapping %}
-                    <tr>
-                        <td>{{ row.nombre }}</td>
-                        <td>{{ row.valor|default:'—' }}</td>
-                        <td>P{{ row.canonical_slot }}</td>
-                        <td>{{ row.source }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <div class="card">
-        <h3 class="card-title">Homologación de consecuencia</h3>
-        <p class="muted">{{ homologation.impact_method }}</p>
-        <div class="table-wrap">
-            <table>
-                <thead><tr><th>Original</th><th>Valor</th><th>5x5</th><th>Base</th></tr></thead>
-                <tbody>
-                    {% for row in homologation.impact_mapping %}
-                    <tr>
-                        <td>{{ row.nombre }}</td>
-                        <td>{{ row.valor|default:'—' }}</td>
-                        <td>I{{ row.canonical_slot }}</td>
-                        <td>{{ row.source }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-{% else %}
-<div class="card muted">
-    Esta cuenta visualiza la matriz original del cliente. La vista homologada 5x5 está habilitada solo para usuarios Mindco o administradores.
-</div>
+    function closePanel() {
+        panel.hidden = true;
+        toggle.classList.remove('is-active');
+    }
+
+    toggle.addEventListener('click', function (event) {
+        event.stopPropagation();
+        panel.hidden = !panel.hidden;
+        toggle.classList.toggle('is-active', !panel.hidden);
+    });
+    close?.addEventListener('click', function (event) {
+        event.stopPropagation();
+        closePanel();
+    });
+    panel.addEventListener('click', function (event) {
+        event.stopPropagation();
+    });
+    document.addEventListener('click', closePanel);
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closePanel();
+    });
+});
+</script>
 {% endif %}
 {% endblock %}

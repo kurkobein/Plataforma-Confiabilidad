@@ -56,11 +56,11 @@
                     {% with tarea=row.tarea %}
                     <tr>
                         <td>{{ tarea.orden }}</td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ tarea.componente|default:'-' }}" data-copy="{{ tarea.componente|default:'-' }}">{{ tarea.componente|default:'-' }}</span></td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ tarea.actividad }}" data-copy="{{ tarea.actividad }}">{{ tarea.actividad }}</span></td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ tarea.limite_aceptable|default:'-' }}" data-copy="{{ tarea.limite_aceptable|default:'-' }}">{{ tarea.limite_aceptable|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ tarea.componente|default:'-' }}" data-copy="{{ tarea.componente|default:'-' }}">{{ tarea.componente|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ tarea.actividad }}" data-copy="{{ tarea.actividad }}">{{ tarea.actividad }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ tarea.limite_aceptable|default:'-' }}" data-copy="{{ tarea.limite_aceptable|default:'-' }}">{{ tarea.limite_aceptable|default:'-' }}</span></td>
                         <td>{{ tarea.frecuencia|default:'-' }}</td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ tarea.pto_trabajo|default:'-' }}" data-copy="{{ tarea.pto_trabajo|default:'-' }}">{{ tarea.pto_trabajo|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ tarea.pto_trabajo|default:'-' }}" data-copy="{{ tarea.pto_trabajo|default:'-' }}">{{ tarea.pto_trabajo|default:'-' }}</span></td>
                         <td>{{ tarea.duracion_horas|default:'-' }}</td>
                         <td>{{ tarea.hh|default:'-' }}</td>
                     </tr>

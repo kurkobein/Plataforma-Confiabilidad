@@ -1,13 +1,14 @@
 ﻿import json
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.db.models import Count, Prefetch
-from django.http import Http404
+from django.db.models import Count, Prefetch, Q
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.dateparse import parse_date, parse_datetime
@@ -26,6 +27,7 @@ from aca.services.progress import (
     get_hierarchy_filter_options,
     group_progress_by_hierarchy_level,
 )
+from core.services.criticality_rules import apply_criticality_rules, dimension_source_values, matrix_rule_config
 from core.views import (
     _calc_slug,
     clear_session_upload,
@@ -181,7 +183,7 @@ def _service_matrix_selector(servicio):
             'matriz': None,
             'rows': [],
             'columns': [],
-            'axis': 'impacto',
+            'axis': 'probabilidad',
             'prob_dimension_id': '',
             'impact_dimension_id': '',
             'prob_estrategia_dimension_id': '',
@@ -191,6 +193,7 @@ def _service_matrix_selector(servicio):
             'impact_axis_generated': False,
             'prob_axis_label': 'Probabilidad',
             'impact_axis_label': 'Consecuencia',
+            'criticality_rules': [],
         }
 
     prob_levels = list(
@@ -208,14 +211,14 @@ def _service_matrix_selector(servicio):
     }
 
     rows = []
-    for prob in prob_levels:
+    for impact in impact_levels:
         row = {
-            'id': prob.id,
-            'label': prob.nombre,
-            'value': prob.valor,
+            'id': impact.id,
+            'label': impact.nombre,
+            'value': impact.valor,
             'cells': [],
         }
-        for impact in impact_levels:
+        for prob in prob_levels:
             cell = cells.get((prob.id, impact.id))
             row['cells'].append({
                 'id': cell.id if cell else '',
@@ -232,15 +235,15 @@ def _service_matrix_selector(servicio):
         rows.append(row)
 
     columns = [
-        {'id': impact.id, 'label': impact.nombre, 'value': impact.valor}
-        for impact in impact_levels
+        {'id': prob.id, 'label': prob.nombre, 'value': prob.valor}
+        for prob in prob_levels
     ]
 
     return {
         'matriz': matriz,
         'rows': rows,
         'columns': columns,
-        'axis': matriz.eje_horizontal,
+        'axis': 'probabilidad',
         'prob_dimension_id': matriz.dimension_probabilidad.dimension_id if matriz.dimension_probabilidad_id else '',
         'impact_dimension_id': matriz.dimension_impacto.dimension_id if matriz.dimension_impacto_id else '',
         'prob_estrategia_dimension_id': matriz.dimension_probabilidad_id or '',
@@ -250,6 +253,7 @@ def _service_matrix_selector(servicio):
         'impact_axis_generated': _is_generated_matrix_axis_dimension(matriz.dimension_impacto, 'impacto') if matriz.dimension_impacto_id else False,
         'prob_axis_label': matriz.dimension_probabilidad.dimension.nombre if matriz.dimension_probabilidad_id else 'Probabilidad',
         'impact_axis_label': matriz.dimension_impacto.dimension.nombre if matriz.dimension_impacto_id else 'Consecuencia',
+        'criticality_rules': matrix_rule_config(matriz),
     }
 
 def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
@@ -567,15 +571,70 @@ def get_aca_bulk_dimensions(estrategia, excluded_dimension_ids=None):
     )
     if excluded_dimension_ids:
         dims_qs = dims_qs.exclude(dimension_id__in=excluded_dimension_ids)
-    dims = list(dims_qs)
-    dims.sort(key=lambda dim: (
-        2 if _dimension_dependency_key(dim.dimension)
-        else 1 if (getattr(dim.dimension, 'tipo_calculo', '') or '').strip()
-        else 0,
-        dim.orden,
-        dim.id,
-    ))
-    return dims
+    return list(dims_qs)
+
+
+@login_required
+@transaction.atomic
+def service_aca_bulk_dimension_order(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Metodo no permitido.'}, status=405)
+    if not servicio.estrategia_id:
+        return JsonResponse({'ok': False, 'error': 'El servicio no tiene estrategia.'}, status=400)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'No se pudo leer el orden.'}, status=400)
+
+    raw_ids = payload.get('dimension_ids') if isinstance(payload, dict) else None
+    if not isinstance(raw_ids, list):
+        return JsonResponse({'ok': False, 'error': 'Orden de dimensiones invalido.'}, status=400)
+
+    dimension_ids = []
+    for raw_id in raw_ids:
+        try:
+            dimension_id = int(raw_id)
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'La lista contiene una dimension invalida.'}, status=400)
+        if dimension_id not in dimension_ids:
+            dimension_ids.append(dimension_id)
+
+    strategy_dimensions = list(
+        models.EstrategiaDimension.objects
+        .filter(estrategia_id=servicio.estrategia_id, activo=True)
+        .order_by('orden', 'id')
+    )
+    allowed_ids = {
+        item.pk
+        for item in strategy_dimensions
+        if item.proceso_uso in (
+            models.EstrategiaDimension.PROCESO_ACA,
+            models.EstrategiaDimension.PROCESO_AMBOS,
+        )
+    }
+    if len(dimension_ids) < 2 or any(item_id not in allowed_ids for item_id in dimension_ids):
+        return JsonResponse({'ok': False, 'error': 'El orden no corresponde a las dimensiones ACA del servicio.'}, status=400)
+
+    movable_ids = set(dimension_ids)
+    current_movable_ids = [item.pk for item in strategy_dimensions if item.pk in movable_ids]
+    if set(current_movable_ids) != movable_ids:
+        return JsonResponse({'ok': False, 'error': 'No se encontraron todas las dimensiones indicadas.'}, status=400)
+
+    reordered_ids = iter(dimension_ids)
+    final_ids = [next(reordered_ids) if item.pk in movable_ids else item.pk for item in strategy_dimensions]
+    by_id = {item.pk: item for item in strategy_dimensions}
+    changed = []
+    for order, item_id in enumerate(final_ids, start=1):
+        item = by_id[item_id]
+        if item.orden != order:
+            item.orden = order
+            changed.append(item)
+    if changed:
+        models.EstrategiaDimension.objects.bulk_update(changed, ['orden'])
+
+    return JsonResponse({'ok': True, 'dimension_ids': dimension_ids})
 
 
 def _bulk_json_safe(value):
@@ -752,13 +811,43 @@ def _calculation_steps(tipo_calculo, config_calculo):
             operacion = str(raw_step.get('operacion') or raw_step.get('tipo_calculo') or raw_step.get('operation') or '').strip().lower()
             operandos = raw_step.get('operandos') or raw_step.get('campos') or raw_step.get('sources') or []
             if operacion and isinstance(operandos, list):
-                steps.append({'operacion': operacion, 'operandos': operandos})
+                steps.append({
+                    'operacion': operacion,
+                    'operandos': operandos,
+                    'modo': raw_step.get('modo') or ('ponderado' if raw_step.get('ponderado') is True else ''),
+                })
         return steps
 
     operandos = config_calculo.get('operandos') or config_calculo.get('campos') or config_calculo.get('sources') or []
     if not isinstance(operandos, list):
         operandos = []
     return [{'operacion': tipo, 'operandos': operandos}]
+
+def _calculation_operand_weight(operand):
+    if not isinstance(operand, dict):
+        return None
+    return _decimal_or_none(operand.get('peso', operand.get('ponderador', operand.get('weight'))))
+
+def _weighted_calculation_values(operands, resolved_values):
+    if not operands or len(operands) != len(resolved_values):
+        return None
+    weights = [_calculation_operand_weight(operand) for operand in operands]
+    if all(weight is None for weight in weights):
+        equal_weight = Decimal('1') / Decimal(len(weights))
+        weights = [equal_weight] * len(weights)
+    elif any(weight is None for weight in weights):
+        assigned = sum((weight for weight in weights if weight is not None), Decimal('0'))
+        missing_count = sum(1 for weight in weights if weight is None)
+        remaining = Decimal('1') - assigned
+        if remaining < 0:
+            return None
+        missing_weight = remaining / Decimal(missing_count)
+        weights = [missing_weight if weight is None else weight for weight in weights]
+    if any(weight < 0 or weight > 1 for weight in weights):
+        return None
+    if abs(sum(weights, Decimal('0')) - Decimal('1')) > Decimal('0.0001'):
+        return None
+    return [value * weight for value, weight in zip(resolved_values, weights)]
 
 def _evaluate_dimension_calculation(tipo_calculo, config_calculo, source_values):
     steps = _calculation_steps(tipo_calculo, config_calculo)
@@ -772,6 +861,11 @@ def _evaluate_dimension_calculation(tipo_calculo, config_calculo, source_values)
             value = _calculation_operand_value(operand, source_values, result)
             if value is not None:
                 values.append(value)
+
+        if step.get('modo') == 'ponderado' and step['operacion'] == 'suma':
+            values = _weighted_calculation_values(step['operandos'], values)
+            if values is None:
+                return None
 
         result = _calculation_operation_result(step['operacion'], values)
         if result is None:
@@ -1098,9 +1192,10 @@ def _dimension_record_ids(record):
             getattr(estrategia_dimension, 'id', None),
             getattr(dimension, 'id', None),
         )
+    estrategia_dimension = getattr(record, 'estrategia_dimension', None)
     return (
         getattr(record, 'estrategia_dimension_id', None),
-        getattr(record, 'dimension_id', None),
+        getattr(record, 'dimension_id', None) or getattr(estrategia_dimension, 'dimension_id', None),
     )
 
 def _matrix_axis_dimension_refs(matriz):
@@ -1116,6 +1211,24 @@ def _matrix_axis_dimension_refs(matriz):
         'impact_ed_id': getattr(matriz, 'dimension_impacto_id', None),
         'impact_dim_id': impact_dim_id,
     }
+
+
+def _add_matrix_axis_source_values(source_values, matriz, prob_val=None, impact_val=None, result_value=None):
+    source_values.update({
+        'probabilidad': prob_val,
+        'frecuencia': prob_val,
+        'consecuencia': impact_val,
+        'consecuencia_total': impact_val,
+        'resultado_matriz': result_value,
+    })
+    if getattr(matriz, 'dimension_probabilidad_id', None):
+        source_values[f'ed:{matriz.dimension_probabilidad_id}'] = prob_val
+        source_values[f'estrategia_dimension:{matriz.dimension_probabilidad_id}'] = prob_val
+    if getattr(matriz, 'dimension_impacto_id', None):
+        source_values[f'ed:{matriz.dimension_impacto_id}'] = impact_val
+        source_values[f'estrategia_dimension:{matriz.dimension_impacto_id}'] = impact_val
+    return source_values
+
 
 def _matrix_axis_values_from_records(matriz, records):
     refs = _matrix_axis_dimension_refs(matriz)
@@ -1258,16 +1371,43 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
     valor_criticidad_equipo = None
     indicador = evaluacion.indicador_criticidad or ''
     criticidad_final = evaluacion.criticidad_final or ''
+    celda = None
 
     # 1) Priorizar las dimensiones especí­ficas que usa la matriz
     if matriz:
         prob_val, impact_val = _matrix_axis_values_from_records(matriz, dims)
         if prob_val is None or impact_val is None:
+            incomplete_sources = dimension_source_values(dims)
+            _add_matrix_axis_source_values(incomplete_sources, matriz, prob_val, impact_val, None)
+            ruled = apply_criticality_rules(
+                matriz,
+                base_cell=None,
+                base_value=None,
+                base_classification='',
+                source_values=incomplete_sources,
+            )
+            if ruled['trace'].get('reglas_aplicadas') and ruled['classification']:
+                evaluacion.frecuencia_normalizada = prob_val
+                evaluacion.valor_cons_total = impact_val
+                evaluacion.valor_criticidad_equipo = ruled['value']
+                evaluacion.indicador_criticidad = f"[ Regla: {ruled['trace'].get('regla_aplicada') or '-'} ]"[:100]
+                evaluacion.criticidad_final = ruled['classification']
+                evaluacion.trazabilidad_criticidad_json = json.dumps(ruled['trace'], ensure_ascii=False)
+                evaluacion.save(update_fields=[
+                    'frecuencia_normalizada',
+                    'valor_cons_total',
+                    'valor_criticidad_equipo',
+                    'indicador_criticidad',
+                    'criticidad_final',
+                    'trazabilidad_criticidad_json',
+                ])
+                return
             evaluacion.frecuencia_normalizada = None
             evaluacion.valor_cons_total = None
             evaluacion.valor_criticidad_equipo = None
             evaluacion.indicador_criticidad = ''
             evaluacion.criticidad_final = ''
+            evaluacion.trazabilidad_criticidad_json = ''
             evaluacion.save(
                 update_fields=[
                     'frecuencia_normalizada',
@@ -1275,6 +1415,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
                     'valor_criticidad_equipo',
                     'indicador_criticidad',
                     'criticidad_final',
+                    'trazabilidad_criticidad_json',
                 ]
             )
             return
@@ -1318,11 +1459,27 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
         except Exception:
             valor_criticidad_equipo = evaluacion.valor_criticidad_equipo
 
+    trace = {}
+    if matriz and valor_criticidad_equipo is not None:
+        source_values = dimension_source_values(dims)
+        _add_matrix_axis_source_values(source_values, matriz, prob_val, valor_cons_total, valor_criticidad_equipo)
+        ruled = apply_criticality_rules(
+            matriz,
+            base_cell=celda,
+            base_value=valor_criticidad_equipo,
+            base_classification=criticidad_final,
+            source_values=source_values,
+        )
+        valor_criticidad_equipo = ruled['value']
+        criticidad_final = ruled['classification']
+        trace = ruled['trace']
+
     evaluacion.frecuencia_normalizada = prob_val
     evaluacion.valor_cons_total = valor_cons_total
     evaluacion.valor_criticidad_equipo = valor_criticidad_equipo
     evaluacion.indicador_criticidad = indicador
     evaluacion.criticidad_final = criticidad_final
+    evaluacion.trazabilidad_criticidad_json = json.dumps(trace, ensure_ascii=False) if trace else ''
     evaluacion.save(
         update_fields=[
             'frecuencia_normalizada',
@@ -1330,6 +1487,7 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
             'valor_criticidad_equipo',
             'indicador_criticidad',
             'criticidad_final',
+            'trazabilidad_criticidad_json',
         ]
     )
 
@@ -1338,6 +1496,12 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
 def _aca_progress_context(servicio, params):
     selected_progress_nivel = (params.get('progress_nivel') or '').strip()
     selected_progress_nodo = (params.get('progress_nodo') or '').strip()
+    selected_avance_min, selected_avance_max = _progress_range_from_params(params)
+    selected_progress_node_ids = [
+        value.strip()
+        for value in selected_progress_nodo.replace(';', ',').split(',')
+        if value.strip().isdigit()
+    ]
     selected_progress_chart_level = (
         params.get('progress_chart_level')
         or params.get('progress_group_level')
@@ -1362,6 +1526,14 @@ def _aca_progress_context(servicio, params):
     criticidades = list(criticidades_queryset)
     progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
     progress_by_criticidad_id = progress_summary.get('progress_by_criticidad_id', {})
+    criticidades = _filter_criticidades_by_progress_range(
+        criticidades,
+        progress_by_criticidad_id,
+        selected_avance_min,
+        selected_avance_max,
+    )
+    if selected_avance_min != 0 or selected_avance_max != 100:
+        progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
     progress_dimensions = get_aca_progress_dimensions(servicio.estrategia)
     hierarchy_chart_summary = group_progress_by_hierarchy_level(
         criticidades,
@@ -1376,8 +1548,40 @@ def _aca_progress_context(servicio, params):
         'hierarchy_chart_summary': hierarchy_chart_summary,
         'selected_progress_nivel': selected_progress_nivel,
         'selected_progress_nodo': selected_progress_nodo,
+        'selected_progress_node_ids': selected_progress_node_ids,
         'selected_progress_chart_level': selected_progress_chart_level,
+        'selected_avance_min': selected_avance_min,
+        'selected_avance_max': selected_avance_max,
     }
+
+
+def _progress_range_from_params(params):
+    def parse(value, fallback):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return fallback
+        return max(0, min(100, number))
+
+    min_value = parse(params.get('avance_min'), 0)
+    max_value = parse(params.get('avance_max'), 100)
+    if min_value > max_value:
+        min_value, max_value = max_value, min_value
+    return min_value, max_value
+
+
+def _filter_criticidades_by_progress_range(criticidades, progress_by_criticidad_id, min_value, max_value):
+    if min_value <= 0 and max_value >= 100:
+        return criticidades
+    filtered = []
+    for criticidad in criticidades:
+        progress = progress_by_criticidad_id.get(criticidad.pk, {})
+        progress_percent = progress.get('progress_percent')
+        if progress_percent is None:
+            continue
+        if Decimal(min_value) <= progress_percent <= Decimal(max_value):
+            filtered.append(criticidad)
+    return filtered
 
 
 def _aca_excel_sample_rows(importer, service, rows, limit=10):
@@ -1553,7 +1757,8 @@ def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_eq
     from aca.management.commands.import_aca_excel import Command as ACAImportCommand
 
     importer = ACAImportCommand()
-    workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
+    uploaded_file.seek(0)
+    workbook = load_workbook(BytesIO(uploaded_file.read()), read_only=True, data_only=True)
     resolved_sheet = (sheet_name or '').strip()
     if not resolved_sheet:
         resolved_sheet = 'ACA' if 'ACA' in workbook.sheetnames else workbook.sheetnames[0]
@@ -1586,6 +1791,7 @@ def _run_aca_excel_upload(servicio, uploaded_file, sheet_name, create_missing_eq
         if preview:
             transaction.set_rollback(True)
 
+    workbook.close()
     return {
         'sheet_name': resolved_sheet,
         'origin': origin,
@@ -1638,6 +1844,10 @@ def service_aca_excel_upload(request, pk):
                 if preview_only:
                     messages.info(request, 'Previsualizacion lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
                 else:
+                    try:
+                        form.cleaned_data['archivo'].close()
+                    except Exception:
+                        pass
                     clear_session_upload(request, upload_session_key)
                     messages.success(request, f'Carga ACA completada: {report["aca"]} registros creados.')
             except Exception as exc:
@@ -1660,6 +1870,81 @@ def service_aca_excel_upload(request, pk):
         'preview_only': preview_only,
         'stored_upload': stored_upload,
     })
+
+
+@login_required
+def service_aca_excel_template(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=False)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    matrix_selector = _service_matrix_selector(servicio)
+    matriz = matrix_selector.get('matriz')
+    excluded_dimension_ids = _aca_excluded_dimension_ids(servicio.estrategia, matriz) if servicio.estrategia_id else set()
+    dimensions = get_aca_bulk_dimensions(servicio.estrategia, excluded_dimension_ids)
+    dimension_headers = []
+    seen_headers = {'tag', 'ut', 'equipo / componente'}
+    for estrategia_dimension in dimensions:
+        name = (estrategia_dimension.dimension.nombre or '').strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen_headers:
+            continue
+        seen_headers.add(key)
+        dimension_headers.append(name)
+
+    headers = [
+        'TAG',
+        'UT',
+        'Equipo / Componente',
+        *dimension_headers,
+        'Criticidad final',
+    ]
+    rows = [
+        [
+            'A001',
+            'MIN-CH-MOL-PULP-BOM-A001',
+            'Bomba de pulpa 1',
+            *(['1'] * len(dimension_headers)),
+            '',
+        ],
+        [
+            'A002',
+            'MIN-CH-MOL-PULP-BOM-A002',
+            'Bomba de pulpa 2',
+            *(['2'] * len(dimension_headers)),
+            '',
+        ],
+    ]
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = 'ACA'
+    worksheet.append(headers)
+    for row in rows:
+        worksheet.append(row)
+
+    header_fill = PatternFill('solid', fgColor='EAF1FF')
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+    worksheet.freeze_panes = 'A2'
+    for col_idx, column_cells in enumerate(worksheet.columns, start=1):
+        max_length = max(len(str(cell.value or '')) for cell in column_cells)
+        worksheet.column_dimensions[get_column_letter(col_idx)].width = min(max(max_length + 2, 14), 36)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    filename = f'plantilla_aca_{servicio.codigo_servicio}.xlsx'
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required
@@ -1741,6 +2026,7 @@ def _record_node_at_level(record, level_id, node_by_id):
 
 def _aca_panel_progress_context(servicio, params):
     hierarchy_filters = get_hierarchy_filter_options(servicio)
+    selected_avance_min, selected_avance_max = _progress_range_from_params(params)
     available_node_ids = {int(node['id']) for node in hierarchy_filters.get('nodes', []) if node.get('id')}
     selected_node_ids = {
         int(node_id)
@@ -1781,6 +2067,13 @@ def _aca_panel_progress_context(servicio, params):
     if filter_node_ids:
         criticidades_queryset = criticidades_queryset.filter(equipo__nodo_id__in=filter_node_ids)
     criticidades = list(criticidades_queryset)
+    initial_progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
+    criticidades = _filter_criticidades_by_progress_range(
+        criticidades,
+        initial_progress_summary.get('progress_by_criticidad_id', {}),
+        selected_avance_min,
+        selected_avance_max,
+    )
 
     all_company_nodes = list(
         models.NodoJerarquia.objects.filter(empresa=servicio.empresa, activo=True)
@@ -1803,6 +2096,10 @@ def _aca_panel_progress_context(servicio, params):
                 if any(path_node.pk in allowed_parent_ids for path_node in _node_path_for_panel(node, all_node_by_id))
             ]
         level_nodes.sort(key=lambda node: (node.codigo or '', node.nombre or ''))
+        for node in level_nodes:
+            code = '-'.join(path_node.codigo for path_node in _node_path_for_panel(node, all_node_by_id) if path_node.codigo)
+            name = node.nombre or node.codigo or 'Sin nombre'
+            node.panel_label = f'{name} - {code}' if code else name
         selected_in_level = selected_by_level.get(level_id, set())
         panel_levels.append({
             'id': level_id,
@@ -1842,8 +2139,9 @@ def _aca_panel_progress_context(servicio, params):
             'level_value': (level_node.nombre or level_node.codigo) if level_node else '-',
             'ut': record.equipo.ut_display if record.equipo else '',
             'descripcion_ut': record.equipo.descripcion_ut if record.equipo else '',
-            'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y') if carga and carga.creado_en else '',
-            'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y') if carga and carga.actualizado else '',
+            'created': timezone.localtime(carga.creado_en).strftime('%d/%m/%Y %H:%M') if carga and carga.creado_en else '',
+            'updated': timezone.localtime(carga.actualizado).strftime('%d/%m/%Y %H:%M') if carga and carga.actualizado else '',
+            'date_order': timezone.localtime(carga.actualizado or carga.creado_en).strftime('%Y%m%d%H%M%S') if carga and (carga.actualizado or carga.creado_en) else '',
             'tag': record.equipo.tag_display if record.equipo else '',
             'progress_percent': progress_percent if progress_percent is not None else '',
             'progress_label': progress.get('progress_label', 'N/A'),
@@ -1865,7 +2163,9 @@ def _aca_panel_progress_context(servicio, params):
         'panel_detail_rows': panel_detail_rows,
         'panel_table_level_name': table_level_name,
         'panel_total_filtered': len(criticidades),
-        'panel_is_filtered': bool(selected_node_ids),
+        'panel_is_filtered': bool(selected_node_ids) or selected_avance_min != 0 or selected_avance_max != 100,
+        'panel_avance_min': selected_avance_min,
+        'panel_avance_max': selected_avance_max,
     }
 
 
@@ -1926,20 +2226,19 @@ def _aca_group_key_and_label(crit):
     creado = getattr(carga, 'creado_en', None)
     created_local = timezone.localtime(creado) if creado else None
     stamp = created_local.strftime('%d/%m/%Y %H:%M') if created_local else ''
-    stamp_key = created_local.strftime('%Y%m%d%H%M%S') if created_local else str(getattr(carga, 'pk', '') or '')
+    stamp_key = created_local.strftime('%Y%m%d%H%M%S%f') if created_local else str(getattr(carga, 'pk', '') or '')
     if origen.startswith('Manual familia:'):
-        familia = origen.replace('Manual familia:', '', 1).strip() or 'Familia'
         return (
-            f'familia:{familia}:{stamp_key}',
-            f'Familia de activos - {familia}',
+            f'grupo:{stamp_key}',
+            'Carga grupal ACA',
             stamp,
             'grupo',
             getattr(carga, 'pk', None),
         )
     if origen == 'Manual masivo':
         return (
-            f'masivo:{stamp_key}',
-            'Carga masiva ACA',
+            f'grupo:{stamp_key}',
+            'Carga grupal ACA',
             stamp,
             'grupo',
             getattr(carga, 'pk', None),
@@ -1965,13 +2264,29 @@ def _service_aca_row_groups(rows):
                 'meta': row.get('_group_meta') or '',
                 'kind': row.get('_group_kind') or 'individual',
                 'anchor': row.get('_group_anchor'),
+                'is_draft': False,
                 'rows': [],
             }
             group_map[key] = group
             groups.append(group)
+        if row.get('carga_status') == models.Carga.STATUS_INCOMPLETO:
+            group_map[key]['is_draft'] = True
         group_map[key]['rows'].append(row)
     for group in groups:
         group['count'] = len(group['rows'])
+        progress_values = []
+        for row in group['rows']:
+            try:
+                value = row.get('avance_aca_order')
+                if value is not None and value >= 0:
+                    progress_values.append(Decimal(str(value)))
+            except Exception:
+                continue
+        average_progress = (sum(progress_values) / Decimal(len(progress_values))) if progress_values else None
+        group['avance_aca'] = f"{_progress_width_css(average_progress)}%" if average_progress is not None else 'N/A'
+        group['avance_aca_order'] = average_progress if average_progress is not None else -1
+        group['avance_aca_width'] = _progress_width_css(average_progress)
+        group['avance_aca_color'] = _progress_color(average_progress)
     return groups
 
 
@@ -2021,7 +2336,7 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
     cells_by_classification = {}
     if matriz:
         for cell in models.MatrizRiesgoCelda.objects.filter(matriz=matriz).order_by('id'):
-            classification = (cell.clasificacion or '').strip().lower()
+            classification = _calc_slug(cell.clasificacion or '')
             if classification and classification not in cells_by_classification:
                 cells_by_classification[classification] = cell
     progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
@@ -2045,10 +2360,7 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
             # ('valor_cons_total', 'Valor Consecuencia Total'),
             # ('indicador_criticidad', 'Indicador Criticidad'),
         ])
-    columns.extend([
-        ('valor_criticidad_equipo', 'Valor Criticidad Equipo'),
-        ('criticidad_final', 'Criticidad Final'),
-    ])
+    columns.append(('criticidad_final', 'Criticidad Final'))
     if include_actions:
         columns.append(('acciones', 'Acciones'))
 
@@ -2057,13 +2369,16 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
     incomplete_count = 0
     for crit in criticidades:
         crit_dims = list(crit.dimensiones.all())
+        criticality_trace = _json_loads_safe(getattr(crit, 'trazabilidad_criticidad_json', ''), {})
         matrix_cell = _matrix_cell_for_criticidad_row(
             matriz,
             crit,
             crit_dims,
             cells_by_classification,
         )
-        criticidad_color = getattr(matrix_cell, 'color', '') or ''
+        if criticality_trace.get('reglas_aplicadas') and crit.criticidad_final:
+            matrix_cell = cells_by_classification.get(_calc_slug(crit.criticidad_final), matrix_cell)
+        criticidad_color = criticality_trace.get('color_final') or getattr(matrix_cell, 'color', '') or ''
         progress = progress_by_criticidad_id.get(crit.pk, {})
         progress_percent = progress.get('progress_percent')
         status = models.Carga.STATUS_COMPLETO if progress_percent == Decimal('100.0') else ''
@@ -2087,6 +2402,7 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
             'id': crit.id,
             'cliente': servicio.codigo_servicio,
             'status': status,
+            'carga_status': carga.status if carga else '',
             'avance_aca': progress.get('progress_label', 'N/A'),
             'avance_aca_order': progress_percent if progress_percent is not None else -1,
             'avance_aca_width': _progress_width_css(progress_percent),
@@ -2108,6 +2424,10 @@ def _service_aca_table_data(servicio, include_actions=False, criticidades=None, 
             'criticidad_final': crit.criticidad_final if show_matrix_values else '',
             'criticidad_final_color': criticidad_color,
             'criticidad_final_text_color': _contrast_text_color(criticidad_color),
+            'criticidad_base': criticality_trace.get('criticidad_base', ''),
+            'valor_criticidad_base': criticality_trace.get('valor_base'),
+            'regla_criticidad': criticality_trace.get('regla_aplicada', ''),
+            'reglas_criticidad': criticality_trace.get('reglas_aplicadas', []),
         }
         group_key, group_label, group_meta, group_kind, group_anchor = _aca_group_key_and_label(crit)
         row['_group_key'] = group_key
@@ -2208,14 +2528,57 @@ def _bulk_payload_with_equipment(servicio, raw_payload):
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _bulk_dimension_display_value(item):
+    def display_part(value):
+        if value in (None, ''):
+            return ''
+        try:
+            if value == int(value):
+                return str(int(value))
+        except (TypeError, ValueError):
+            pass
+        return str(value)
+
+    if item is None:
+        return ''
+    if item.catalogo_fila_id:
+        try:
+            ordered_values = []
+            for celda in item.catalogo_fila.celdas.all().order_by('columna__orden', 'columna_id'):
+                value = display_part(celda.python_value)
+                if value:
+                    ordered_values.append(value)
+            if not ordered_values:
+                values = item.catalogo_fila.values_map()
+                for key in ['valor_numerico', 'valor', 'puntaje', 'nivel', 'valor_texto', 'etiqueta', 'nombre', 'descripcion']:
+                    value = display_part(values.get(key))
+                    if value:
+                        ordered_values.append(value)
+            if ordered_values:
+                return ' | '.join(dict.fromkeys(ordered_values))
+        except Exception:
+            pass
+    if item.escala_valor_id:
+        values = []
+        if item.escala_valor.valor_numerico is not None:
+            numeric = item.escala_valor.valor_numerico
+            values.append(str(int(numeric)) if numeric == int(numeric) else str(numeric))
+        label = item.escala_valor.codigo or item.escala_valor.descripcion or ''
+        if label:
+            values.append(label)
+        if values:
+            return ' | '.join(dict.fromkeys(values))
+    return _dimension_display_value(item)
+
+
 def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
     criticidades = list(criticidades)
     equipment_map = {
         item['id']: item
         for item in _equipment_items_payload([crit.equipo for crit in criticidades if crit.equipo_id])
     }
-    rows = []
-    for crit in criticidades:
+
+    def row_payload_from_crit(crit, *, target_type='equipo', family=None, family_critics=None):
         dimensions = {}
         for item in crit.dimensiones.all():
             key = str(item.estrategia_dimension_id or item.dimension_id)
@@ -2226,7 +2589,7 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
                 'valor_booleano': '' if item.valor_booleano is None else item.valor_booleano,
                 'valor_texto': item.valor_texto or '',
                 'comentario': item.comentario or '',
-                'display': _dimension_display_value(item),
+                'display': _bulk_dimension_display_value(item),
             }
 
         matrix_cell_id = ''
@@ -2237,14 +2600,83 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
             )
             matrix_cell_id = getattr(cell, 'pk', '') or ''
 
-        rows.append({
-            'criticidad_id': crit.pk,
-            'equipo_id': crit.equipo_id or '',
-            'equipo': equipment_map.get(crit.equipo_id),
+        row = {
+            'criticidad_id': crit.pk if target_type == 'equipo' else '',
+            'target_type': target_type,
+            'target_locked': True,
+            'equipo_id': crit.equipo_id if target_type == 'equipo' else '',
+            'equipo': equipment_map.get(crit.equipo_id) if target_type == 'equipo' else None,
+            'family_id': family.pk if family else '',
+            'family': None,
             'observacion': crit.observacion or '',
             'dimensions': dimensions,
             'matrix_cell_id': matrix_cell_id,
-        })
+        }
+        if family:
+            equipos = [item.equipo for item in family.items.all() if item.equipo_id and item.equipo]
+            row['family'] = {
+                'id': family.pk,
+                'nombre': family.nombre,
+                'equipos': _equipment_items_payload(equipos),
+            }
+            row['criticidad_ids'] = [item.pk for item in (family_critics or [])]
+        return row
+
+    rows = []
+    consumed_ids = set()
+    family_groups = {}
+    for crit in criticidades:
+        origen = (crit.aca_carga.origen or '').strip() if crit.aca_carga else ''
+        if not origen.startswith('Manual familia:'):
+            continue
+        family_name = origen.replace('Manual familia:', '', 1).strip()
+        if not family_name:
+            continue
+        family_groups.setdefault(family_name, []).append(crit)
+
+    for family_name, family_criticidades in family_groups.items():
+        group_equipment_ids = {
+            crit.equipo_id
+            for crit in family_criticidades
+            if crit.equipo_id
+        }
+        family = (
+            models.FamiliaEquipo.objects.filter(servicio=servicio, nombre__iexact=family_name)
+            .prefetch_related('items__equipo')
+            .first()
+        )
+        if family:
+            family_equipment_ids = {
+                item.equipo_id
+                for item in family.items.all()
+                if item.equipo_id
+            }
+            if not family_equipment_ids or not group_equipment_ids.issubset(family_equipment_ids):
+                family = None
+        if not family:
+            family_candidates = models.FamiliaEquipo.objects.filter(servicio=servicio).prefetch_related('items__equipo')
+            for candidate in family_candidates:
+                candidate_equipment_ids = {
+                    item.equipo_id
+                    for item in candidate.items.all()
+                    if item.equipo_id
+                }
+                if candidate_equipment_ids and group_equipment_ids.issubset(candidate_equipment_ids):
+                    family = candidate
+                    break
+        if family:
+            rows.append(row_payload_from_crit(
+                family_criticidades[0],
+                target_type='familia',
+                family=family,
+                family_critics=family_criticidades,
+            ))
+            consumed_ids.update(crit.pk for crit in family_criticidades)
+
+    for crit in criticidades:
+        if crit.pk in consumed_ids:
+            continue
+        rows.append(row_payload_from_crit(crit))
     return json.dumps({'rows': rows}, ensure_ascii=False)
 
 
@@ -2259,8 +2691,8 @@ def _bulk_group_criticidades(servicio, carga_pk):
 
     return list(
         models.Criticidad.objects.filter(
+            Q(aca_carga__origen='Manual masivo') | Q(aca_carga__origen__startswith='Manual familia:'),
             aca_carga__servicio=servicio,
-            aca_carga__origen=origen,
             aca_carga__creado_en=anchor.creado_en,
         )
         .select_related('equipo', 'aca_carga')
@@ -2279,8 +2711,14 @@ def _bulk_group_criticidades(servicio, carga_pk):
 def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excluded_dimension_ids, is_draft, existing_by_id=None):
     equipment_qs = get_service_equipment(servicio)
     existing_by_id = existing_by_id or {}
+    existing_by_equipment_id = {
+        item.equipo_id: item
+        for item in existing_by_id.values()
+        if item.equipo_id
+    }
     existing_allowed_ids = {item.pk for item in existing_by_id.values()}
     existing_equipment_ids = _existing_aca_equipment_ids(servicio, exclude_ids=existing_allowed_ids)
+    family_qs = models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True).prefetch_related('items__equipo')
     submitted_equipment_ids = set()
     prepared_rows = []
     errors = []
@@ -2290,20 +2728,43 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
             continue
 
         row_errors = []
-        equipo = None
-        equipo_id = row.get('equipo_id')
-        if equipo_id:
-            equipo = equipment_qs.filter(pk=equipo_id).first()
-            if not equipo:
-                row_errors.append('equipo inválido o no asociado al servicio.')
+        target_type = row.get('target_type') if row.get('target_type') in {'equipo', 'familia'} else 'equipo'
+        target_equipos = []
+        row_origin = 'Manual masivo'
+        if target_type == 'familia':
+            family_id = row.get('family_id')
+            familia = family_qs.filter(pk=family_id).first() if family_id else None
+            if familia:
+                target_equipos = sorted(
+                    [item.equipo for item in familia.items.all() if item.equipo_id and item.equipo],
+                    key=lambda equipo: (
+                        (getattr(equipo, 'tag_display', '') or equipo.tag_equipo or '').casefold(),
+                        (equipo.nombre_equipo or '').casefold(),
+                        (equipo.ut or '').casefold(),
+                    ),
+                )
+                row_origin = f'Manual familia: {familia.nombre}'
+                if not target_equipos:
+                    row_errors.append('la familia seleccionada no tiene equipos.')
+            else:
+                row_errors.append('familia requerida o inválida.')
         else:
-            row_errors.append('equipo requerido.')
+            equipo_id = row.get('equipo_id')
+            if equipo_id:
+                equipo = equipment_qs.filter(pk=equipo_id).first()
+                if equipo:
+                    target_equipos = [equipo]
+                else:
+                    row_errors.append('equipo inválido o no asociado al servicio.')
+            else:
+                row_errors.append('equipo requerido.')
 
-        if equipo:
+        for equipo in target_equipos:
             if equipo.pk in existing_equipment_ids:
                 row_errors.append(_duplicate_aca_equipment_message(equipo))
             elif equipo.pk in submitted_equipment_ids:
-                row_errors.append('este equipo ya fue incluido en otra fila de esta carga.')
+                label = getattr(equipo, 'tag_display', '') or getattr(equipo, 'tag_equipo', '') or str(equipo)
+                row_errors.append(f'el equipo {label} ya fue incluido en otra fila de esta carga.')
 
         prepared, _source_values, dimension_errors = prepare_bulk_dimension_items(
             strategy,
@@ -2331,18 +2792,20 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
             errors.append(f"Fila {index}: " + ' '.join(row_errors))
             continue
 
-        if equipo:
+        for equipo in target_equipos:
             submitted_equipment_ids.add(equipo.pk)
-
-        criticidad_id = row.get('criticidad_id')
-        existing = existing_by_id.get(int(criticidad_id)) if str(criticidad_id or '').isdigit() else None
-        prepared_rows.append({
-            'existing': existing,
-            'equipo': equipo,
-            'observacion': str(row.get('observacion') or '').strip(),
-            'prepared': prepared,
-            'selected_cell': selected_cell,
-        })
+            criticidad_id = row.get('criticidad_id')
+            existing = existing_by_equipment_id.get(equipo.pk)
+            if not existing and str(criticidad_id or '').isdigit():
+                existing = existing_by_id.get(int(criticidad_id))
+            prepared_rows.append({
+                'existing': existing,
+                'equipo': equipo,
+                'observacion': str(row.get('observacion') or '').strip(),
+                'prepared': prepared,
+                'selected_cell': selected_cell,
+                'origin': row_origin,
+            })
 
     if not prepared_rows and not errors:
         errors.append('No hay filas válidas para guardar.')
@@ -2372,12 +2835,13 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
     for offset, row in enumerate(prepared_rows):
         selected_cell = row['selected_cell']
         existing = row.get('existing')
+        row_origin = row.get('origin') or origin
         if existing:
             seen_existing_ids.add(existing.pk)
             carga = existing.aca_carga
             carga.fecha_analisis = timezone.localdate()
             carga.version_carga = _aca_version_for_save(carga, status)
-            carga.origen = origin
+            carga.origen = row_origin
             carga.status = status
             carga.actualizado = now
             carga.estrategia = strategy
@@ -2420,7 +2884,7 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
             carga = models.Carga.objects.create(
                 fecha_analisis=timezone.localdate(),
                 version_carga=ACA_INITIAL_VERSION,
-                origen=origin,
+                origen=row_origin,
                 status=status,
                 creado_en=group_created,
                 actualizado=now,
@@ -2460,10 +2924,11 @@ def _bulk_render_context(
     dimension_payload,
     errors=None,
     bulk_payload='',
-    title='Nueva carga masiva ACA',
-    primary_label='Guardar carga masiva',
+    title='Nueva carga grupal ACA',
+    primary_label='Guardar carga grupal',
     is_group_edit=False,
     exclude_existing_crit_ids=None,
+    store_separate=False,
 ):
     return {
         'service': servicio,
@@ -2485,6 +2950,7 @@ def _bulk_render_context(
         'bulk_title': title,
         'bulk_primary_label': primary_label,
         'is_group_edit': is_group_edit,
+        'store_separate': store_separate,
     }
 
 
@@ -2516,6 +2982,7 @@ def service_aca_bulk_new(request, pk):
             submitted_rows = []
 
         is_draft = request.POST.get('save_as') == 'draft'
+        store_separate = request.POST.get('store_separate') == '1'
         status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
         equipment_qs = get_service_equipment(servicio)
         family_qs = models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True).prefetch_related('items__equipo')
@@ -2617,16 +3084,18 @@ def service_aca_bulk_new(request, pk):
                     dimension_payload,
                     errors=errors,
                     bulk_payload=raw_payload,
+                    store_separate=store_separate,
                 ),
             )
 
         now = timezone.now()
         with transaction.atomic():
             for row in prepared_rows:
+                row_origin = 'Manual' if store_separate else (row.get('origin') or 'Manual masivo')
                 carga = models.Carga.objects.create(
                     fecha_analisis=timezone.localdate(),
                     version_carga=ACA_INITIAL_VERSION,
-                    origen=row.get('origin') or 'Manual masivo',
+                    origen=row_origin,
                     status=status,
                     creado_en=now,
                     actualizado=now,
@@ -2760,6 +3229,24 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
             exclude_existing_crit_ids=[item.pk for item in existing_group],
         ),
     )
+
+
+@login_required
+@transaction.atomic
+def service_aca_bulk_group_delete(request, pk, carga_pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    if request.method != 'POST':
+        return redirect('service_aca_list', pk=servicio.pk)
+
+    group = _bulk_group_criticidades(servicio, carga_pk)
+    if not group:
+        messages.warning(request, 'No se encontraron registros para eliminar en esta carpeta ACA.')
+        return redirect('service_aca_list', pk=servicio.pk)
+
+    count = len(group)
+    _delete_aca_records_by_ids([item.pk for item in group])
+    messages.success(request, f'Carpeta ACA eliminada correctamente. Se eliminaron {count} registros.')
+    return redirect('service_aca_list', pk=servicio.pk)
 
 
 @login_required

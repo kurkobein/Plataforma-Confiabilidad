@@ -37,11 +37,11 @@
             <tbody>
                 {% for pauta in pautas %}
                     <tr>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ pauta.codigo }}" data-copy="{{ pauta.codigo }}">{{ pauta.codigo }}</span></td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ pauta.nombre }}" data-copy="{{ pauta.nombre }}">{{ pauta.nombre }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.codigo }}" data-copy="{{ pauta.codigo }}">{{ pauta.codigo }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.nombre }}" data-copy="{{ pauta.nombre }}">{{ pauta.nombre }}</span></td>
                         <td>{{ pauta.frecuencia|default:'-' }}</td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ pauta.especialidad|default:'-' }}" data-copy="{{ pauta.especialidad|default:'-' }}">{{ pauta.especialidad|default:'-' }}</span></td>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ pauta.estado_equipo|default:'-' }}" data-copy="{{ pauta.estado_equipo|default:'-' }}">{{ pauta.estado_equipo|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.especialidad|default:'-' }}" data-copy="{{ pauta.especialidad|default:'-' }}">{{ pauta.especialidad|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.estado_equipo|default:'-' }}" data-copy="{{ pauta.estado_equipo|default:'-' }}">{{ pauta.estado_equipo|default:'-' }}</span></td>
                         <td>{{ pauta.tareas.count }}</td>
                         <td>{{ pauta.get_estado_display }}</td>
                         <td>

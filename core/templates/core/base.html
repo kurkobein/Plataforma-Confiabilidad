@@ -18,18 +18,20 @@
 </head>
 <body>
 <div class="layout">
-    <aside class="sidebar">
+    <aside class="sidebar" style="border-right: 3px solid #B4C1ED;">
         <div class="brand-container{% if request.user.is_superuser or not empresa_usuario or not empresa_usuario.id or empresa_usuario.nombre == 'Mindco' or not empresa_usuario.logo %} brand-container-single{% endif %}" id="brandContainer">
-            <img src="{% static 'img/mindco.png' %}" class="logo-mindco">
+            <a class="brand-home-link" href="{% url 'dashboard' %}" aria-label="Ir a Inicio" title="Inicio">
+                <img src="{% static 'img/mindco.png' %}" class="logo-mindco" alt="Mindco">
 
-            {% if not request.user.is_superuser and empresa_usuario and empresa_usuario.id and empresa_usuario.nombre != "Mindco" and empresa_usuario.logo %}
-                <img
-                    src="{% url 'empresa_logo' empresa_usuario.id %}"
-                    class="logo-empresa"
-                    id="logoEmpresa"
-                    alt="Logo empresa"
-                >
-            {% endif %}
+                {% if not request.user.is_superuser and empresa_usuario and empresa_usuario.id and empresa_usuario.nombre != "Mindco" and empresa_usuario.logo %}
+                    <img
+                        src="{% url 'empresa_logo' empresa_usuario.id %}"
+                        class="logo-empresa"
+                        id="logoEmpresa"
+                        alt="Logo empresa"
+                    >
+                {% endif %}
+            </a>
         </div>
         <div class="sidebar-main">
         <div class="nav-group">
@@ -50,9 +52,9 @@
         </div>
 
         <div class="nav-group">
-            <div class="nav-group-title">RCM/FMECA</div>
+            <div class="nav-group-title">FMECA</div>
             <a class="nav-link" href="{% url 'fmeca_panel' %}">Panel</a>
-            <a class="nav-link" href="{% url 'fmeca_development' %}">Desarrollo RCM/FMECA</a>
+            <a class="nav-link" href="{% url 'fmeca_development' %}">Desarrollo</a>
         </div>
 
 
@@ -109,6 +111,20 @@
             </div>
         </div>
     </div>
+    <div class="logout-modal" id="delete-confirm-modal" hidden>
+        <div class="logout-modal-backdrop" data-delete-modal-close></div>
+        <div class="logout-modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+            <h3 id="delete-confirm-title">Eliminar registro</h3>
+            <p class="muted" id="delete-confirm-message">Confirma que quieres eliminar este elemento. Esta acción no se puede deshacer.</p>
+            <form method="post" id="delete-confirm-form" action="">
+                {% csrf_token %}
+                <div class="actions">
+                    <button class="btn" type="button" data-delete-modal-close>Cancelar</button>
+                    <button class="btn btn-danger" type="submit">Eliminar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 {% endif %}
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/2.3.8/js/dataTables.min.js"></script>
@@ -118,6 +134,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const logoutModal = document.getElementById('logout-confirm-modal');
     const logoutOpen = document.querySelector('[data-logout-open]');
     const logoutClose = document.querySelectorAll('[data-logout-close]');
+    const deleteModal = document.getElementById('delete-confirm-modal');
+    const deleteForm = document.getElementById('delete-confirm-form');
+    const deleteTitle = document.getElementById('delete-confirm-title');
+    const deleteMessage = document.getElementById('delete-confirm-message');
+    const deleteClose = document.querySelectorAll('[data-delete-modal-close]');
 
     function openLogoutModal() {
         if (!logoutModal) return;
@@ -135,8 +156,46 @@ document.addEventListener("DOMContentLoaded", function () {
     logoutClose.forEach(function (node) {
         node.addEventListener('click', closeLogoutModal);
     });
+
+    function openDeleteModal(link) {
+        if (!deleteModal || !deleteForm || !link) return;
+        const label = (link.dataset.deleteLabel || link.textContent || 'este elemento').trim();
+        deleteForm.action = link.href;
+        if (deleteTitle) deleteTitle.textContent = link.dataset.deleteTitle || 'Eliminar registro';
+        if (deleteMessage) {
+            deleteMessage.textContent = link.dataset.deleteMessage || ('Confirma que quieres eliminar ' + label + '. Esta acción no se puede deshacer.');
+        }
+        deleteModal.hidden = false;
+        document.body.classList.add('modal-open');
+    }
+
+    function closeDeleteModal() {
+        if (!deleteModal) return;
+        deleteModal.hidden = true;
+        if (deleteForm) deleteForm.action = '';
+        document.body.classList.remove('modal-open');
+    }
+
+    deleteClose.forEach(function (node) {
+        node.addEventListener('click', closeDeleteModal);
+    });
+
+    document.addEventListener('click', function (event) {
+        const link = event.target.closest('a');
+        if (!link || link.dataset.noDeleteModal === 'true') return;
+        const href = link.getAttribute('href') || '';
+        const usesDeleteModal = link.dataset.deleteModal === 'true' || /\/eliminar\/?$/.test(href);
+        if (!usesDeleteModal) return;
+        if (!link.href || link.target === '_blank' || link.hasAttribute('download')) return;
+        event.preventDefault();
+        openDeleteModal(link);
+    });
+
     document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape') closeLogoutModal();
+        if (event.key === 'Escape') {
+            closeLogoutModal();
+            closeDeleteModal();
+        }
     });
 
     const defaultDurations = {
@@ -435,8 +494,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (section === 'aca') {
             fixedCrumb(crumbs, 'Desarrollo ACA', `${serviceHref}aca/`);
             if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro ACA');
-            else if (parts[3] === 'nuevo-masivo') fixedCrumb(crumbs, 'Nueva carga masiva');
-            else if (parts[3] === 'grupo') fixedCrumb(crumbs, 'Editar carga masiva');
+            else if (parts[3] === 'nuevo-masivo') fixedCrumb(crumbs, 'Nueva carga grupal');
+            else if (parts[3] === 'grupo') fixedCrumb(crumbs, 'Editar carga grupal');
             else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro ACA');
             else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro ACA');
             else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar ACA');
@@ -444,12 +503,12 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         if (section === 'rcm' || section === 'fmeca') {
-            fixedCrumb(crumbs, 'Desarrollo RCM/FMECA', `${serviceHref}fmeca/`);
-            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro RCM/FMECA');
+            fixedCrumb(crumbs, 'Desarrollo FMECA', `${serviceHref}fmeca/`);
+            if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro FMECA');
             else if (parts[3] === 'tareas') fixedCrumb(crumbs, 'Configurar tareas');
-            else if (parts[3] === 'carga-masiva') fixedCrumb(crumbs, 'Carga masiva RCM/FMECA');
-            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro RCM/FMECA');
-            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro RCM/FMECA');
+            else if (parts[3] === 'carga-masiva') fixedCrumb(crumbs, 'Carga masiva FMECA');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro FMECA');
+            else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'eliminar') fixedCrumb(crumbs, 'Eliminar registro FMECA');
             else if (parts[3] === 'exportar') fixedCrumb(crumbs, 'Exportar RCM/FMECA');
             return crumbs;
         }
@@ -504,7 +563,6 @@ document.addEventListener("DOMContentLoaded", function () {
             cargo: 'Cargos',
             empresa: 'Empresas',
             estrategia: 'Estrategias',
-            metodologia: 'Metodologías',
             dimension: 'Dimensiones',
             componente: 'Componentes',
             escalaunificada: 'Escalas unificadas',
@@ -580,7 +638,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (parts[0] === 'fmeca') {
             const crumbs = [{ label: 'Inicio', url: '/' }];
-            fixedCrumb(crumbs, 'RCM/FMECA', '/fmeca/desarrollo/');
+            fixedCrumb(crumbs, 'FMECA', '/fmeca/desarrollo/');
             if (parts[1] === 'panel') fixedCrumb(crumbs, 'Panel');
             else if (parts[1] === 'desarrollo') fixedCrumb(crumbs, 'Desarrollo');
             return crumbs;
@@ -594,6 +652,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const header = document.querySelector('.page-header');
         if (!header) return;
         stack = (stack || []).filter((crumb, index) => index !== 0 || cleanLabel(crumb.label).toLowerCase() !== 'inicio');
+        // El primer elemento restante es la seccion raiz ya visible en el sidebar.
+        // En una vista raiz esto deja el breadcrumb vacio; en vistas internas
+        // conserva solamente el objeto y las subsecciones relevantes.
+        if (stack.length) stack = stack.slice(1);
         header.querySelectorAll('.page-location').forEach(node => node.remove());
         if (!stack.length) return;
         const nav = document.createElement('nav');
@@ -779,6 +841,18 @@ document.addEventListener("DOMContentLoaded", function () {
                 bottomEnd: 'paging'
             };
         }
+        if (table.dataset.dtControls === 'server') {
+            options.paging = false;
+            options.lengthChange = false;
+            options.searching = false;
+            options.info = false;
+            options.layout = {
+                topStart: null,
+                topEnd: null,
+                bottomStart: null,
+                bottomEnd: null
+            };
+        }
         try {
             const dataTable = $(table).DataTable(options);
             if (table.dataset.columnFilters === 'true') {
@@ -884,14 +958,14 @@ document.addEventListener("DOMContentLoaded", function () {
             '<div class="dtcc-search-row">',
             '<div class="dtcc-search-type-icon"><i class="bi bi-columns-gap"></i></div>',
             '<select aria-label="Tipo de filtro">',
-            '<option value="contains">Contains</option>',
-            '<option value="notContains">Does not contain</option>',
-            '<option value="equal">Equals</option>',
-            '<option value="notEqual">Does not equal</option>',
-            '<option value="starts">Starts</option>',
-            '<option value="ends">Ends</option>',
-            '<option value="empty">Empty</option>',
-            '<option value="notEmpty">Not empty</option>',
+            '<option value="contains">Contiene</option>',
+            '<option value="notContains">No contiene</option>',
+            '<option value="equal">Igual a</option>',
+            '<option value="notEqual">Distinto de</option>',
+            '<option value="starts">Empieza con</option>',
+            '<option value="ends">Termina con</option>',
+            '<option value="empty">Vacío</option>',
+            '<option value="notEmpty">No vacío</option>',
             '</select>',
             '<div class="dtcc-search-icon"><i class="bi bi-search"></i></div>',
             '<span class="dtcc-search-clear" role="button" tabindex="0"><i class="bi bi-x-lg"></i></span>',
@@ -1067,6 +1141,9 @@ document.addEventListener("DOMContentLoaded", function () {
             else bindTextColumnPopover(popover, dataTable, index, triggers);
         });
         dataTable.columns.adjust();
+        table.dispatchEvent(new CustomEvent('mindco:datatable-column-filters-ready', {
+            bubbles: true,
+        }));
     }
 
     document.addEventListener('click', function () {
@@ -1209,6 +1286,156 @@ document.addEventListener('click', function (event) {
             cell.classList.remove('copied');
             cell.setAttribute('title', originalTitle);
         }, 800);
+    });
+});
+</script>
+
+<script>
+window.MindcoNestedHierarchyFilters = {
+    sync: function (root) {
+        const scope = root || document;
+        const levelInput = scope.querySelector('[name="progress_nivel"]');
+        const nodeInput = scope.querySelector('[name="progress_nodo"]');
+        const controls = Array.from(scope.querySelectorAll('[data-progress-nested-level]'));
+        if (!levelInput || !nodeInput || !controls.length) return;
+
+        function optionItems(control) {
+            if (control.matches('select')) {
+                return Array.from(control.options)
+                    .filter(option => option.value)
+                    .map(option => ({ node: option, value: option.value, path: option.dataset.path || '', label: option.textContent || '' }));
+            }
+            return Array.from(control.querySelectorAll('[data-progress-node-checkbox]'))
+                .map(input => ({ node: input, value: input.value, path: input.dataset.path || '', label: input.closest('label')?.textContent || '' }));
+        }
+
+        function setOptionHidden(item, hidden) {
+            if (item.node.tagName === 'OPTION') {
+                item.node.hidden = hidden;
+            } else {
+                const label = item.node.closest('[data-progress-node-option]') || item.node.closest('label');
+                if (label) label.hidden = hidden;
+            }
+        }
+
+        function isSelected(item) {
+            return item.node.tagName === 'OPTION' ? item.node.selected : item.node.checked;
+        }
+
+        function setSelected(item, selected) {
+            if (item.node.tagName === 'OPTION') item.node.selected = selected;
+            else item.node.checked = selected;
+        }
+
+        const selectedItem = controls
+            .flatMap(optionItems)
+            .find(function (item) { return isSelected(item) && item.value; });
+        const selectedPath = selectedItem?.path || '';
+        const selectedParts = selectedPath ? selectedPath.split('-') : [];
+        if (selectedParts.length) {
+            controls.forEach(function (control, index) {
+                const items = optionItems(control);
+                if (items.some(isSelected)) return;
+                const expectedPath = selectedParts.slice(0, index + 1).join('-');
+                const match = items.find(function (item) {
+                    return item.value && item.path === expectedPath;
+                });
+                if (match) setSelected(match, true);
+            });
+        }
+
+        let activePaths = [];
+        let deepestLevel = '';
+        let deepestNodes = [];
+        let previousResolved = true;
+
+        controls.forEach(function (control) {
+            const field = control.closest('.form-field') || control;
+            const items = optionItems(control);
+            const candidates = items.filter(function (item) {
+                if (!item.value) return false;
+                const path = item.path || '';
+                return !activePaths.length || activePaths.some(function (activePath) {
+                    return path === activePath || path.startsWith(activePath + '-');
+                });
+            });
+
+            items.forEach(function (item) {
+                const visible = candidates.includes(item);
+                setOptionHidden(item, !visible);
+                if (!visible) setSelected(item, false);
+            });
+
+            if (!previousResolved || !candidates.length) {
+                if (control.matches('select')) {
+                    control.disabled = true;
+                    control.value = '';
+                }
+                candidates.forEach(item => setSelected(item, false));
+                if (field) field.hidden = true;
+                return;
+            }
+
+            if (candidates.length === 1) {
+                setSelected(candidates[0], true);
+                if (control.matches('select')) control.disabled = false;
+                if (field) field.hidden = true;
+                activePaths = [candidates[0].path || ''];
+                deepestLevel = control.dataset.progressNestedLevel || '';
+                deepestNodes = [candidates[0].value];
+                previousResolved = true;
+                return;
+            }
+
+            if (control.matches('select')) control.disabled = false;
+            if (field) {
+                const longest = Math.max(
+                    8,
+                    ...candidates.map(function (item) { return (item.label || '').trim().length; }),
+                    10
+                );
+                const width = Math.min(Math.max(longest + 4, 16), 42);
+                field.hidden = false;
+                field.style.flex = '0 0 ' + width + 'ch';
+                field.style.width = width + 'ch';
+            }
+            if (control.matches('select')) control.style.width = '100%';
+
+            const selectedItems = candidates.filter(isSelected);
+            const countLabel = control.querySelector('[data-progress-selected-count]');
+            if (countLabel) {
+                countLabel.textContent = selectedItems.length + ' seleccionados';
+            }
+
+            if (selectedItems.length) {
+                activePaths = selectedItems.map(item => item.path || '').filter(Boolean);
+                deepestLevel = control.dataset.progressNestedLevel || '';
+                deepestNodes = selectedItems.map(item => item.value);
+                previousResolved = true;
+            } else {
+                previousResolved = false;
+            }
+        });
+
+        levelInput.value = deepestLevel;
+        nodeInput.value = deepestNodes.join(',');
+    }
+};
+
+document.addEventListener('toggle', function (event) {
+    const current = event.target;
+    if (!current.matches || !current.matches('details[data-progress-nested-level]') || !current.open) return;
+    const form = current.closest('.aca-progress-filters') || current.closest('form');
+    const scope = form || document;
+    scope.querySelectorAll('details[data-progress-nested-level][open]').forEach(function (details) {
+        if (details !== current) details.open = false;
+    });
+}, true);
+
+document.addEventListener('click', function (event) {
+    if (event.target.closest('details[data-progress-nested-level]')) return;
+    document.querySelectorAll('details[data-progress-nested-level][open]').forEach(function (details) {
+        details.open = false;
     });
 });
 </script>

@@ -10,13 +10,14 @@
                     <div class="actions">
                         {% if permission.can_edit %}
                             <a class="btn" href="{% url 'service_aca_edit' service.pk row.id %}"><i class="bi bi-pencil"></i></a>
-                            <form method="post"
-                                  action="{% url 'service_aca_delete' service.pk row.id %}"
-                                  style="display:inline;"
-                                  onsubmit="return confirm('Seguro que deseas eliminar este registro ACA?');">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-danger"><i class="bi bi-trash3"></i></button>
-                            </form>
+                            <button type="button"
+                                    class="btn btn-danger"
+                                    data-aca-delete-open
+                                    data-delete-url="{% url 'service_aca_delete' service.pk row.id %}"
+                                    data-delete-title="Eliminar registro ACA"
+                                    data-delete-message="Se eliminará el registro ACA ID {{ row.id }}. Podrás deshacerlo desde el mensaje de confirmación.">
+                                <i class="bi bi-trash3"></i>
+                            </button>
                         {% endif %}
                     </div>
                 {% elif key == 'avance_aca' %}
@@ -28,13 +29,13 @@
                     </span>
                 {% elif key == 'fechas' %}
                     <div class="date-inline"><small class="muted">Creación:</small> {{ row.fecha_creado|default:'-' }}</div>
-                    <div class="date-inline"><small class="muted">Modificación:</small> {{ row.ultimo_avance|default:'-' }}</div>
+                    <div class="date-inline"><small class="muted">Editado:</small> {{ row.ultimo_avance|default:'-' }}</div>
                 {% elif key == 'ubicacion_tecnica' or key == 'descripcion_ut' or key == 'equipo' or key == 'observacion' %}
-                    <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ cell_value }}" data-copy="{{ cell_value }}">{{ cell_value }}</span>
+                    <span class="cell-ellipsis copy-cell" title="{{ cell_value }}" data-copy="{{ cell_value }}">{{ cell_value }}</span>
                 {% elif key == 'criticidad_final' %}
                     <span class="aca-criticality-final-label">{{ cell_value }}</span>
                 {% elif comment_value and not cell_value %}
-                    <span class="cell-ellipsis copy-cell aca-dimension-comment" title="Click para copiar: {{ comment_value }}" data-copy="{{ comment_value }}">{{ comment_value }}</span>
+                    <span class="cell-ellipsis copy-cell aca-dimension-comment" title="{{ comment_value }}" data-copy="{{ comment_value }}">{{ comment_value }}</span>
                     <span class="aca-dimension-comment-placeholder">-</span>
                 {% else %}
                     {{ cell_value }}

@@ -3,8 +3,8 @@ import json
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
-from django.db.models import Q
+from django.db import connection, transaction
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -47,6 +47,22 @@ _CALC_OPERATION_SYMBOLS = {
     'minimo': ', ',
     'mínimo': ', ',
 }
+
+
+def _raw_delete_by_ids(model, ids):
+    ids = [pk for pk in ids if pk]
+    if not ids:
+        return 0
+    table = connection.ops.quote_name(model._meta.db_table)
+    column = connection.ops.quote_name(model._meta.pk.column)
+    deleted = 0
+    with connection.cursor() as cursor:
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            placeholders = ', '.join(['%s'] * len(chunk))
+            cursor.execute(f'DELETE FROM {table} WHERE {column} IN ({placeholders})', chunk)
+            deleted += cursor.rowcount
+    return deleted
 
 
 def _service_family_payload(servicio):
@@ -270,27 +286,6 @@ def _dimension_origin_info(estrategia_dimension):
 
 
 @login_required
-def service_list(request):
-    servicios = get_accessible_services(request.user)
-    search = request.GET.get('q', '').strip()
-    if search:
-        servicios = servicios.filter(
-            Q(codigo_servicio__icontains=search)
-            | Q(descripcion__icontains=search)
-            | Q(empresa__nombre__icontains=search)
-            | Q(estrategia__nombre__icontains=search)
-            | Q(metodologias__abreviatura__icontains=search)
-            | Q(metodologias__nombre__icontains=search)
-        ).distinct()
-    servicios = servicios.order_by('-creado_en', 'codigo_servicio')
-    return render(request, 'core/service_management/service_list.html', {
-        'page_title': 'Servicios',
-        'services': servicios,
-        'search': search,
-    })
-
-
-@login_required
 def service_detail(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=False)
     estrategia_dims = _strategy_dimensions(servicio.estrategia)
@@ -312,6 +307,18 @@ def service_detail(request, pk):
         })
     aca_count = models.Criticidad.objects.filter(aca_carga__servicio=servicio).count()
     rcm_count = models.RCM.objects.filter(carga__servicio=servicio).count()
+    evaluated_equipment_count = (
+        models.Equipo.objects
+        .filter(
+            Q(criticidades__aca_carga__servicio=servicio)
+            | Q(
+                registros_rcm__fmea_fmeca__isnull=False,
+                registros_rcm__carga__servicio=servicio,
+            )
+        )
+        .distinct()
+        .count()
+    )
     pauta_count = models.Pauta.objects.filter(servicio=servicio).count()
     family_count = models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True).count()
     total_count = aca_count + rcm_count
@@ -320,7 +327,7 @@ def service_detail(request, pk):
         if servicio.estrategia_id
         else []
     )
-    access_form = ServiceAccessGrantForm(service=servicio)
+    access_form = ServiceAccessGrantForm(service=servicio, user=request.user)
     access_rows = list(permission['access_rows'])
     return render(request, 'core/service_management/service_detail.html', {
         'service': servicio,
@@ -329,6 +336,7 @@ def service_detail(request, pk):
         'rcm_count': rcm_count,
         'pauta_count': pauta_count,
         'family_count': family_count,
+        'evaluated_equipment_count': evaluated_equipment_count,
         'total_count': total_count,
         'equipment_count': _service_equipment_count(servicio),
         'dimension_rows': dimension_rows,
@@ -439,7 +447,7 @@ def service_access_manage(request, pk):
         messages.success(request, 'Acceso eliminado.')
         return redirect('service_detail', pk=servicio.pk)
 
-    form = ServiceAccessGrantForm(request.POST or None, service=servicio)
+    form = ServiceAccessGrantForm(request.POST or None, service=servicio, user=request.user)
     if request.method == 'POST' and form.is_valid():
         usuario = form.cleaned_data['usuario']
         nivel = form.cleaned_data['nivel']
@@ -615,9 +623,19 @@ def service_equipment_available(request, pk):
         .filter(servicio=servicio, equipo_id__in=[item.pk for item in items])
         .values_list('equipo_id', flat=True)
     )
+    aca_counts = {
+        row['equipo_id']: row['total']
+        for row in models.Criticidad.objects.filter(
+            aca_carga__servicio=servicio,
+            equipo_id__in=[item.pk for item in items],
+        )
+        .values('equipo_id')
+        .annotate(total=Count('id'))
+    }
     payload = _equipment_items_payload(items)
     for item in payload:
         item['linked'] = item['id'] in linked_ids
+        item['aca_count'] = aca_counts.get(item['id'], 0)
     return JsonResponse({
         'items': payload,
         'count': total,
@@ -682,6 +700,85 @@ def service_equipment_link(request, pk):
         'already_linked': len(existing_ids),
         'invalid': len(equipment_ids) - len(valid_ids),
         'message': f'{len(new_ids)} equipos vinculados al servicio.',
+    })
+
+
+@login_required
+@transaction.atomic
+def service_equipment_unlink(request, pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': 'Metodo no permitido.'}, status=405)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+
+    raw_ids = payload.get('equipment_ids') or request.POST.getlist('equipment_ids')
+    equipment_ids = []
+    for raw_id in raw_ids:
+        try:
+            equipment_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if equipment_id not in equipment_ids:
+            equipment_ids.append(equipment_id)
+
+    if not equipment_ids:
+        return JsonResponse({'ok': False, 'message': 'Selecciona al menos un equipo.'}, status=400)
+
+    linked_ids = list(
+        models.ServicioEquipo.objects
+        .filter(servicio=servicio, equipo_id__in=equipment_ids)
+        .values_list('equipo_id', flat=True)
+    )
+    if not linked_ids:
+        return JsonResponse({
+            'ok': False,
+            'message': 'Los equipos seleccionados no estan vinculados a este servicio.',
+            'unlinked': 0,
+            'aca_deleted': 0,
+        }, status=400)
+
+    criticidad_ids = list(
+        models.Criticidad.objects
+        .filter(aca_carga__servicio=servicio, equipo_id__in=linked_ids)
+        .values_list('id', flat=True)
+    )
+    carga_ids = list(
+        models.Criticidad.objects
+        .filter(pk__in=criticidad_ids)
+        .values_list('aca_carga_id', flat=True)
+    )
+
+    if criticidad_ids:
+        models.CriticidadDimension.objects.filter(criticidad_id__in=criticidad_ids).delete()
+        models.CriticidadAdjunto.objects.filter(criticidad_id__in=criticidad_ids).delete()
+        _raw_delete_by_ids(models.Criticidad, criticidad_ids)
+
+    remaining_carga_ids = set(
+        models.Criticidad.objects
+        .filter(aca_carga_id__in=[pk for pk in carga_ids if pk])
+        .values_list('aca_carga_id', flat=True)
+    )
+    empty_carga_ids = [pk for pk in carga_ids if pk and pk not in remaining_carga_ids]
+    if empty_carga_ids:
+        models.Carga.objects.filter(pk__in=empty_carga_ids).delete()
+
+    deleted_relations, _ = models.ServicioEquipo.objects.filter(
+        servicio=servicio,
+        equipo_id__in=linked_ids,
+    ).delete()
+
+    return JsonResponse({
+        'ok': True,
+        'unlinked': deleted_relations,
+        'aca_deleted': len(criticidad_ids),
+        'message': (
+            f'{deleted_relations} equipos desvinculados. '
+            f'{len(criticidad_ids)} registros ACA eliminados.'
+        ),
     })
 
 

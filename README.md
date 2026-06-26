@@ -24,7 +24,6 @@ Esta versión no intenta rehacer la plataforma anterior. Hace algo más simple:
 ## Modelos cubiertos
 
 - Empresa
-- Metodologia
 - Estrategia
 - Cargo
 - Usuario

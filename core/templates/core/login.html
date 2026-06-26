@@ -126,6 +126,41 @@
         color: #6b7280;
         font-size: 12px;
       }
+      .location-consent {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        margin: 4px 0 12px;
+        padding: 9px 10px;
+        border: 1px solid #dbe3ef;
+        border-radius: 10px;
+        background: #f8fafc;
+        color: #334155;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .location-consent input {
+        width: 16px;
+        height: 16px;
+        margin-top: 1px;
+        accent-color: #5b21b6;
+      }
+      .location-consent strong {
+        display: block;
+        color: #111827;
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+      .location-status.ok {
+        color: #15803d;
+      }
+      .location-status.error {
+        color: #b91c1c;
+      }
+      .btn:disabled {
+        cursor: not-allowed;
+        opacity: .55;
+      }
     </style>
   </head>
   <body>
@@ -160,8 +195,15 @@
               >
               {{ form.password }}
             </div>
-            <button class="btn" type="submit">Entrar</button>
-            <div class="location-status" id="location-status"></div>
+            <label class="location-consent" for="location-consent">
+              <input type="checkbox" id="location-consent">
+              <span>
+                <strong>Autorizar ubicación</strong>
+                Debes permitir el registro de latitud y longitud del inicio de sesión para acceder.
+              </span>
+            </label>
+            <button class="btn" type="submit" id="login-submit" disabled>Entrar</button>
+            <div class="location-status" id="location-status">Marca la autorización para solicitar tu ubicación.</div>
           </form>
         </div>
       </div>
@@ -172,45 +214,104 @@
         const latInput = document.getElementById('login-latitud');
         const lonInput = document.getElementById('login-longitud');
         const status = document.getElementById('location-status');
+        const consent = document.getElementById('location-consent');
+        const submitButton = document.getElementById('login-submit');
         let locationHandled = false;
+        let locationRequestInFlight = false;
 
         function submitNow() {
+          if (!(latInput.value && lonInput.value)) {
+            locationHandled = false;
+            submitButton.disabled = true;
+            status.textContent = 'No se pudo registrar la ubicación. Debes autorizarla para iniciar sesión.';
+            status.classList.add('error');
+            status.classList.remove('ok');
+            return;
+          }
           locationHandled = true;
           form.submit();
+        }
+
+        function syncConsentState() {
+          if (!consent.checked) {
+            latInput.value = '';
+            lonInput.value = '';
+            submitButton.disabled = true;
+            status.textContent = 'Marca la autorización para solicitar tu ubicación.';
+            status.classList.remove('ok', 'error');
+            return;
+          }
+          submitButton.disabled = true;
+          status.textContent = 'Solicitando autorizacion de ubicacion...';
+          status.classList.remove('ok', 'error');
+          requestLocation();
+        }
+
+        consent.addEventListener('change', syncConsentState);
+
+        function requestLocation() {
+          if (!consent.checked) return;
+          if (locationRequestInFlight) return;
+          if (!navigator.geolocation) {
+            submitButton.disabled = true;
+            status.textContent = 'Tu navegador no permite obtener ubicacion. No es posible iniciar sesion.';
+            status.classList.add('error');
+            status.classList.remove('ok');
+            return;
+          }
+          locationRequestInFlight = true;
+          submitButton.disabled = true;
+          status.textContent = 'Solicitando autorizacion de ubicacion...';
+          status.classList.remove('ok', 'error');
+          navigator.geolocation.getCurrentPosition(
+            function (position) {
+              locationRequestInFlight = false;
+              latInput.value = position.coords.latitude.toFixed(6);
+              lonInput.value = position.coords.longitude.toFixed(6);
+              submitButton.disabled = false;
+              status.textContent = 'Ubicacion autorizada y registrada. Puedes iniciar sesion.';
+              status.classList.add('ok');
+              status.classList.remove('error');
+            },
+            function () {
+              locationRequestInFlight = false;
+              latInput.value = '';
+              lonInput.value = '';
+              submitButton.disabled = true;
+              consent.checked = false;
+              status.textContent = 'Ubicacion no autorizada o no disponible. Marca nuevamente para reintentar.';
+              status.classList.add('error');
+              status.classList.remove('ok');
+            },
+            {
+              enableHighAccuracy: false,
+              timeout: 30000,
+              maximumAge: 600000
+            }
+          );
         }
 
         form.addEventListener('submit', function (event) {
           if (locationHandled) return;
           if (latInput.value && lonInput.value) return;
-          if (!navigator.geolocation) return;
+          if (!consent.checked) {
+            event.preventDefault();
+            status.textContent = 'Debes marcar la autorización de ubicación antes de iniciar sesión.';
+            status.classList.add('error');
+            status.classList.remove('ok');
+            return;
+          }
+          if (!navigator.geolocation) {
+            event.preventDefault();
+            status.textContent = 'Tu navegador no permite obtener ubicación. No es posible iniciar sesión.';
+            status.classList.add('error');
+            status.classList.remove('ok');
+            return;
+          }
           event.preventDefault();
-          status.textContent = 'Solicitando ubicación del inicio de sesión...';
-
-          const timeout = window.setTimeout(function () {
-            status.textContent = 'No se pudo obtener la ubicación a tiempo. Iniciando sesión...';
-            submitNow();
-          }, 3500);
-
-          navigator.geolocation.getCurrentPosition(
-            function (position) {
-              window.clearTimeout(timeout);
-              latInput.value = position.coords.latitude.toFixed(6);
-              lonInput.value = position.coords.longitude.toFixed(6);
-              status.textContent = 'Ubicación registrada. Iniciando sesión...';
-              submitNow();
-            },
-            function () {
-              window.clearTimeout(timeout);
-              status.textContent = 'Ubicación no autorizada o no disponible. Iniciando sesión...';
-              submitNow();
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 3000,
-              maximumAge: 300000
-            }
-          );
+          requestLocation();
         });
+        syncConsentState();
       })();
     </script>
   </body>

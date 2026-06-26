@@ -17,6 +17,26 @@
         <button class="btn btn-danger" type="submit">Confirmar archivado</button>
         <a class="btn" href="{% url 'model_list' model_key %}">Cancelar</a>
     </div>
+    {% elif model_key == 'equipo' %}
+    <p>Se eliminará el equipo <strong>{{ object }}</strong>.</p>
+    <div class="message error">
+        También se eliminarán sus vínculos con servicios, familias, componentes, registros ACA/RCM-FMECA y pautas asociadas.
+    </div>
+    {% if equipment_delete_summary %}
+    <p class="muted">
+        Asociaciones actuales:
+        {{ equipment_delete_summary.servicios }} servicio(s),
+        {{ equipment_delete_summary.familias }} familia(s),
+        {{ equipment_delete_summary.componentes }} componente(s),
+        {{ equipment_delete_summary.aca }} ACA,
+        {{ equipment_delete_summary.rcm }} RCM/FMECA y
+        {{ equipment_delete_summary.pautas }} pauta(s).
+    </p>
+    {% endif %}
+    <div class="actions">
+        <button class="btn btn-danger" type="submit">Confirmar eliminación</button>
+        <a class="btn" href="{% url 'model_list' model_key %}">Cancelar</a>
+    </div>
     {% else %}
     <p>Se eliminará el registro <strong>{{ object }}</strong>.</p>
     <p class="muted">Si existen restricciones FK en la base, MySQL impedirá la eliminación.</p>

@@ -16,20 +16,16 @@ class MatrizBuilderForm(forms.Form):
     dimension_probabilidad = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
         required=False,
-        label='Dimension eje probabilidad',
+        label='Dimension eje X',
         empty_label='Crear dimension automatica',
-        help_text='Dimension existente que entrega el valor para el eje de probabilidad.',
+        help_text='Dimension existente que entrega el valor para el eje X.',
     )
     dimension_impacto = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
         required=False,
-        label='Dimension eje consecuencia',
+        label='Dimension eje Y',
         empty_label='Crear dimension automatica',
-        help_text='Dimension existente que entrega el valor para el eje de consecuencia.',
-    )
-    eje_horizontal = forms.ChoiceField(
-        choices=app_models.MatrizRiesgo.EJE_HORIZONTAL_CHOICES,
-        initial='impacto',
+        help_text='Dimension existente que entrega el valor para el eje Y.',
     )
     modo_resolucion = forms.ChoiceField(
         choices=app_models.MatrizRiesgo.RESOLUCION_CHOICES,
@@ -58,6 +54,7 @@ class MatrizBuilderForm(forms.Form):
         ).select_related(
             'estrategia',
             'dimension',
+            'catalogo',
         ).order_by(
             'estrategia__nombre',
             'orden',
@@ -65,12 +62,19 @@ class MatrizBuilderForm(forms.Form):
         )
         if strategy_id:
             axis_qs = axis_qs.filter(estrategia_id=strategy_id)
+        else:
+            axis_qs = app_models.EstrategiaDimension.objects.none()
+
+        def axis_label(obj):
+            try:
+                catalogo = getattr(obj, 'catalogo', None)
+            except app_models.DimensionCatalogo.DoesNotExist:
+                catalogo = None
+            return (getattr(catalogo, 'nombre', '') or obj.dimension.nombre)
 
         for field_name in ('dimension_probabilidad', 'dimension_impacto'):
             self.fields[field_name].queryset = axis_qs
-            self.fields[field_name].label_from_instance = (
-                lambda obj: f'{obj.estrategia} / {obj.dimension.nombre}'
-            )
+            self.fields[field_name].label_from_instance = axis_label
 
         for _, field in self.fields.items():
             existing = field.widget.attrs.get('class', '')

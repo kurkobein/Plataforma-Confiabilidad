@@ -2,6 +2,8 @@ import json
 import re
 import html
 import uuid
+import unicodedata
+from datetime import timedelta
 from io import BytesIO
 from decimal import Decimal, InvalidOperation
 from django.contrib import messages
@@ -253,10 +255,6 @@ def _delete_service_related_data(service):
     counts['equipos_servicio'] = _delete_by_materialized_ids(
         models.ServicioEquipo,
         models.ServicioEquipo.objects.filter(servicio=service).values_list('id', flat=True),
-    )
-    counts['metodologias_servicio'] = _delete_by_materialized_ids(
-        models.ServicioMetodologia,
-        models.ServicioMetodologia.objects.filter(servicio=service).values_list('id', flat=True),
     )
     return counts
 
@@ -573,7 +571,6 @@ def _ensure_direct_crud_allowed(config):
 
 FORM_TEMPLATE_BY_MODEL = {
     'empresa': 'core/forms/empresa_form.html',
-    'metodologia': 'core/forms/metodologia_form.html',
     'cargo': 'core/forms/cargo_form.html',
     'usuario': 'core/forms/usuario_form.html',
     'componente': 'core/forms/componente_form.html',
@@ -813,9 +810,10 @@ def _equipment_items_payload(equipment_items):
 def _service_equipment_search_queryset(service, node=None, query=''):
     qs = get_service_equipment(service)
     if node:
+        subtree_ids = _active_subtree_ids(node)
         node_ut = node.ut
         qs = qs.filter(
-            Q(nodo_id=node.pk)
+            Q(nodo_id__in=subtree_ids)
             | Q(ut__iexact=node_ut)
             | Q(ut__istartswith=f'{node_ut}-')
         )
@@ -863,7 +861,7 @@ def _active_subtree_ids(node):
 
 @login_required
 def dashboard(request):
-    accessible_services_qs = get_accessible_services(request.user)
+    accessible_services_qs = get_accessible_services(request.user).select_related('empresa', 'estrategia')
     accessible_service_ids = list(accessible_services_qs.values_list('id', flat=True))
     servicios = list(accessible_services_qs[:8])
     service_ids = [service.pk for service in servicios]
@@ -886,9 +884,40 @@ def dashboard(request):
                 fmea_fmeca__isnull=False,
             ).values('carga__servicio_id').annotate(total=Count('equipo_id', distinct=True))
         }
+        strategy_ids = {service.estrategia_id for service in servicios if service.estrategia_id}
+        strategies_with_matrix = set(
+            models.MatrizRiesgo.objects
+            .filter(estrategia_id__in=strategy_ids)
+            .values_list('estrategia_id', flat=True)
+        )
+        strategies_with_dimensions = set(
+            models.EstrategiaDimension.objects
+            .filter(estrategia_id__in=strategy_ids, activo=True)
+            .values_list('estrategia_id', flat=True)
+        )
+        services_with_equipment = set(
+            models.ServicioEquipo.objects
+            .filter(servicio_id__in=service_ids)
+            .values_list('servicio_id', flat=True)
+        )
+    else:
+        strategies_with_matrix = set()
+        strategies_with_dimensions = set()
+        services_with_equipment = set()
     for service in servicios:
         service.dashboard_aca_evaluated = aca_evaluated_by_service.get(service.pk, 0)
         service.dashboard_fmeca_evaluated = fmeca_evaluated_by_service.get(service.pk, 0)
+        alerts = []
+        if not service.estrategia_id:
+            alerts.append('Servicio sin estrategia')
+        else:
+            if service.estrategia_id not in strategies_with_dimensions:
+                alerts.append('Servicio sin tablas de evaluación')
+            if service.estrategia_id not in strategies_with_matrix:
+                alerts.append('Servicio sin matriz de riesgo')
+        if service.pk not in services_with_equipment:
+            alerts.append('Servicio sin equipos vinculados')
+        service.dashboard_alerts = alerts
 
     activos_evaluados_ACA = (
         models.Equipo.objects
@@ -938,10 +967,18 @@ def model_list(request, model_key):
     config = _get_config(model_key)
     _ensure_direct_crud_allowed(config)
     model = config['model']
-    page_size = 50 if model_key == 'equipo' else 100
+    if model_key == 'equipo':
+        try:
+            requested_page_size = int(request.GET.get('page_size') or 50)
+        except (TypeError, ValueError):
+            requested_page_size = 50
+        page_size = requested_page_size if requested_page_size in {10, 25, 50, 100} else 50
+    else:
+        page_size = 100
     equipment_filter_context = {}
 
     editable_service_ids = set()
+    model_list_stats = []
     if model_key == 'servicio':
         qs = get_accessible_services(request.user)
         if request.user.is_superuser:
@@ -952,6 +989,47 @@ def model_list(request, model_key):
                 for service in qs
                 if get_service_permission(request.user, service)['can_edit']
             }
+        today = timezone.localdate()
+        next_30_days = today + timedelta(days=30)
+        scheduled_qs = qs.exclude(status='cerrado')
+        upcoming_starts = scheduled_qs.filter(fecha_inicio__range=(today, next_30_days))
+        upcoming_finishes = scheduled_qs.filter(fecha_fin__range=(today, next_30_days))
+        nearest_finish = (
+            scheduled_qs
+            .filter(fecha_fin__gte=today)
+            .order_by('fecha_fin', 'codigo_servicio')
+            .values('codigo_servicio', 'fecha_fin')
+            .first()
+        )
+        service_field_order = [
+            'status',
+            'codigo_servicio',
+            'fecha_inicio',
+            'fecha_fin',
+            'creado_en',
+        ]
+        model_list_stats = [
+            {
+                'label': 'Servicios accesibles',
+                'value': qs.count(),
+                'detail': 'Disponibles para tu usuario',
+            },
+            {
+                'label': 'Próximos a iniciar',
+                'value': upcoming_starts.count(),
+                'detail': 'Dentro de los próximos 30 días',
+            },
+            {
+                'label': 'Próximos a finalizar',
+                'value': upcoming_finishes.count(),
+                'detail': 'Dentro de los próximos 30 días',
+            },
+            {
+                'label': 'Más próximo a finalizar',
+                'value': nearest_finish['codigo_servicio'] if nearest_finish else '-',
+                'detail': nearest_finish['fecha_fin'].strftime('%d/%m/%Y') if nearest_finish else 'Sin fechas futuras registradas',
+            },
+        ]
     else:
         qs = model.objects.all()
         if model_key == 'equipo':
@@ -1108,6 +1186,21 @@ def model_list(request, model_key):
         and not (model_key == 'equipo' and field.name == 'nodo')
     ]
 
+    if model_key == 'servicio':
+        service_field_order = [
+            'codigo_servicio',
+            'status',
+            'fecha_inicio',
+            'fecha_fin',
+            'creado_en',
+        ]
+        service_fields_by_name = {field.name: field for field in list_fields}
+        list_fields = [
+            service_fields_by_name[field_name]
+            for field_name in service_field_order
+            if field_name in service_fields_by_name
+        ]
+
     list_query = request.GET.copy()
     list_query.pop('page', None)
     context = {
@@ -1123,6 +1216,7 @@ def model_list(request, model_key):
         'page_size': page_size,
         'list_query_string': list_query.urlencode(),
         'equipment_hierarchy_values': equipment_hierarchy_values,
+        'model_list_stats': model_list_stats,
     }
     context.update(equipment_filter_context)
     return render(request, 'core/model_list.html', context)
@@ -1148,8 +1242,8 @@ def equipment_bulk_example(request, formato):
                 'Descripcion U.T.',
             ],
             'rows': [
-                ['Minera Inventada S.A.', 'Planta Norte', 'Molienda', 'Transporte de pulpa', 'Bombas', 'MIN-PLN-MOL-PUL-BOM-A001', 'A001', 'Bomba de pulpa 1', 'Linea de bombeo de pulpa planta norte'],
-                ['Minera Inventada S.A.', 'Planta Norte', 'Chancado', 'Correas transportadoras', 'Correa principal', 'MIN-PLN-CHA-COR-PRI-A002', 'A002', 'Correa transportadora 2', 'Sistema de transporte de mineral chancado'],
+                ['Minera Inventada S.A.', 'Planta Norte', 'Molienda', 'Transporte de pulpa', 'Bombas', 'MIN-PLN-MOL-PUL-BOM', 'A001', 'Bomba de pulpa 1', 'Linea de bombeo de pulpa planta norte'],
+                ['Minera Inventada S.A.', 'Planta Norte', 'Chancado', 'Correas transportadoras', 'Correa principal', 'MIN-PLN-CHA-COR-PRI', 'A002', 'Correa transportadora 2', 'Sistema de transporte de mineral chancado'],
             ],
         },
         'sap_uts': {
@@ -1213,10 +1307,19 @@ def equipment_bulk_example(request, formato):
     return response
 
 
+def _delete_session_upload_file(path):
+    if not path or not default_storage.exists(path):
+        return
+    try:
+        default_storage.delete(path)
+    except OSError:
+        pass
+
+
 def store_session_upload(request, session_key, uploaded_file, folder):
     previous = request.session.get(session_key)
-    if previous and previous.get('path') and default_storage.exists(previous['path']):
-        default_storage.delete(previous['path'])
+    if previous:
+        _delete_session_upload_file(previous.get('path'))
     safe_name = re.sub(r'[^A-Za-z0-9._-]+', '_', uploaded_file.name or 'archivo.xlsx').strip('_') or 'archivo.xlsx'
     path = default_storage.save(f'tmp_uploads/{folder}/{uuid.uuid4().hex}_{safe_name}', uploaded_file)
     ref = {'path': path, 'name': uploaded_file.name or safe_name}
@@ -1238,8 +1341,8 @@ def open_session_upload(request, session_key):
 def clear_session_upload(request, session_key):
     ref = request.session.pop(session_key, None)
     request.session.modified = True
-    if ref and ref.get('path') and default_storage.exists(ref['path']):
-        default_storage.delete(ref['path'])
+    if ref:
+        _delete_session_upload_file(ref.get('path'))
 
 
 @login_required
@@ -1456,6 +1559,12 @@ def model_delete(request, model_key, pk):
             detail = f' Se eliminaron, desvincularon o limpiaron {removed_children} registros asociados.' if removed_children else ''
             messages.success(request, f'Empresa eliminada correctamente.{detail}')
             return redirect('model_list', model_key=model_key)
+        if model_key == 'equipo':
+            counts = _delete_equipment_related_data([obj.pk])
+            removed_children = sum(counts.values()) - counts.get('equipos', 0)
+            detail = f' Se eliminaron {removed_children} registros asociados.' if removed_children else ''
+            messages.success(request, f'Equipo eliminado correctamente.{detail}')
+            return redirect('model_list', model_key=model_key)
         if model_key == 'estrategia':
             blockers = _strategy_delete_blockers(obj)
             if blockers:
@@ -1476,11 +1585,23 @@ def model_delete(request, model_key, pk):
         obj.delete()
         messages.success(request, 'Registro eliminado correctamente.')
         return redirect('model_list', model_key=model_key)
+    equipment_delete_summary = None
+    if model_key == 'equipo':
+        equipment_delete_summary = {
+            'servicios': models.ServicioEquipo.objects.filter(equipo=obj).count(),
+            'familias': models.FamiliaEquipoItem.objects.filter(equipo=obj).count(),
+            'componentes': models.ComponenteEquipo.objects.filter(equipo=obj).count(),
+            'aca': models.Criticidad.objects.filter(equipo=obj).count(),
+            'rcm': models.RCM.objects.filter(equipo=obj).count(),
+            'pautas': models.Pauta.objects.filter(equipo=obj).count(),
+        }
+
     return render(request, 'core/model_delete.html', {
         'config': config,
         'model_key': model_key,
         'object': obj,
         'can_delete': _can_delete(request, config, obj),
+        'equipment_delete_summary': equipment_delete_summary,
     })
 
 # ---------------------------------------------------------------------------
@@ -1571,6 +1692,19 @@ def _login_coordinate(value, *, minimum, maximum):
     return coordinate.quantize(Decimal('0.000001'))
 
 
+def _login_location_is_valid(request):
+    latitud = request.POST.get('latitud')
+    longitud = request.POST.get('longitud')
+    if not str(latitud or '').strip() or not str(longitud or '').strip():
+        return False
+    try:
+        latitud = Decimal(str(latitud).strip().replace(',', '.'))
+        longitud = Decimal(str(longitud).strip().replace(',', '.'))
+    except (InvalidOperation, AttributeError):
+        return False
+    return Decimal('-90') <= latitud <= Decimal('90') and Decimal('-180') <= longitud <= Decimal('180')
+
+
 def _record_login_location(request, profile):
     if not profile:
         return
@@ -1602,11 +1736,16 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
     form = EmailLoginForm(request.POST or None)
-    if request.method == 'POST' and form.is_valid():
-        login(request, form.cleaned_data['auth_user'])
-        _record_login_location(request, form.cleaned_data.get('perfil_usuario'))
-        messages.success(request, 'Sesión iniciada correctamente.')
-        return redirect(request.GET.get('next') or 'dashboard')
+    if request.method == 'POST':
+        form_is_valid = form.is_valid()
+        location_is_valid = _login_location_is_valid(request)
+        if form_is_valid and not location_is_valid:
+            form.add_error(None, 'Debes autorizar y registrar tu ubicación para iniciar sesión.')
+        if form_is_valid and location_is_valid:
+            login(request, form.cleaned_data['auth_user'])
+            _record_login_location(request, form.cleaned_data.get('perfil_usuario'))
+            messages.success(request, 'Sesión iniciada correctamente.')
+            return redirect(request.GET.get('next') or 'dashboard')
     return render(request, 'core/login.html', {'form': form})
 
 
@@ -1865,7 +2004,7 @@ def _build_homologated_matrix_preview(matriz):
             }
 
     preview = _matrix_preview_from_defs(
-        'impacto',
+        'probabilidad',
         prob_defs,
         impact_defs,
         cell_payload,
@@ -1897,7 +2036,7 @@ def _build_matrix_original_preview(matriz):
         for cell in matriz.celdas.select_related('probabilidad', 'impacto_nivel').all()
     }
     return _matrix_preview_from_defs(
-        matriz.eje_horizontal or 'impacto',
+        'probabilidad',
         prob_defs,
         impact_defs,
         existing_cells,
@@ -1969,7 +2108,15 @@ def _catalog_row_boolean(row):
 
 
 def _calc_slug(value):
-    return re.sub(r'[^a-z0-9]+', '_', (value or '').strip().lower()).strip('_')
+    text = str(value or '').strip()
+    if 'Ã' in text or 'Â' in text:
+        try:
+            text = text.encode('latin1').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    text = unicodedata.normalize('NFKD', text.lower())
+    text = ''.join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r'[^a-z0-9]+', '_', text).strip('_')
 
 
 def _matrix_legend_config(matriz):
@@ -1985,6 +2132,15 @@ def _matrix_resolution_mode(matriz):
     mode = (_matrix_legend_config(matriz).get('modo_resolucion') or '').strip()
     valid_modes = {choice[0] for choice in models.MatrizRiesgo.RESOLUCION_CHOICES}
     return mode if mode in valid_modes else models.MatrizRiesgo.RESOLUCION_EXACTA
+
+
+def _matrix_generation_config(matriz):
+    config = _matrix_legend_config(matriz).get('generacion') if matriz else {}
+    return config if isinstance(config, dict) else {}
+
+
+def _matrix_generation_mode(matriz):
+    return str(_matrix_generation_config(matriz).get('modo') or models.MatrizRiesgo.MODO_MANUAL).strip()
 
 
 def _matrix_result_from_axis_values(prob_val, impact_val):
@@ -2028,9 +2184,69 @@ def _matrix_cell_for_result_floor(matriz, result_value):
     ).order_by('-resultado_num', '-id').first()
 
 
+def _matrix_range_level_for_value(levels, ranges, value):
+    value = _decimal_or_none(value)
+    if value is None:
+        return None
+    ordered_levels = list(levels)
+    if not ordered_levels:
+        return None
+    normalized_ranges = ranges if isinstance(ranges, list) else []
+    for idx, level in enumerate(ordered_levels):
+        if idx >= len(normalized_ranges):
+            break
+        range_item = normalized_ranges[idx] if isinstance(normalized_ranges[idx], dict) else {}
+        start = _decimal_or_none(range_item.get('desde'))
+        end = _decimal_or_none(range_item.get('hasta'))
+        if end is None:
+            continue
+        if start is None:
+            start = Decimal('0')
+        if range_item.get('desde_exclusivo') is True:
+            lower_match = value > start
+        else:
+            lower_match = value >= start
+        if lower_match and value <= end:
+            return level
+    last_range = normalized_ranges[-1] if normalized_ranges and isinstance(normalized_ranges[-1], dict) else {}
+    first_range = normalized_ranges[0] if normalized_ranges and isinstance(normalized_ranges[0], dict) else {}
+    last_end = _decimal_or_none(last_range.get('hasta')) if last_range else None
+    if last_end is not None and value > last_end:
+        return ordered_levels[-1]
+    first_start = _decimal_or_none(first_range.get('desde')) if first_range else None
+    if first_start is not None and value < first_start:
+        return ordered_levels[0]
+    return None
+
+
+def _matrix_cell_for_auto_axis_ranges(matriz, prob_val, impact_val):
+    config = _matrix_generation_config(matriz)
+    if config.get('modo') != models.MatrizRiesgo.MODO_AUTOMATICA_MAXIMO_TEORICO:
+        return None
+    prob_levels = matriz.niveles_probabilidad.order_by('orden_visual', 'id')
+    impact_levels = matriz.niveles_impacto.order_by('orden_visual', 'id')
+    prob_level = _matrix_range_level_for_value(prob_levels, config.get('rangos_eje_x'), prob_val)
+    impact_level = _matrix_range_level_for_value(impact_levels, config.get('rangos_eje_y'), impact_val)
+    if not prob_level or not impact_level:
+        return None
+    return models.MatrizRiesgoCelda.objects.filter(
+        matriz=matriz,
+        probabilidad=prob_level,
+        impacto_nivel=impact_level,
+    ).select_related(
+        'probabilidad',
+        'impacto_nivel',
+    ).order_by('id').first()
+
+
 def _matrix_cell_for_axis_values(matriz, prob_val, impact_val):
     if not matriz:
         return None
+    if _matrix_generation_mode(matriz) == models.MatrizRiesgo.MODO_AUTOMATICA_MAXIMO_TEORICO:
+        ranged_cell = _matrix_cell_for_auto_axis_ranges(matriz, prob_val, impact_val)
+        if ranged_cell:
+            return ranged_cell
+
     if prob_val is not None and impact_val is not None:
         exact_cell = models.MatrizRiesgoCelda.objects.filter(
             matriz=matriz,
@@ -2195,10 +2411,11 @@ def _safe_legend_items(raw_items):
     return cleaned
 
 
-def _matrix_legend_payload(legend_items, modo_resolucion=None):
+def _matrix_legend_payload(legend_items, modo_resolucion=None, criticality_rules=None):
     return {
         'items': legend_items or [],
         'modo_resolucion': modo_resolucion or models.MatrizRiesgo.RESOLUCION_EXACTA,
+        'reglas_criticidad': criticality_rules or [],
     }
 
 
@@ -2378,7 +2595,7 @@ def _next_strategy_order(estrategia):
 
 
 def _matrix_axis_prefix(axis):
-    return 'Probabilidad' if axis == 'probabilidad' else 'Consecuencia'
+    return 'Eje X' if axis == 'probabilidad' else 'Eje Y'
 
 
 def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
@@ -2387,8 +2604,10 @@ def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
     name = (estrategia_dimension.dimension.nombre or '').strip().lower()
     prefixes = []
     if axis in (None, 'probabilidad'):
+        prefixes.append('eje x - ')
         prefixes.append('probabilidad - ')
     if axis in (None, 'impacto'):
+        prefixes.append('eje y - ')
         prefixes.append('impacto - ')
         prefixes.append('consecuencia - ')
     return any(name.startswith(prefix) for prefix in prefixes)

@@ -12,10 +12,11 @@ class ServiceAccessGrantForm(forms.Form):
         initial='view',
     )
 
-    def __init__(self, *args, service=None, **kwargs):
+    def __init__(self, *args, service=None, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = service
-        self.fields['usuario'].queryset = get_users_for_service_access(service) if service else app_models.Usuario.objects.none()
+        self.user = user
+        self.fields['usuario'].queryset = get_users_for_service_access(service, user=user) if service else app_models.Usuario.objects.none()
         self.fields['usuario'].empty_label = 'Selecciona un usuario'
         self.fields['usuario'].help_text = 'Solo los usuarios agregados aqui podran ver el servicio. Los de nivel editar tambien podran modificarlo.'
         self.fields['nivel'].help_text = 'Ver: acceso de lectura. Editar: acceso de lectura, registro y administracion del servicio.'

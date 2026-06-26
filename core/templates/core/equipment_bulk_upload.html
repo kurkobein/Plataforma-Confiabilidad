@@ -2,12 +2,12 @@
 {% block title %}Carga masiva de equipos | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
-    <div>
-        <h2>Carga masiva de equipos</h2>
-        <p>Importa ubicaciones tecnicas y equipos desde Excel, creando la jerarquia anidada cuando no exista.</p>
-    </div>
-    <div class="actions">
-        <a class="btn" href="{% url 'model_list' 'equipo' %}">Volver</a>
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'model_list' 'equipo' %}" aria-label="Volver" title="Volver"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Carga masiva de equipos</h2>
+            <p>Importa ubicaciones tecnicas y equipos desde Excel, creando la jerarquia anidada cuando no exista.</p>
+        </div>
     </div>
 </div>
 
@@ -62,7 +62,7 @@
         </form>
     </div>
 
-    <div class="card hierarchy-side-card">
+    <div class="card hierarchy-side-card bulk-format-card">
         <h3 class="card-title">Formatos soportados</h3>
         <p class="muted">
             La primera hoja, o la hoja indicada, puede usar encabezados flexibles. El sistema detecta columnas equivalentes aunque no tengan exactamente el mismo nombre.

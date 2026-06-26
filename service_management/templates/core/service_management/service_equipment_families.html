@@ -31,7 +31,7 @@
             <tbody>
                 {% for familia in familias %}
                     <tr>
-                        <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ familia.nombre }}" data-copy="{{ familia.nombre }}">{{ familia.nombre }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ familia.nombre }}" data-copy="{{ familia.nombre }}">{{ familia.nombre }}</span></td>
                         <td>{{ familia.items.count }}</td>
                         <td>{% if familia.activa %}<span class="pill-success">Activa</span>{% else %}<span class="pill-soft">Inactiva</span>{% endif %}</td>
                         <td>
@@ -39,7 +39,7 @@
                                 <summary>Ver equipos</summary>
                                 <div class="family-equipment-list">
                                     {% for item in familia.items.all %}
-                                        <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ item.equipo.ut_display }}" data-copy="{{ item.equipo.ut_display }}">
+                                        <span class="cell-ellipsis copy-cell" title="{{ item.equipo.ut_display }}" data-copy="{{ item.equipo.ut_display }}">
                                             {{ item.equipo.tag_display }} · {{ item.equipo.nombre_equipo }}
                                         </span>
                                     {% empty %}

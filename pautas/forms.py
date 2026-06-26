@@ -82,7 +82,7 @@ class GenerarPautasForm(forms.Form):
         queryset=app_models.PlantillaPauta.objects.none(),
         required=False,
         label='Plantilla Excel',
-        empty_label='Generar sin plantilla',
+        empty_label='Seleccionar plantilla',
     )
     incluir_tareas_primarias = forms.BooleanField(
         required=False,

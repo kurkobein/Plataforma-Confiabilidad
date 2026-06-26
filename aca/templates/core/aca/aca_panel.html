@@ -79,11 +79,11 @@
                 <div class="progress-range-filter" data-progress-range-filter>
                     <div class="progress-range-head">
                         <label>Avance</label>
-                        <strong data-progress-range-label>0% - 100%</strong>
+                        <strong data-progress-range-label>{{ panel_avance_min|default:0 }}% - {{ panel_avance_max|default:100 }}%</strong>
                     </div>
                     <div class="progress-range-slider">
-                        <input type="range" name="avance_min" min="0" max="100" value="0" step="1" data-progress-min>
-                        <input type="range" name="avance_max" min="0" max="100" value="100" step="1" data-progress-max>
+                        <input type="range" name="avance_min" min="0" max="100" value="{{ panel_avance_min|default:0 }}" step="1" data-progress-min>
+                        <input type="range" name="avance_max" min="0" max="100" value="{{ panel_avance_max|default:100 }}" step="1" data-progress-max>
                     </div>
                 </div>
             </div>
@@ -93,12 +93,13 @@
                         <summary>
                             <span>{{ level.name }}</span>
                             <small>{{ level.selected_ids|length }} seleccionados</small>
+                            <i class="bi bi-chevron-down"></i>
                         </summary>
                         <div class="aca-panel-filter-menu">
                             {% for node in level.nodes %}
                                 <label class="aca-panel-checkbox">
                                     <input type="checkbox" name="panel_nodes" value="{{ node.pk }}" data-panel-level-id="{{ level.id }}" data-panel-hierarchy-checkbox {% if node.pk in level.selected_ids %}checked{% endif %}>
-                                    <span>{{ node.codigo }}{% if node.nombre %} - {{ node.nombre }}{% endif %}</span>
+                                    <span>{{ node.panel_label|default:node.nombre }}</span>
                                 </label>
                             {% empty %}
                                 <span class="muted">Sin valores disponibles para este nivel con el filtro actual.</span>
@@ -143,18 +144,23 @@
         {% endif %}
     </details>
 
-    <div class="card">
-        <h3 class="card-title">Registros filtrados</h3>
-        <div class="table-wrap">
-            <table id="aca-panel-records-table" class="datatable display compact-table" data-column-filters="true" data-aca-panel-records-table>
+    <h3 class="card-title aca-table-heading">Registros filtrados</h3>
+    <div class="table-wrap aca-datatable-wrap">
+            <table id="aca-panel-records-table"
+                   class="datatable display compact-table aca-panel-records-table"
+                   data-page-length="25"
+                   data-scroll-y="52vh"
+                   data-scroll-x="true"
+                   data-scroll-collapse="false"
+                   data-column-filters="true"
+                   data-aca-panel-records-table>
                 <thead>
                     <tr>
                         <th>ID</th>
                         <th>Avance</th>
-                        <th>UT</th>
+                        <th>Fecha</th>
+                        <th>Ubicación Técnica</th>
                         <th>Descripción U.Técnica</th>
-                        <th>Fecha creado</th>
-                        <th>Última modificación</th>
                         <th>TAG</th>
                         <th></th>
                     </tr>
@@ -171,10 +177,13 @@
                                     <span class="aca-progress-pill-label">{{ row.progress_label }}</span>
                                 </span>
                             </td>
+                            <td data-order="{{ row.date_order }}">
+                                <div class="date-inline"><small class="muted">Creación:</small> {{ row.created|default:'-' }}</div>
+                                <div class="date-inline"><small class="muted">Editado:</small> {{ row.updated|default:'-' }}</div>
+                            </td>
                             <td><span class="cell-ellipsis" title="{{ row.ut }}">{{ row.ut }}</span></td>
                             <td><span class="cell-ellipsis" title="{{ row.descripcion_ut }}">{{ row.descripcion_ut|default:'-' }}</span></td>
-                            <td>{{ row.created }}</td>
-                            <td>{{ row.updated }}</td>
+                            
                             <td>{{ row.tag }}</td>
                             <td>
                                 <button class="btn" type="button" data-aca-detail-open="{{ row.id }}" aria-label="Ver detalle ACA" title="Ver detalle">
@@ -183,11 +192,10 @@
                             </td>
                         </tr>
                     {% empty %}
-                        <tr><td colspan="8" class="muted">No hay registros para los filtros seleccionados.</td></tr>
+                        <tr><td colspan="7" class="muted">No hay registros para los filtros seleccionados.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
     </div>
 
     <div class="aca-detail-templates" hidden>
@@ -211,12 +219,17 @@
                         <div><small>Descripción U.Técnica</small><strong>{{ row.descripcion_ut|default:'-' }}</strong></div>
                         <div><small>Fecha creado</small><strong>{{ row.fecha_creado|default:'-' }}</strong></div>
                         <div><small>Última modificación</small><strong>{{ row.ultimo_avance|default:'-' }}</strong></div>
-                        <div><small>Valor criticidad equipo</small><strong>{{ row.valor_criticidad_equipo|default:'-' }}</strong></div>
                         <div class="aca-detail-criticality"{% if row.criticidad_final_color %} style="--criticality-color: {{ row.criticidad_final_color }}; --criticality-text-color: {{ row.criticidad_final_text_color }};"{% endif %}>
                             <small>Criticidad final</small>
                             <strong>{{ row.criticidad_final|default:'-' }}</strong>
                         </div>
                     </div>
+                    {% if row.regla_criticidad %}
+                        <div class="aca-detail-note">
+                            <small>Regla especial aplicada</small>
+                            <p>Base: {{ row.criticidad_base|default:'-' }} · {{ row.regla_criticidad }} · Final: {{ row.criticidad_final|default:'-' }}</p>
+                        </div>
+                    {% endif %}
                     {% if row.observacion %}
                         <div class="aca-detail-note"><small>Observación</small><p>{{ row.observacion }}</p></div>
                     {% endif %}
@@ -228,7 +241,7 @@
                                 {% if dimension.value %}
                                     <strong>{{ dimension.value }}</strong>
                                 {% elif dimension.comment %}
-                                    <strong class="aca-dimension-comment copy-cell" title="Click para copiar: {{ dimension.comment }}" data-copy="{{ dimension.comment }}">{{ dimension.comment }}</strong>
+                                    <strong class="aca-dimension-comment copy-cell" title="{{ dimension.comment }}" data-copy="{{ dimension.comment }}">{{ dimension.comment }}</strong>
                                 {% else %}
                                     <strong>-</strong>
                                 {% endif %}
@@ -254,7 +267,12 @@
     </div>
 {% else %}
     <div class="table-wrap">
-        <table class="datatable display compact-table">
+        <table class="datatable display compact-table"
+               data-page-length="25"
+               data-scroll-y="52vh"
+               data-scroll-x="true"
+               data-scroll-collapse="false"
+               data-column-filters="true">
             <thead>
                 <tr>
                     <th>Servicio</th>
@@ -285,7 +303,6 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const panelForm = document.querySelector('[data-aca-panel-filter-form]');
     const levelFilters = Array.from(document.querySelectorAll('[data-panel-level-filter]'));
     const hierarchyInputs = Array.from(document.querySelectorAll('[data-panel-hierarchy-checkbox]'));
     const rangeFilter = document.querySelector('[data-progress-range-filter]');
@@ -296,8 +313,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const table = document.querySelector('[data-aca-panel-records-table]');
     const utFilter = document.querySelector('[data-panel-text-filter="ut"]');
     const descriptionFilter = document.querySelector('[data-panel-text-filter="description"]');
-    const dirtyLevelFilters = new Set();
-    let submitTimer = null;
 
     function closeAcaDetailModal() {
         const modal = document.getElementById('aca-record-modal');
@@ -310,11 +325,23 @@ document.addEventListener('DOMContentLoaded', function () {
     function syncLevelVisibility() {
         let previousLevelHasSelection = true;
         levelFilters.forEach(function (filter, index) {
-            if (index > 0) {
-                filter.classList.toggle('is-panel-filter-hidden', !previousLevelHasSelection);
-                if (!previousLevelHasSelection) {
-                    filter.open = false;
-                }
+            const visibleCheckboxes = Array.from(filter.querySelectorAll('[data-panel-hierarchy-checkbox]'))
+                .filter(function (input) {
+                    return !input.closest('label')?.hidden;
+                });
+            if (!previousLevelHasSelection || !visibleCheckboxes.length) {
+                filter.classList.add('is-panel-filter-hidden');
+                filter.open = false;
+                visibleCheckboxes.forEach(function (input) { input.checked = false; });
+                previousLevelHasSelection = false;
+                return;
+            }
+            if (visibleCheckboxes.length === 1) {
+                visibleCheckboxes[0].checked = true;
+                filter.classList.add('is-panel-filter-hidden');
+                filter.open = false;
+            } else {
+                filter.classList.toggle('is-panel-filter-hidden', index > 0 && !previousLevelHasSelection);
             }
             const checkedCount = filter.querySelectorAll('[data-panel-hierarchy-checkbox]:checked').length;
             const countLabel = filter.querySelector('summary small');
@@ -323,18 +350,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             previousLevelHasSelection = previousLevelHasSelection && checkedCount > 0;
         });
-    }
-
-    function scheduleHierarchySubmit() {
-        if (!panelForm) return;
-        window.clearTimeout(submitTimer);
-        submitTimer = window.setTimeout(function () {
-            if (panelForm.requestSubmit) {
-                panelForm.requestSubmit();
-            } else {
-                panelForm.submit();
-            }
-        }, 350);
     }
 
     function syncProgressRange() {
@@ -367,59 +382,25 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!jQuery.fn.dataTable.isDataTable(table)) return;
         const dataTable = jQuery(table).DataTable();
         const tableId = table.id;
-        const levelOrder = new Map();
-        levelFilters.forEach(function (filter, index) {
-            filter.querySelectorAll('[data-panel-hierarchy-checkbox]').forEach(function (input) {
-                if (input.dataset.panelLevelId) {
-                    levelOrder.set(input.dataset.panelLevelId, index);
-                }
-            });
-        });
-
-        function selectedDeepestNodeIds() {
-            const checked = hierarchyInputs.filter(function (input) {
-                return input.checked;
-            });
-            if (!checked.length) return [];
-            const deepestIndex = checked.reduce(function (current, input) {
-                const index = levelOrder.get(input.dataset.panelLevelId) ?? -1;
-                return Math.max(current, index);
-            }, -1);
-            return checked
-                .filter(function (input) {
-                    return (levelOrder.get(input.dataset.panelLevelId) ?? -1) === deepestIndex;
-                })
-                .map(function (input) {
-                    return input.value;
-                });
-        }
 
         jQuery.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
             if (settings.nTable.id !== tableId) return true;
             const rowNode = dataTable.row(dataIndex).node();
             const utText = (rowNode?.dataset.panelUt || '').toLowerCase();
             const descriptionText = (rowNode?.dataset.panelDescription || '').toLowerCase();
-            const rowNodePath = (rowNode?.dataset.panelNodePath || '').split(',').filter(Boolean);
             const rowProgress = Number(rowNode?.dataset.panelProgress || 0);
             const minProgress = Number(minRange?.value || 0);
             const maxProgress = Number(maxRange?.value || 100);
             const utNeedle = (utFilter?.value || '').trim().toLowerCase();
             const descriptionNeedle = (descriptionFilter?.value || '').trim().toLowerCase();
-            const selectedNodes = selectedDeepestNodeIds();
             if (utNeedle && !utText.includes(utNeedle)) return false;
             if (descriptionNeedle && !descriptionText.includes(descriptionNeedle)) return false;
             if (rowProgress < minProgress || rowProgress > maxProgress) return false;
-            if (selectedNodes.length && !selectedNodes.some(function (nodeId) { return rowNodePath.includes(nodeId); })) return false;
             return true;
         });
 
         [utFilter, descriptionFilter].forEach(function (input) {
             input?.addEventListener('input', function () {
-                dataTable.draw();
-            });
-        });
-        hierarchyInputs.forEach(function (input) {
-            input.addEventListener('change', function () {
                 dataTable.draw();
             });
         });
@@ -433,10 +414,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     hierarchyInputs.forEach(function (input) {
         input.addEventListener('change', function () {
-            const levelFilter = input.closest('[data-panel-level-filter]');
-            if (levelFilter) {
-                dirtyLevelFilters.add(levelFilter);
-            }
             syncLevelVisibility();
         });
     });
@@ -444,10 +421,6 @@ document.addEventListener('DOMContentLoaded', function () {
     levelFilters.forEach(function (filter) {
         filter.addEventListener('toggle', function () {
             if (!filter.open) {
-                if (dirtyLevelFilters.has(filter)) {
-                    dirtyLevelFilters.delete(filter);
-                    scheduleHierarchySubmit();
-                }
                 return;
             }
             levelFilters.forEach(function (otherFilter) {

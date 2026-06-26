@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block title %}{{ form_title|default:'Nuevo registro RCM/FMECA' }} | {{ service.codigo_servicio }}{% endblock %}
+{% block title %}{{ form_title|default:'Nuevo registro FMECA' }} | {{ service.codigo_servicio }}{% endblock %}
 {% block extra_head %}
 <style>
     .task-list {
@@ -54,6 +54,21 @@
     .dynamic-task-fields {
         margin-top: 12px;
     }
+
+    .rcm-criticality-inline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rcm-criticality-inline .btn {
+        flex: 0 0 auto;
+    }
+
+    .rcm-criticality-control {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
 </style>
 {% endblock %}
 {% block content %}
@@ -61,8 +76,8 @@
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_fmeca_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-        <h2>{{ form_title|default:'Nuevo registro RCM/FMECA' }}</h2>
-        <p>{{ service.codigo_servicio }} · FMEA/FMECA</p>
+        <h2>{{ form_title|default:'Nuevo registro FMECA' }}</h2>
+        <p>{{ service.codigo_servicio }} · FMECA</p>
     </div>
     </div>
 </div>
@@ -178,10 +193,36 @@
     </div>
 
     <div class="card">
-        <h3 class="card-title">FMEA/FMECA</h3>
+        <h3 class="card-title">FMECA</h3>
         <div class="form-field">
             <label for="{{ form.criticidad.id_for_label }}">{{ form.criticidad.label }}</label>
-            {{ form.criticidad }}
+            <div class="rcm-criticality-inline">
+                <button class="btn" type="button" id="rcm-aca-criticality-toggle" aria-pressed="false" title="Usar criticidad ACA">
+                    <i class="bi bi-arrow-left-right"></i>
+                </button>
+                <div class="rcm-criticality-control">
+                    {{ form.criticidad }}
+                    <select id="rcm-aca-criticality-select" class="input-control" hidden>
+                        <option value="">Selecciona una criticidad ACA</option>
+                        {% for item in service_aca_criticality_payload %}
+                            <option value="{{ item.value }}"
+                                    data-aca-id="{{ item.id }}"
+                                    data-equipo-id="{{ item.equipo_id }}"
+                                    data-tag="{{ item.tag }}"
+                                    data-ut="{{ item.ut }}"
+                                    data-ut-segment="{{ item.ut_segment }}"
+                                    data-numeric-value="{{ item.numeric_value }}"
+                                    data-classification="{{ item.classification }}"
+                                    hidden>
+                                {{ item.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <small class="muted" id="rcm-aca-criticality-status">
+                        Selecciona un equipo para buscar registros ACA.
+                    </small>
+                </div>
+            </div>
             {% if form.criticidad.help_text %}<small class="muted">{{ form.criticidad.help_text }}</small>{% endif %}
             {% if form.criticidad.errors %}<div class="form-error">{{ form.criticidad.errors }}</div>{% endif %}
         </div>
@@ -200,18 +241,22 @@
                             <div class="option-compact-row">
                                 <div class="form-field">
                                     <label for="{{ item.field.id_for_label }}">{{ item.field.label }}</label>
-                                    {{ item.field }}
+                                    {% if item.option_rows %}
+                                        <div class="hidden-picker-select">{{ item.field }}</div>
+                                        <button type="button"
+                                                class="input-control picker-display evaluation-table-trigger"
+                                                data-option-toggle
+                                                data-panel-id="rcm-impact-panel-{{ forloop.counter0 }}"
+                                                data-option-target="{{ item.field.id_for_label }}"
+                                                aria-expanded="false">
+                                            <span data-picker-display-for="{{ item.field.id_for_label }}" data-picker-placeholder="Selecciona desde la tabla">Selecciona desde la tabla</span>
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                    {% else %}
+                                        {{ item.field }}
+                                    {% endif %}
                                     {% if item.field.errors %}<div class="form-error">{{ item.field.errors }}</div>{% endif %}
                                 </div>
-                                {% if item.option_rows %}
-                                    <button type="button"
-                                            class="btn btn-toggle-option"
-                                            data-option-toggle
-                                            data-panel-id="rcm-impact-panel-{{ forloop.counter0 }}"
-                                            aria-expanded="false">
-                                        Ver tabla
-                                    </button>
-                                {% endif %}
                             </div>
                             {% if item.option_rows %}
                                 <div id="rcm-impact-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
@@ -225,7 +270,10 @@
                                             </thead>
                                             <tbody>
                                                 {% for row in item.option_rows %}
-                                                    <tr>
+                                                    <tr data-rcm-option-row
+                                                        data-target="{{ item.field.id_for_label }}"
+                                                        data-value="{{ row.pk }}"
+                                                        data-numeric="{{ row.value_numeric }}">
                                                         {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
                                                         <td>
                                                             <button type="button"
@@ -259,7 +307,7 @@
             <div>
                 <h3 class="card-title">Tareas RCM</h3>
             </div>
-            <button class="btn" type="button" id="add-rcm-task" {% if not task_types_available %}disabled{% endif %}>+ Tarea</button>
+            <button class="btn btn-primary" type="button" id="add-rcm-task" {% if not task_types_available %}disabled{% endif %}>+ Tarea</button>
         </div>
         {{ task_formset.management_form }}
         {% if task_formset.non_form_errors %}<div class="form-error form-error-block">{{ task_formset.non_form_errors }}</div>{% endif %}
@@ -439,6 +487,7 @@
 {{ service_equipment_payload|json_script:"rcm-equipment-data" }}
 {{ service_equipment_endpoints|json_script:"rcm-equipment-endpoints" }}
 {{ service_family_payload|json_script:"rcm-family-data" }}
+{{ service_aca_criticality_payload|json_script:"rcm-aca-criticality-data" }}
 {{ form.dimension_runtime_payload|json_script:"rcm-dimension-runtime" }}
 <script id="rcm-task-config" type="application/json">{{ task_field_config_payload|safe }}</script>
 <script>
@@ -446,10 +495,31 @@
     const dataNode = document.getElementById('rcm-equipment-data');
     const endpointsNode = document.getElementById('rcm-equipment-endpoints');
     const familyDataNode = document.getElementById('rcm-family-data');
+    const acaCriticalityNode = document.getElementById('rcm-aca-criticality-data');
     const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
     const endpoints = endpointsNode ? JSON.parse(endpointsNode.textContent || '{}') : {};
     const familyPayload = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
+    const acaCriticalities = acaCriticalityNode ? JSON.parse(acaCriticalityNode.textContent || '[]') : [];
     const familyById = Object.fromEntries(familyPayload.map(item => [String(item.id), item]));
+    const acaCriticalitiesByEquipment = new Map();
+    function technicalSegment(value) {
+        const text = String(value || '').trim();
+        const parts = text.split('-').filter(Boolean);
+        return (parts.length ? parts[parts.length - 1] : text).trim().toUpperCase();
+    }
+    function addAcaCriticalityKey(key, item) {
+        key = String(key || '').trim().toUpperCase();
+        if (!key) return;
+        if (!acaCriticalitiesByEquipment.has(key)) acaCriticalitiesByEquipment.set(key, []);
+        acaCriticalitiesByEquipment.get(key).push(item);
+    }
+    acaCriticalities.forEach(function (item) {
+        addAcaCriticalityKey('id:' + item.equipo_id, item);
+        addAcaCriticalityKey('tag:' + item.tag, item);
+        addAcaCriticalityKey('ut:' + item.ut, item);
+        addAcaCriticalityKey('seg:' + item.ut_segment, item);
+        addAcaCriticalityKey('seg:' + technicalSegment(item.ut), item);
+    });
     const levels = payload.levels || [];
     const levelWrap = document.getElementById('rcm-equipment-level-filters');
     const searchInput = document.getElementById('rcm-equipment-search');
@@ -465,6 +535,11 @@
     const equipmentPickerField = document.getElementById('rcm-equipment-picker-field');
     const equipmentDetailGrid = document.getElementById('rcm-equipment-detail-grid');
     const scopeRadios = Array.from(document.querySelectorAll('input[name="rcm_scope"]'));
+    const criticidadInput = document.getElementById('{{ form.criticidad.id_for_label }}');
+    const acaCriticalityToggle = document.getElementById('rcm-aca-criticality-toggle');
+    const acaCriticalitySelect = document.getElementById('rcm-aca-criticality-select');
+    const acaCriticalityStatus = document.getElementById('rcm-aca-criticality-status');
+    let acaCriticalityMode = 'manual';
     const selected = {
         ut: document.getElementById('rcm-equipment-ut'),
         description: document.getElementById('rcm-equipment-description'),
@@ -472,8 +547,9 @@
         tag: document.getElementById('rcm-equipment-tag'),
     };
     const resultMap = new Map();
-    const selectors = [];
+    let autoSelectedNodeId = '';
     let searchTimer = null;
+    let currentEquipmentItem = null;
 
     function setScope(scope) {
         const familyMode = scope === 'familia';
@@ -549,11 +625,92 @@
     }
 
     function setEquipment(item) {
+        currentEquipmentItem = item || null;
         hiddenEquipment.value = item ? item.id : '';
         selected.ut.value = item ? (item.ut || '') : '';
         selected.description.value = item ? (item.descripcion_ut || '') : '';
         selected.name.value = item ? (item.equipo || '') : '';
         selected.tag.value = item ? (item.tag || '') : '';
+
+        renderAcaCriticalityOptions(item);
+
+        const matches = acaCriticalitiesForEquipment(item);
+        acaCriticalityMode = matches.length ? 'aca' : 'manual';
+        syncAcaCriticalityMode();
+    }
+
+    function currentEquipmentForCriticality() {
+        return currentEquipmentItem || {
+            id: hiddenEquipment ? hiddenEquipment.value : '',
+            ut: selected.ut ? selected.ut.value : '',
+            tag: selected.tag ? selected.tag.value : '',
+            equipo: selected.name ? selected.name.value : '',
+        };
+    }
+
+    function acaCriticalitiesForEquipment(item) {
+        item = item || {};
+        const keys = [
+            'id:' + (item.id || ''),
+            'tag:' + (item.tag || ''),
+            'ut:' + (item.ut || ''),
+            'seg:' + technicalSegment(item.ut || ''),
+            'seg:' + technicalSegment(item.tag || ''),
+        ];
+        const seen = new Set();
+        const matches = [];
+        keys.forEach(function (key) {
+            (acaCriticalitiesByEquipment.get(String(key || '').trim().toUpperCase()) || []).forEach(function (crit) {
+                if (seen.has(String(crit.id))) return;
+                seen.add(String(crit.id));
+                matches.push(crit);
+            });
+        });
+        return matches;
+    }
+
+    function renderAcaCriticalityOptions(item) {
+        if (!acaCriticalitySelect || !acaCriticalityStatus) return;
+        item = item || currentEquipmentForCriticality();
+        const items = acaCriticalitiesForEquipment(item);
+        const allowedIds = new Set(items.map(function (crit) { return String(crit.id); }));
+        Array.from(acaCriticalitySelect.options).forEach(function (option, index) {
+            if (index === 0) {
+                option.hidden = false;
+                option.disabled = false;
+                return;
+            }
+            const visible = allowedIds.has(String(option.dataset.acaId || ''));
+            option.hidden = !visible;
+            option.disabled = !visible;
+        });
+        if (acaCriticalitySelect.selectedOptions[0] && acaCriticalitySelect.selectedOptions[0].hidden) {
+            acaCriticalitySelect.value = '';
+        }
+        if (!item || !(item.id || item.ut || item.tag)) {
+            acaCriticalityStatus.textContent = 'Selecciona un equipo para buscar registros ACA.';
+            acaCriticalitySelect.disabled = true;
+            return;
+        }
+        if (!items.length) {
+            acaCriticalityStatus.textContent = 'Este equipo no tiene registros ACA con valor de criticidad. Ingresa criticidad manualmente.';
+            acaCriticalitySelect.disabled = true;
+            return;
+        }
+        acaCriticalitySelect.disabled = false;
+        acaCriticalityStatus.textContent = `${items.length} criticidad${items.length === 1 ? '' : 'es'} ACA disponible${items.length === 1 ? '' : 's'} para este equipo.`;
+    }
+
+    function syncAcaCriticalityMode() {
+        const usingAca = acaCriticalityMode === 'aca';
+        if (criticidadInput) criticidadInput.hidden = usingAca;
+        if (acaCriticalitySelect) acaCriticalitySelect.hidden = !usingAca;
+        if (acaCriticalityToggle) {
+            acaCriticalityToggle.setAttribute('aria-pressed', usingAca ? 'true' : 'false');
+            acaCriticalityToggle.title = usingAca ? 'Ingresar criticidad manual' : 'Usar criticidad ACA';
+            const icon = acaCriticalityToggle.querySelector('i');
+            if (icon) icon.className = usingAca ? 'bi bi-keyboard' : 'bi bi-arrow-left-right';
+        }
     }
 
     function clearResults(message) {
@@ -563,50 +720,102 @@
     }
 
     function selectedNodeId() {
-        for (let index = selectors.length - 1; index >= 0; index -= 1) {
-            if (selectors[index].value) {
-                return selectors[index].value;
-            }
+        const selects = Array.from(levelWrap.querySelectorAll('[data-rcm-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
         }
-        return '';
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return autoSelectedNodeId || '';
     }
 
-    function loadNodes(levelIndex, parentId) {
-        if (!endpoints.nodes || !selectors[levelIndex]) {
-            return;
-        }
-        const select = selectors[levelIndex];
-        select.disabled = true;
-        select.innerHTML = '<option value="">Cargando...</option>';
+    function loadNodes(parentId) {
+        if (!endpoints.nodes) return Promise.resolve([]);
         const url = new URL(endpoints.nodes, window.location.origin);
         if (parentId) {
             url.searchParams.set('parent_id', parentId);
         }
-        fetch(url)
+        return fetch(url)
             .then(response => response.json())
-            .then(data => {
-                const level = levels[levelIndex];
-                const nodes = (data.nodes || []).filter(node => Number(node.level_id) === Number(level.id));
-                select.innerHTML = '<option value="">Todos</option>';
-                nodes.forEach(node => {
-                    const option = document.createElement('option');
-                    option.value = node.id;
-                    option.textContent = node.label;
-                    select.appendChild(option);
-                });
-                select.disabled = nodes.length === 0;
-            })
-            .catch(() => {
-                select.innerHTML = '<option value="">Sin datos</option>';
-                select.disabled = true;
-            });
+            .then(data => data.nodes || []);
     }
 
-    function resetLowerLevels(startIndex) {
-        for (let index = startIndex; index < selectors.length; index += 1) {
-            selectors[index].innerHTML = '<option value="">Todos</option>';
-            selectors[index].disabled = true;
+    function removeLowerLevelFields(levelIndex) {
+        if (!levelWrap) return;
+        levelWrap.querySelectorAll('[data-rcm-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) {
+                field.remove();
+            }
+        });
+    }
+
+    async function renderFilterLevel(parentId, levelIndex, skipLeadingSingles) {
+        if (!levelWrap || levelIndex >= levels.length) return;
+        removeLowerLevelFields(levelIndex);
+
+        const level = levels[levelIndex];
+        let nodes = [];
+        try {
+            nodes = (await loadNodes(parentId || ''))
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (_error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.rcmLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>Sin datos</option></select>
+            `;
+            levelWrap.appendChild(field);
+            return;
         }
+
+        if (!nodes.length) {
+            autoSelectedNodeId = parentId || autoSelectedNodeId || '';
+            return;
+        }
+
+        if (nodes.length === 1 && skipLeadingSingles) {
+            autoSelectedNodeId = String(nodes[0].id || '');
+            await renderFilterLevel(autoSelectedNodeId, levelIndex + 1, true);
+            return;
+        }
+
+        autoSelectedNodeId = parentId || '';
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.rcmLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        const options = nodes.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('');
+        field.innerHTML = `
+            <label>${escapeHtml(level.name)}</label>
+            <select class="input-control" data-rcm-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${options}
+            </select>
+        `;
+        levelWrap.appendChild(field);
+
+        const select = field.querySelector('[data-rcm-level-filter]');
+        if (nodes.length === 1) {
+            select.value = String(nodes[0].id || '');
+            autoSelectedNodeId = select.value;
+            await renderFilterLevel(select.value, levelIndex + 1, false);
+        }
+        select.addEventListener('change', function () {
+            const value = select.value;
+            if (!value) {
+                autoSelectedNodeId = select.dataset.parentId || '';
+                levelWrap.querySelectorAll('[data-rcm-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                searchEquipment();
+                return;
+            }
+            renderFilterLevel(value, levelIndex + 1, false).then(searchEquipment);
+        });
     }
 
     function searchEquipment() {
@@ -649,28 +858,7 @@
     initScopeSelector();
 
     if (levelWrap && levels.length) {
-        levels.forEach((level, index) => {
-            const field = document.createElement('div');
-            field.className = 'form-field';
-            const label = document.createElement('label');
-            label.textContent = level.name;
-            const select = document.createElement('select');
-            select.className = 'input-control';
-            select.innerHTML = '<option value="">Todos</option>';
-            select.disabled = index > 0;
-            select.addEventListener('change', function () {
-                resetLowerLevels(index + 1);
-                if (selectors[index + 1]) {
-                    loadNodes(index + 1, select.value);
-                }
-                searchEquipment();
-            });
-            field.appendChild(label);
-            field.appendChild(select);
-            levelWrap.appendChild(field);
-            selectors.push(select);
-        });
-        loadNodes(0, '');
+        renderFilterLevel('', 0, true).then(searchEquipment);
     }
 
     searchInput.addEventListener('input', function () {
@@ -680,6 +868,22 @@
     resultSelect.addEventListener('change', function () {
         setEquipment(resultMap.get(String(resultSelect.value)) || null);
     });
+    if (acaCriticalityToggle) {
+        acaCriticalityToggle.addEventListener('click', function () {
+            acaCriticalityMode = acaCriticalityMode === 'aca' ? 'manual' : 'aca';
+            renderAcaCriticalityOptions(currentEquipmentForCriticality());
+            syncAcaCriticalityMode();
+        });
+    }
+    if (acaCriticalitySelect && criticidadInput) {
+        acaCriticalitySelect.addEventListener('change', function () {
+            if (!acaCriticalitySelect.value) return;
+            criticidadInput.value = acaCriticalitySelect.value;
+            criticidadInput.dispatchEvent(new Event('input', { bubbles: true }));
+            criticidadInput.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    }
+    syncAcaCriticalityMode();
 
     const initialId = hiddenEquipment.value;
     if (initialId && endpoints.detail_template) {
@@ -694,16 +898,73 @@
             });
     }
 
+    function setRcmOptionPanelOpen(trigger, open) {
+        const panel = document.getElementById(trigger.dataset.panelId || '');
+        if (!panel) {
+            return;
+        }
+        panel.hidden = !open;
+        trigger.setAttribute('aria-expanded', String(open));
+        trigger.classList.toggle('is-open', open);
+    }
+
+    function closeRcmOptionPanelForTarget(targetId) {
+        const trigger = document.querySelector('[data-option-target="' + targetId + '"]');
+        if (trigger) {
+            setRcmOptionPanelOpen(trigger, false);
+        }
+    }
+
+    function syncRcmPickerDisplay(select) {
+        if (!select || !select.id) {
+            return;
+        }
+        const display = document.querySelector('[data-picker-display-for="' + select.id + '"]');
+        if (!display) {
+            return;
+        }
+        const selected = select.options[select.selectedIndex];
+        const label = selected && select.value ? selected.textContent.trim() : (display.dataset.pickerPlaceholder || 'Selecciona desde la tabla');
+        if ('value' in display) {
+            display.value = selected && select.value ? label : '';
+        } else {
+            display.textContent = label;
+        }
+        const hasValue = Boolean(selected && select.value);
+        display.classList.toggle('has-value', hasValue);
+        const trigger = display.closest('.evaluation-table-trigger');
+        if (trigger) {
+            trigger.classList.toggle('has-value', hasValue);
+        }
+    }
+
+    function rcmOptionLabelFromButton(button) {
+        const row = button.closest('tr');
+        if (!row) {
+            return '';
+        }
+        return Array.from(row.children)
+            .slice(0, -1)
+            .map(cell => cell.textContent.trim())
+            .filter(Boolean)
+            .join(' | ');
+    }
+
     document.querySelectorAll('[data-option-toggle]').forEach(button => {
         button.addEventListener('click', function () {
-            const panel = document.getElementById(button.dataset.panelId || '');
-            if (!panel) {
-                return;
-            }
             const expanded = button.getAttribute('aria-expanded') === 'true';
-            panel.hidden = expanded;
-            button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            setRcmOptionPanelOpen(button, !expanded);
         });
+    });
+
+    document.querySelectorAll('[data-option-target]').forEach(trigger => {
+        const target = document.getElementById(trigger.dataset.optionTarget || '');
+        if (target) {
+            target.addEventListener('change', function () {
+                syncRcmPickerDisplay(target);
+            });
+            syncRcmPickerDisplay(target);
+        }
     });
 
     document.querySelectorAll('[data-rcm-pick-option]').forEach(button => {
@@ -713,7 +974,31 @@
                 return;
             }
             target.value = button.dataset.value || '';
+            target.dataset.numericValue = button.dataset.numeric || '';
             target.dispatchEvent(new Event('change', { bubbles: true }));
+            const display = document.querySelector('[data-picker-display-for="' + target.id + '"]');
+            const label = rcmOptionLabelFromButton(button);
+            if (display && label) {
+                display.textContent = label;
+                display.classList.add('has-value');
+                const trigger = display.closest('.evaluation-table-trigger');
+                if (trigger) {
+                    trigger.classList.add('has-value');
+                }
+            }
+            closeRcmOptionPanelForTarget(target.id);
+        });
+    });
+
+    document.querySelectorAll('[data-rcm-option-row]').forEach(row => {
+        row.addEventListener('click', function (event) {
+            if (event.target.closest('button')) {
+                return;
+            }
+            const button = row.querySelector('[data-rcm-pick-option]');
+            if (button) {
+                button.click();
+            }
         });
     });
 
@@ -821,11 +1106,34 @@
         if (rawSteps.length) {
             return rawSteps.map(step => ({
                 operacion: step.operacion || step.tipo_calculo || step.operation || meta.tipo_calculo,
-                operandos: Array.isArray(step.operandos) ? step.operandos : (Array.isArray(step.campos) ? step.campos : (Array.isArray(step.sources) ? step.sources : []))
+                operandos: Array.isArray(step.operandos) ? step.operandos : (Array.isArray(step.campos) ? step.campos : (Array.isArray(step.sources) ? step.sources : [])),
+                modo: step.modo || (step.ponderado === true ? 'ponderado' : '')
             })).filter(step => step.operacion && step.operandos.length);
         }
         const operandos = Array.isArray(config.operandos) ? config.operandos : (Array.isArray(config.campos) ? config.campos : (Array.isArray(config.sources) ? config.sources : []));
         return [{ operacion: meta.tipo_calculo, operandos }].filter(step => step.operacion && step.operandos.length);
+    }
+
+    function calculationOperandWeight(operand) {
+        if (!operand || typeof operand !== 'object') return null;
+        return numberOrNull(operand.peso ?? operand.ponderador ?? operand.weight);
+    }
+
+    function weightedCalculationValues(operands, values) {
+        if (!operands.length || operands.length !== values.length) return null;
+        let weights = operands.map(calculationOperandWeight);
+        if (weights.every(weight => weight === null)) {
+            weights = weights.map(() => 1 / weights.length);
+        } else if (weights.some(weight => weight === null)) {
+            const assigned = weights.reduce((total, weight) => total + (weight ?? 0), 0);
+            const missing = weights.filter(weight => weight === null).length;
+            const remaining = 1 - assigned;
+            if (remaining < 0) return null;
+            weights = weights.map(weight => weight === null ? remaining / missing : weight);
+        }
+        const total = weights.reduce((sum, weight) => sum + weight, 0);
+        if (weights.some(weight => weight < 0 || weight > 1) || Math.abs(total - 1) > 0.0001) return null;
+        return values.map((value, index) => value * weights[index]);
     }
 
     function operationResult(operation, values) {
@@ -856,9 +1164,13 @@
     function evaluateCalculation(meta, values) {
         let result = null;
         for (const step of calculationSteps(meta)) {
-            const operands = step.operandos.map(operand => operandValue(values, operand, result));
+            let operands = step.operandos.map(operand => operandValue(values, operand, result));
             if (operands.some(value => value === null || value === undefined)) {
                 return null;
+            }
+            if (step.modo === 'ponderado' && step.operacion === 'suma') {
+                operands = weightedCalculationValues(step.operandos, operands);
+                if (!operands) return null;
             }
             result = operationResult(step.operacion, operands);
             if (result === null || result === undefined || Number.isNaN(result)) {

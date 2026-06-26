@@ -21,7 +21,7 @@ class RCMExcelBulkUploadForm(forms.Form):
         label='Hoja',
         required=False,
         initial='',
-        help_text='Opcional. Si queda vacío se detectará la hoja RCM/FMEA/FMECA más compatible.',
+        help_text='Opcional. Si queda vacío se detectará la hoja RCM/FMECA más compatible.',
     )
     replace = forms.BooleanField(
         label='Reemplazar carga previa del mismo archivo',
@@ -270,7 +270,11 @@ def _rcm_calculation_steps(tipo_calculo, config_calculo):
             operation = str(raw_step.get('operacion') or raw_step.get('tipo_calculo') or raw_step.get('operation') or '').strip().lower()
             operands = raw_step.get('operandos') or raw_step.get('campos') or raw_step.get('sources') or []
             if operation and isinstance(operands, list):
-                steps.append({'operacion': operation, 'operandos': operands})
+                steps.append({
+                    'operacion': operation,
+                    'operandos': operands,
+                    'modo': raw_step.get('modo') or ('ponderado' if raw_step.get('ponderado') is True else ''),
+                })
         return steps
     operands = config_calculo.get('operandos') or config_calculo.get('campos') or config_calculo.get('sources') or []
     return [{'operacion': tipo, 'operandos': operands if isinstance(operands, list) else []}]
@@ -313,6 +317,34 @@ def _rcm_operand_value(operand, source_values, previous_result=None):
     return _rcm_source_value(source_values, operand)
 
 
+def _rcm_operand_weight(operand):
+    if not isinstance(operand, dict):
+        return None
+    return _decimal_or_none(operand.get('peso', operand.get('ponderador', operand.get('weight'))))
+
+
+def _rcm_weighted_values(operands, resolved_values):
+    if not operands or len(operands) != len(resolved_values):
+        return None
+    weights = [_rcm_operand_weight(operand) for operand in operands]
+    if all(weight is None for weight in weights):
+        equal_weight = Decimal('1') / Decimal(len(weights))
+        weights = [equal_weight] * len(weights)
+    elif any(weight is None for weight in weights):
+        assigned = sum((weight for weight in weights if weight is not None), Decimal('0'))
+        missing_count = sum(1 for weight in weights if weight is None)
+        remaining = Decimal('1') - assigned
+        if remaining < 0:
+            return None
+        missing_weight = remaining / Decimal(missing_count)
+        weights = [missing_weight if weight is None else weight for weight in weights]
+    if any(weight < 0 or weight > 1 for weight in weights):
+        return None
+    if abs(sum(weights, Decimal('0')) - Decimal('1')) > Decimal('0.0001'):
+        return None
+    return [value * weight for value, weight in zip(resolved_values, weights)]
+
+
 def _rcm_evaluate_calculation(tipo_calculo, config_calculo, source_values):
     result = None
     for step in _rcm_calculation_steps(tipo_calculo, config_calculo):
@@ -322,6 +354,10 @@ def _rcm_evaluate_calculation(tipo_calculo, config_calculo, source_values):
             if value is None:
                 return None
             values.append(value)
+        if step.get('modo') == 'ponderado' and step['operacion'] == 'suma':
+            values = _rcm_weighted_values(step['operandos'], values)
+            if values is None:
+                return None
         result = _rcm_operation_result(step['operacion'], values)
         if result is None:
             return None
@@ -455,7 +491,7 @@ class RCMRegistroForm(forms.Form):
         help_text='Si queda vacío, el análisis corresponde a FMEA; si tiene valor, corresponde a FMECA.',
     )
     componente = forms.CharField(required=False, max_length=255, label='Componente')
-    funcion = forms.CharField(label='Función', widget=forms.Textarea(attrs={'rows': 3}))
+    funcion = forms.CharField(label='Función', required=False, widget=forms.Textarea(attrs={'rows': 3}))
     falla_funcional = forms.CharField(label='Falla funcional', widget=forms.Textarea(attrs={'rows': 3}))
     modo_de_falla = forms.CharField(label='Modo de falla', widget=forms.Textarea(attrs={'rows': 3}))
     efecto = forms.CharField(label='Efecto', widget=forms.Textarea(attrs={'rows': 3}))
@@ -835,7 +871,7 @@ class TareaRCMForm(forms.Form):
         initial=app_models.TareaRCM.ESTADO_ACTIVO,
     )
 
-    empty_permitted_fields = {'id', 'DELETE', 'estado', 'valores_json', 'dynamic_values'}
+    empty_permitted_fields = {'id', 'DELETE', 'estado', 'valores_json', 'dynamic_values', 'tipo_tarea_estrategia'}
 
     def __init__(self, *args, estrategia=None, **kwargs):
         super().__init__(*args, **kwargs)

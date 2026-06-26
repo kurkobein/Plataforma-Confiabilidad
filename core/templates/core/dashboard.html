@@ -4,7 +4,6 @@
 <div class="page-header">
     <div>
         <h2>Inicio</h2>
-        <p>Flujo principal: entrar a un servicio, revisar su metodología y sus tablas de evaluación.</p>
     </div>
     <div class="actions">
         {% if request.user.is_superuser %}
@@ -39,6 +38,15 @@
                     </div>
                     </div>
                     <div class="dashboard-service-metrics" aria-label="Resumen del servicio">
+                        {% if service.dashboard_alerts %}
+                            <span class="dashboard-service-alert" tabindex="0" aria-label="Alertas de configuración">
+                                <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+                                <span class="dashboard-service-alert-popover">
+                                    <strong>Configuración pendiente</strong>
+                                    {% for alert in service.dashboard_alerts %}<span>{{ alert }}</span>{% endfor %}
+                                </span>
+                            </span>
+                        {% endif %}
                         <span class="dashboard-service-pill" style="background-color:var(--color-aca);">
                             <small>ACA</small>
                             <strong>{{ service.dashboard_aca_evaluated }}</strong>

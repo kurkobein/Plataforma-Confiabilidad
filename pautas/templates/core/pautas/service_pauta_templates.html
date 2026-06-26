@@ -4,25 +4,110 @@
 
 {% block content %}
 <style>
-    .template-active-field {
-        align-self: end;
+    .pauta-template-shell {
+        display: grid;
+        gap: 12px;
+    }
+    .pauta-template-summary {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    }
+    .pauta-template-summary .stat {
+        min-height: 72px;
+    }
+    .pauta-template-workspace {
+        align-items: start;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(320px, .85fr) minmax(420px, 1.15fr);
+    }
+    .pauta-template-upload-form {
+        display: grid;
+        gap: 10px;
+    }
+    .pauta-template-upload-grid {
+        align-items: end;
+        display: grid;
+        gap: 9px;
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .pauta-template-dropzone {
+        aspect-ratio: auto;
+        min-height: 126px;
+    }
+    .pauta-template-dropzone input[type="file"] {
+        height: 100%;
     }
     .template-active-check {
-        display: inline-flex;
-        gap: 8px;
         align-items: center;
-        width: fit-content;
-        min-height: 42px;
-        margin: 0;
-        padding: 8px 10px;
+        background: #f8fafc;
         border: 1px solid #d8dee8;
         border-radius: 8px;
-        background: #f8fafc;
-        font-weight: 500;
         cursor: pointer;
+        display: inline-flex;
+        gap: 8px;
+        margin: 0;
+        min-height: 36px;
+        padding: 7px 10px;
+        width: fit-content;
     }
     .template-active-check input {
         margin: 0;
+    }
+    .pauta-template-table-head {
+        align-items: end;
+        display: flex;
+        gap: 10px;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+    .pauta-template-table-head p {
+        margin: 2px 0 0;
+    }
+    .pauta-template-name {
+        display: grid;
+        gap: 2px;
+        min-width: 180px;
+    }
+    .pauta-template-name strong,
+    .pauta-template-name span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .pauta-template-name span {
+        color: var(--muted);
+        font-size: 12px;
+    }
+    .pauta-template-mapping {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    .pauta-template-empty {
+        align-items: center;
+        border: 1px dashed var(--line);
+        border-radius: var(--radius-md);
+        display: grid;
+        gap: 8px;
+        justify-items: center;
+        padding: 28px 14px;
+        text-align: center;
+    }
+    .pauta-template-empty i {
+        color: var(--primary);
+        font-size: 30px;
+    }
+    .pauta-template-empty p {
+        margin: 0;
+        max-width: 420px;
+    }
+    @media (max-width: 980px) {
+        .pauta-template-workspace,
+        .pauta-template-upload-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -30,68 +115,186 @@
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_pautas_list' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-        <h2>Plantillas de pauta</h2>
-        <p>{{ service.codigo_servicio }} · archivos Excel base para exportar pautas.</p>
-    </div>
+            <h2>Plantillas de pauta</h2>
+            <p>{{ service.codigo_servicio }} · archivos Excel base para exportar pautas.</p>
+        </div>
     </div>
 </div>
 
-<div class="grid-22">
-    <div class="card">
-        <h3 class="card-title">Subir plantilla</h3>
-        <form method="post" enctype="multipart/form-data">
-            {% csrf_token %}
-            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
-            <div class="form-grid">
+<div class="pauta-template-shell">
+    <div class="pauta-template-summary">
+        <div class="stat">
+            <small>Total plantillas</small>
+            <strong>{{ template_summary.total }}</strong>
+        </div>
+        <div class="stat">
+            <small>Activas</small>
+            <strong>{{ template_summary.active }}</strong>
+        </div>
+        <div class="stat">
+            <small>Con mapeo</small>
+            <strong>{{ template_summary.mapped }}</strong>
+        </div>
+        <div class="stat">
+            <small>Pendientes</small>
+            <strong>{{ template_summary.unmapped }}</strong>
+        </div>
+    </div>
+
+    <div class="pauta-template-workspace">
+        <div class="card">
+            <h3 class="card-title">Subir plantilla</h3>
+            <form method="post" enctype="multipart/form-data" class="pauta-template-upload-form">
+                {% csrf_token %}
+                {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
                 <div class="form-field">
                     <label for="{{ form.nombre.id_for_label }}">{{ form.nombre.label }}</label>
                     {{ form.nombre }}
                     {{ form.nombre.errors }}
                 </div>
-                <div class="form-field">
-                    <label for="{{ form.archivo.id_for_label }}">{{ form.archivo.label }}</label>
+                <label class="bulk-file-dropzone pauta-template-dropzone" for="{{ form.archivo.id_for_label }}" data-file-dropzone>
+                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                    <strong>Selecciona o arrastra el Excel de pauta</strong>
+                    <span data-file-name>Archivo .xlsx o .xlsm</span>
                     {{ form.archivo }}
-                    {{ form.archivo.errors }}
+                </label>
+                {{ form.archivo.errors }}
+                <div class="pauta-template-upload-grid">
+                    <div class="form-field">
+                        <label>Flujo recomendado</label>
+                        <div class="inline-note muted">Sube el Excel, configura el mapeo y deja activa la plantilla cuando esté lista para generar pautas.</div>
+                    </div>
+                    <div class="form-field">
+                        <label class="template-active-check" for="{{ form.activa.id_for_label }}">
+                            {{ form.activa }}
+                            <span>Activa</span>
+                        </label>
+                        {{ form.activa.errors }}
+                    </div>
                 </div>
-                <div class="form-field template-active-field">
-                    <label class="template-active-check" for="{{ form.activa.id_for_label }}">
-                        {{ form.activa }}
-                        <span>Activa</span>
-                    </label>
-                    {{ form.activa.errors }}
+                <div class="actions">
+                    <button class="btn btn-primary" type="submit">Subir plantilla</button>
                 </div>
-            </div>
-            <div class="actions" style="margin-top:14px;">
-                <button class="btn btn-primary" type="submit">Subir plantilla</button>
-            </div>
-        </form>
-    </div>
+            </form>
+        </div>
 
-    <div class="card">
-        <h3 class="card-title">Plantillas disponibles</h3>
-        <div class="table-wrap">
-            <table class="datatable display">
-                <thead><tr><th>Nombre</th><th>Alcance</th><th>Estado</th><th>Acciones</th></tr></thead>
-                <tbody>
-                    {% for item in templates %}
-                        <tr>
-                            <td>{{ item.nombre }}</td>
-                            <td>{% if item.servicio_id %}Servicio{% elif item.estrategia_id %}Estrategia{% elif item.empresa_id %}Empresa{% else %}Global{% endif %}</td>
-                            <td>{% if item.activa %}Activa{% else %}Inactiva{% endif %}</td>
-                            <td>
-                                <div class="actions">
-                                    <a class="btn" href="{% url 'service_pauta_template_mapping' service.pk item.pk %}">Configurar mapeo</a>
-                                    <a class="btn" href="{% url 'service_pauta_template_edit' service.pk item.pk %}">Editar</a>
-                                    <a class="btn btn-danger" href="{% url 'service_pauta_template_delete' service.pk item.pk %}">Eliminar</a>
-                                </div>
-                            </td>
-                        </tr>
-                    {% empty %}
-                        <tr><td colspan="4" class="muted">No hay plantillas configuradas.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="card">
+            <div class="pauta-template-table-head">
+                <div>
+                    <h3 class="card-title">Plantillas disponibles</h3>
+                    <p class="muted">Revisa estado, alcance y mapeo antes de usar una plantilla para generar pautas.</p>
+                </div>
+            </div>
+            {% if template_rows %}
+                <div class="table-wrap">
+                    <table class="datatable display">
+                        <thead>
+                            <tr>
+                                <th>Plantilla</th>
+                                <th>Alcance</th>
+                                <th>Estado</th>
+                                <th>Mapeo</th>
+                                <th>Pautas</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in template_rows %}
+                                {% with item=row.item %}
+                                    <tr>
+                                        <td>
+                                            <div class="pauta-template-name">
+                                                <strong>{{ item.nombre }}</strong>
+                                                {% if row.mapeo and row.mapeo.actualizado_en %}
+                                                    <span>Mapeo actualizado {{ row.mapeo.actualizado_en|date:"d/m/Y H:i" }}</span>
+                                                {% else %}
+                                                    <span>Sin mapeo actualizado</span>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if item.servicio_id %}
+                                                <span class="pill">Servicio</span>
+                                            {% elif item.estrategia_id %}
+                                                <span class="pill-soft">Estrategia</span>
+                                            {% elif item.empresa_id %}
+                                                <span class="pill-soft">Empresa</span>
+                                            {% else %}
+                                                <span class="pill-soft">Global</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if item.activa %}
+                                                <span class="pill-success">Activa</span>
+                                            {% else %}
+                                                <span class="pill-danger">Inactiva</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="pauta-template-mapping">
+                                                {% if row.is_mapped %}
+                                                    <span class="pill-success">Mapeada</span>
+                                                    {% if row.celdas_count %}<span class="pill-soft">{{ row.celdas_count }} celdas</span>{% endif %}
+                                                    {% if row.columnas_count %}<span class="pill-soft">{{ row.columnas_count }} columnas</span>{% endif %}
+                                                {% else %}
+                                                    <span class="pill-warning">Sin mapeo</span>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                        <td>{{ row.pautas_count }}</td>
+                                        <td>
+                                            <div class="actions">
+                                                <a class="btn" href="{% url 'service_pauta_template_mapping' service.pk item.pk %}"><i class="bi bi-grid-3x3-gap"></i> Mapeo</a>
+                                                <a class="btn" href="{% url 'service_pauta_template_edit' service.pk item.pk %}"><i class="bi bi-pencil"></i> Editar</a>
+                                                <a class="btn btn-danger"
+                                                   href="{% url 'service_pauta_template_delete' service.pk item.pk %}"
+                                                   data-delete-modal="true"
+                                                   data-delete-title="Eliminar plantilla"
+                                                   data-delete-label="la plantilla {{ item.nombre }}"
+                                                   data-delete-message="Confirma que quieres eliminar la plantilla &quot;{{ item.nombre }}&quot; y su mapeo de celdas. Las pautas generadas no se eliminarán.">
+                                                    <i class="bi bi-trash"></i>
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endwith %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="pauta-template-empty">
+                    <i class="bi bi-file-earmark-excel"></i>
+                    <strong>No hay plantillas configuradas</strong>
+                    <p class="muted">Sube un Excel base para crear la primera plantilla y luego configura el mapeo de campos.</p>
+                </div>
+            {% endif %}
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-file-dropzone]').forEach(function (dropzone) {
+        const input = dropzone.querySelector('input[type="file"]');
+        const label = dropzone.querySelector('[data-file-name]');
+        if (!input || !label) return;
+        input.addEventListener('change', function () {
+            const file = input.files && input.files[0];
+            dropzone.classList.toggle('has-file', Boolean(file));
+            label.textContent = file ? file.name : 'Archivo .xlsx o .xlsm';
+        });
+        ['dragenter', 'dragover'].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function () {
+                dropzone.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'drop'].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function () {
+                dropzone.classList.remove('is-dragover');
+            });
+        });
+    });
+});
+</script>
 {% endblock %}

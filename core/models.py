@@ -61,20 +61,6 @@ class Empresa(BaseUnmanagedModel):
     def __str__(self):
         return f'{self.nombre} ({self.sigla})'
 
-
-class Metodologia(BaseUnmanagedModel):
-    nombre = models.CharField(max_length=200)
-    abreviatura = models.CharField(max_length=20)
-    descripcion = models.TextField(blank=True)
-
-    class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_metodologia'
-        ordering = ['nombre']
-
-    def __str__(self):
-        return f'{self.abreviatura} - {self.nombre}'
-
-
 class Cargo(BaseUnmanagedModel):
     nombre_cargo = models.CharField(max_length=150)
     area = models.CharField(max_length=150)
@@ -162,34 +148,12 @@ class Servicio(BaseUnmanagedModel):
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='servicios')
     creado_por_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='creado_por_usuario_id', blank=True, null=True, related_name='servicios_creados', verbose_name='Administrador')
     responsable_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='responsable_usuario_id', blank=True, null=True, related_name='servicios_responsables', verbose_name='Responsable')
-    metodologias = models.ManyToManyField(Metodologia, through='ServicioMetodologia', related_name='servicios', blank=True,)
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'reliability_servicio'
         ordering = ['-creado_en', 'codigo_servicio']
 
     def __str__(self):
         return self.codigo_servicio
-
-class ServicioMetodologia(BaseUnmanagedModel):
-    servicio = models.ForeignKey(
-        Servicio,
-        on_delete=models.DO_NOTHING,
-        db_column='servicio_id',
-        related_name='servicio_metodologias',
-    )
-    metodologia = models.ForeignKey(
-        Metodologia,
-        on_delete=models.DO_NOTHING,
-        db_column='metodologia_id',
-        related_name='servicio_metodologias',
-    )
-
-    class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_serviciometodologia'
-        ordering = ['servicio_id', 'metodologia_id']
-
-    def __str__(self):
-        return f'{self.servicio} / {self.metodologia}'
 
 class AccesoUsuario(BaseUnmanagedModel):
     puede_ver = models.BooleanField(default=True)
@@ -467,6 +431,7 @@ class Criticidad(BaseUnmanagedModel):
     indicador_criticidad = models.CharField(max_length=100)
     valor_criticidad_equipo = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     criticidad_final = models.CharField(max_length=30)
+    trazabilidad_criticidad_json = models.TextField(blank=True, default='')
     creado_en = models.DateTimeField()
     aca_carga = models.ForeignKey(Carga, on_delete=models.DO_NOTHING, db_column='aca_carga_id', related_name='criticidades')
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', blank=True, null=True, related_name='criticidades')
@@ -507,7 +472,6 @@ class Dimension(BaseUnmanagedModel):
         ('probabilidad', 'Probabilidad'),
         ('resultado', 'Resultado'),
         ('catalogo', 'Catálogo'),
-        ('atributo', 'Atributo'),
     ]
     TIPO_DATO_CHOICES = [
         ('numerico', 'Numérico'),
@@ -579,6 +543,7 @@ class RCM(BaseUnmanagedModel):
     carga = models.OneToOneField(Carga, on_delete=models.DO_NOTHING, db_column='carga_id', related_name='rcm')
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='registros_rcm')
     criticidad = models.IntegerField(blank=True, null=True)
+    trazabilidad_criticidad_json = models.TextField(blank=True, default='')
     fecha_analisis = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default=Carga.STATUS_INCOMPLETO)
     componente = models.CharField('Componente', max_length=255, blank=True, null=True)
@@ -1148,6 +1113,8 @@ class InicioSesion(BaseUnmanagedModel):
 
 
 class MatrizRiesgo(BaseUnmanagedModel):
+    MODO_MANUAL = 'manual'
+    MODO_AUTOMATICA_MAXIMO_TEORICO = 'automatica_maximo_teorico'
     RESOLUCION_EXACTA = 'exacta'
     RESOLUCION_UMBRAL_RESULTADO = 'umbral_resultado'
     RESOLUCION_CHOICES = [

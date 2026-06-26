@@ -1,13 +1,13 @@
 {% extends 'core/base.html' %}
 {% load l10n %}
 
-{% block title %}Panel RCM/FMECA | Mindco{% endblock %}
+{% block title %}Panel FMECA | Mindco{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Panel RCM/FMECA</h2>
-        <p>Resumen global de avance RCM/FMECA por servicio.</p>
+        <h2>Panel FMECA</h2>
+        <p>Resumen global de avance FMECA por servicio.</p>
     </div>
 </div>
 
@@ -27,7 +27,7 @@
                 <small>Finalizados</small>
             </div>
             <div class="aca-progress-summary-copy">
-                <h3 class="card-title">Avance RCM/FMECA | {{ selected_service.codigo_servicio }}</h3>
+                <h3 class="card-title">Avance FMECA | {{ selected_service.codigo_servicio }}</h3>
                 <p class="muted">
                     {% if progress_summary.progress_available %}
                         {{ progress_summary.dimension_count }} dimensiones consideradas para avance.
@@ -53,57 +53,96 @@
             </div>
         </div>
         <div class="actions">
-            <a class="btn" href="{% url 'service_fmeca_list' selected_service.pk %}">Desarrollo RCM/FMECA</a>
+            <a class="btn" href="{% url 'service_fmeca_list' selected_service.pk %}">Desarrollo FMECA</a>
         </div>
     </div>
 
-    <div class="card">
-        <h3 class="card-title">Filtros</h3>
-        <form class="aca-progress-filters" method="get">
+    <details class="card aca-panel-section" open>
+        <summary>
+            <span>Filtros jerárquicos</span>
+            <small>Selecciona un nivel superior para habilitar los siguientes.</small>
+        </summary>
+        <form class="aca-panel-nested-filters" method="get" data-fmeca-panel-filter-form>
             <input type="hidden" name="service" value="{{ selected_service.pk }}">
-            <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
-            <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
-            <div class="aca-progress-filter-body" data-aca-progress-filter-body>
-                {% for level in hierarchy_filters.levels %}
-                    <div class="form-field">
-                        <label>{{ level.name }}</label>
-                        <select class="input-control" data-progress-nested-level="{{ level.id }}">
-                            <option value="">Todos</option>
-                            {% for node in hierarchy_filters.nodes %}
-                                {% if node.level_id == level.id %}
-                                    <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
+            <div class="aca-panel-filter-tools">
+                <div class="form-field">
+                    <label for="fmeca-panel-ut-filter">UT</label>
+                    <input id="fmeca-panel-ut-filter" class="input-control" type="search"
+                           placeholder="Filtrar por UT" data-panel-text-filter="ut">
+                </div>
+                <div class="form-field">
+                    <label for="fmeca-panel-description-filter">Descripción U.Técnica</label>
+                    <input id="fmeca-panel-description-filter" class="input-control" type="search"
+                           placeholder="Filtrar por descripción" data-panel-text-filter="description">
+                </div>
+                <div class="progress-range-filter" data-progress-range-filter>
+                    <div class="progress-range-head">
+                        <label>Avance</label>
+                        <strong data-progress-range-label>{{ selected_avance_min|default:0 }}% - {{ selected_avance_max|default:100 }}%</strong>
                     </div>
-                {% endfor %}
-                <div class="actions aca-progress-filter-actions">
-                    <button class="btn btn-primary" type="submit">Aplicar</button>
-                    <a class="btn" href="{% url 'fmeca_panel' %}?service={{ selected_service.pk }}">Limpiar</a>
+                    <div class="progress-range-slider">
+                        <input type="range" name="avance_min" min="0" max="100" value="{{ selected_avance_min|default:0 }}" step="1" data-progress-min>
+                        <input type="range" name="avance_max" min="0" max="100" value="{{ selected_avance_max|default:100 }}" step="1" data-progress-max>
+                    </div>
                 </div>
             </div>
+            <div class="aca-panel-filter-row">
+                {% for level in panel_hierarchy_levels %}
+                    <details class="aca-panel-filter-dropdown" data-panel-level-filter {% if level.selected_ids %}open{% endif %}>
+                        <summary>
+                            <span>{{ level.name }}</span>
+                            <small>{{ level.selected_ids|length }} seleccionados</small>
+                            <i class="bi bi-chevron-down"></i>
+                        </summary>
+                        <div class="aca-panel-filter-menu">
+                            {% for node in level.nodes %}
+                                <label class="aca-panel-checkbox">
+                                    <input type="checkbox" name="panel_nodes" value="{{ node.id }}"
+                                           data-panel-level-id="{{ level.id }}" data-panel-hierarchy-checkbox
+                                           {% if node.id in level.selected_ids %}checked{% endif %}>
+                                    <span>{{ node.label }}</span>
+                                </label>
+                            {% empty %}
+                                <span class="muted">Sin valores disponibles para este nivel.</span>
+                            {% endfor %}
+                        </div>
+                    </details>
+                {% endfor %}
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" type="submit">Aplicar filtros</button>
+                <a class="btn" href="{% url 'fmeca_panel' %}?service={{ selected_service.pk }}">Limpiar filtros</a>
+            </div>
         </form>
-    </div>
+    </details>
 
-    <div class="card">
-        <h3 class="card-title">Registros filtrados</h3>
-        <div class="table-wrap">
-            <table class="datatable display compact-table" data-column-filters="true">
+    <h3 class="card-title aca-table-heading">Registros filtrados</h3>
+    <div class="table-wrap aca-datatable-wrap">
+            <table id="fmeca-panel-records-table" class="datatable display compact-table fmeca-panel-records-table"
+                   data-page-length="25"
+                   data-scroll-y="52vh"
+                   data-scroll-x="true"
+                   data-scroll-collapse="false"
+                   data-column-filters="true"
+                   data-fmeca-panel-records-table>
                 <thead>
                     <tr>
                         <th>ID</th>
                         <th>Avance</th>
-                        <th>UT</th>
+                        <th>Fecha</th>
+                        <th>Ubicación Técnica</th>
+                        <th>Descripción U.Técnica</th>
                         <th>Equipo</th>
                         <th>TAG</th>
                         <th>Modo de falla</th>
-                        <th>Fecha creado</th>
-                        <th>Última modificación</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in table_rows %}
-                        <tr>
+                        <tr data-panel-row data-panel-ut="{{ row.ut|default:'' }}"
+                            data-panel-description="{{ row.descripcion_ut|default:'' }}"
+                            data-panel-progress="{{ row.progress_percent|default:'' }}">
+                            
                             <td>{{ row.id }}</td>
                             <td data-order="{{ row.progress_order }}">
                                 <span class="aca-progress-pill"
@@ -112,23 +151,31 @@
                                     <span class="aca-progress-pill-label">{{ row.progress_label }}</span>
                                 </span>
                             </td>
+                            <td data-order="{{ row.date_order }}">
+                                <div class="date-inline"><small class="muted">Creación:</small> {{ row.created|default:'-' }}</div>
+                                <div class="date-inline"><small class="muted">Editado:</small> {{ row.updated|default:'-' }}</div>
+                            </td>
+                            
                             <td><span class="cell-ellipsis" title="{{ row.ut }}">{{ row.ut }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.descripcion_ut }}">{{ row.descripcion_ut|default:'-' }}</span></td>
                             <td><span class="cell-ellipsis" title="{{ row.equipo }}">{{ row.equipo }}</span></td>
                             <td>{{ row.tag }}</td>
                             <td><span class="cell-ellipsis" title="{{ row.modo_de_falla }}">{{ row.modo_de_falla }}</span></td>
-                            <td>{{ row.created }}</td>
-                            <td>{{ row.updated }}</td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="8" class="muted">No hay registros para los filtros seleccionados.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
-        </div>
     </div>
 {% else %}
     <div class="table-wrap">
-        <table class="datatable display compact-table" data-column-filters="true">
+        <table class="datatable display compact-table"
+               data-page-length="25"
+               data-scroll-y="52vh"
+               data-scroll-x="true"
+               data-scroll-collapse="false"
+               data-column-filters="true">
             <thead>
                 <tr>
                     <th>Servicio</th>
@@ -164,65 +211,114 @@
 
 {% block extra_js %}
 <script>
-function syncNestedFmecaFilters(root) {
-    const scope = root || document;
-    const levelInput = scope.querySelector('[name="progress_nivel"]');
-    const nodeInput = scope.querySelector('[name="progress_nodo"]');
-    const nestedSelects = Array.from(scope.querySelectorAll('[data-progress-nested-level]'));
-    if (!levelInput || !nodeInput || !nestedSelects.length) return;
+document.addEventListener('DOMContentLoaded', function () {
+    const levelFilters = Array.from(document.querySelectorAll('[data-panel-level-filter]'));
+    const hierarchyInputs = Array.from(document.querySelectorAll('[data-panel-hierarchy-checkbox]'));
+    const rangeFilter = document.querySelector('[data-progress-range-filter]');
+    const minRange = rangeFilter?.querySelector('[data-progress-min]');
+    const maxRange = rangeFilter?.querySelector('[data-progress-max]');
+    const rangeLabel = rangeFilter?.querySelector('[data-progress-range-label]');
+    const rangeSlider = rangeFilter?.querySelector('.progress-range-slider');
+    const table = document.querySelector('[data-fmeca-panel-records-table]');
+    const utFilter = document.querySelector('[data-panel-text-filter="ut"]');
+    const descriptionFilter = document.querySelector('[data-panel-text-filter="description"]');
 
-    const selectedOption = nestedSelects
-        .flatMap(function (select) { return Array.from(select.options); })
-        .find(function (option) { return option.selected && option.value; });
-    const selectedPath = selectedOption?.dataset.path || '';
-    const selectedParts = selectedPath ? selectedPath.split('-') : [];
-    if (selectedParts.length) {
-        nestedSelects.forEach(function (select, index) {
-            if (select.value) return;
-            const expectedPath = selectedParts.slice(0, index + 1).join('-');
-            const match = Array.from(select.options).find(function (option) {
-                return option.value && option.dataset.path === expectedPath;
-            });
-            if (match) select.value = match.value;
+    function syncLevelVisibility() {
+        let previousLevelHasSelection = true;
+        levelFilters.forEach(function (filter, index) {
+            const visibleCheckboxes = Array.from(filter.querySelectorAll('[data-panel-hierarchy-checkbox]'))
+                .filter(function (input) { return !input.closest('label')?.hidden; });
+            if (!previousLevelHasSelection || !visibleCheckboxes.length) {
+                filter.classList.add('is-panel-filter-hidden');
+                filter.open = false;
+                visibleCheckboxes.forEach(function (input) { input.checked = false; });
+                previousLevelHasSelection = false;
+                return;
+            }
+            if (visibleCheckboxes.length === 1) {
+                visibleCheckboxes[0].checked = true;
+                filter.classList.add('is-panel-filter-hidden');
+                filter.open = false;
+            } else {
+                filter.classList.toggle('is-panel-filter-hidden', index > 0 && !previousLevelHasSelection);
+            }
+            const checkedCount = filter.querySelectorAll('[data-panel-hierarchy-checkbox]:checked').length;
+            const countLabel = filter.querySelector('summary small');
+            if (countLabel) countLabel.textContent = checkedCount + ' seleccionados';
+            previousLevelHasSelection = previousLevelHasSelection && checkedCount > 0;
         });
     }
 
-    let activePath = '';
-    let deepestLevel = '';
-    let deepestNode = '';
-    let previousLevelSelected = true;
-    nestedSelects.forEach(function (select, index) {
-        const field = select.closest('.form-field');
-        select.disabled = index > 0 && !previousLevelSelected;
-        if (select.disabled) select.value = '';
-        Array.from(select.options).forEach(function (option) {
-            if (!option.value) {
-                option.hidden = false;
-                return;
+    function syncProgressRange() {
+        if (!minRange || !maxRange || !rangeLabel) return;
+        let min = Number(minRange.value || 0);
+        let max = Number(maxRange.value || 100);
+        if (min > max) {
+            if (document.activeElement === minRange) {
+                max = min;
+                maxRange.value = String(max);
+            } else {
+                min = max;
+                minRange.value = String(min);
             }
-            const path = option.dataset.path || '';
-            option.hidden = Boolean(activePath) && !(path === activePath || path.startsWith(activePath + '-'));
-        });
-        if (select.value && select.selectedOptions[0]?.hidden) select.value = '';
-        if (field) field.hidden = index > 0 && !previousLevelSelected;
-        const selected = select.selectedOptions[0];
-        if (select.value && selected) {
-            activePath = selected.dataset.path || '';
-            deepestLevel = select.dataset.progressNestedLevel || '';
-            deepestNode = select.value;
         }
-        previousLevelSelected = Boolean(select.value);
+        rangeFilter.style.setProperty('--range-min', min + '%');
+        rangeFilter.style.setProperty('--range-max', max + '%');
+        rangeSlider?.style.setProperty('--range-min', min + '%');
+        rangeSlider?.style.setProperty('--range-max', max + '%');
+        rangeLabel.textContent = min + '% - ' + max + '%';
+    }
+
+    function bindTextTableFilters() {
+        if (!table || !window.jQuery || !jQuery.fn?.dataTable || !jQuery.fn.dataTable.isDataTable(table)) return;
+        const dataTable = jQuery(table).DataTable();
+        const tableId = table.id;
+        jQuery.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+            if (settings.nTable.id !== tableId) return true;
+            const rowNode = dataTable.row(dataIndex).node();
+            const utText = (rowNode?.dataset.panelUt || '').toLowerCase();
+            const descriptionText = (rowNode?.dataset.panelDescription || '').toLowerCase();
+            const rowProgress = Number(rowNode?.dataset.panelProgress || 0);
+            const utNeedle = (utFilter?.value || '').trim().toLowerCase();
+            const descriptionNeedle = (descriptionFilter?.value || '').trim().toLowerCase();
+            if (utNeedle && !utText.includes(utNeedle)) return false;
+            if (descriptionNeedle && !descriptionText.includes(descriptionNeedle)) return false;
+            if (rowProgress < Number(minRange?.value || 0) || rowProgress > Number(maxRange?.value || 100)) return false;
+            return true;
+        });
+        [utFilter, descriptionFilter].forEach(function (input) {
+            input?.addEventListener('input', function () { dataTable.draw(); });
+        });
+        [minRange, maxRange].forEach(function (input) {
+            input?.addEventListener('input', function () {
+                syncProgressRange();
+                dataTable.draw();
+            });
+        });
+    }
+
+    hierarchyInputs.forEach(function (input) {
+        input.addEventListener('change', syncLevelVisibility);
     });
-    levelInput.value = deepestLevel;
-    nodeInput.value = deepestNode;
-}
+    levelFilters.forEach(function (filter) {
+        filter.addEventListener('toggle', function () {
+            if (!filter.open) return;
+            levelFilters.forEach(function (other) {
+                if (other !== filter) other.open = false;
+            });
+        });
+    });
+    document.addEventListener('click', function (event) {
+        if (event.target.closest('[data-panel-level-filter]')) return;
+        levelFilters.forEach(function (filter) { filter.open = false; });
+    });
+    [minRange, maxRange].forEach(function (input) {
+        input?.addEventListener('input', syncProgressRange);
+    });
 
-document.addEventListener('change', function (event) {
-    const form = event.target.closest('.aca-progress-filters');
-    if (!form || !event.target.matches('[data-progress-nested-level]')) return;
-    syncNestedFmecaFilters(form);
+    syncLevelVisibility();
+    syncProgressRange();
+    bindTextTableFilters();
 });
-
-syncNestedFmecaFilters(document);
 </script>
 {% endblock %}

@@ -1,15 +1,15 @@
 {% extends 'core/base.html' %}
 {% load core_extras l10n %}
 
-{% block title %}RCM/FMECA | {{ service.codigo_servicio }}{% endblock %}
+{% block title %}FMECA | {{ service.codigo_servicio }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div class="page-title-group">
         <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
-            <h2>Desarrollo RCM/FMECA</h2>
-            <p>{{ service.codigo_servicio }} - FMEA/FMECA asociados al servicio.</p>
+            <h2>Desarrollo FMECA</h2>
+            <p>{{ service.codigo_servicio }} - FMECA asociados al servicio.</p>
         </div>
     </div>
     <div class="actions">
@@ -67,19 +67,35 @@
     <form class="aca-progress-filters" method="get">
         <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
         <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
-        <div class="aca-progress-filter-body" data-aca-progress-filter-body>
+        <div class="aca-progress-filter-body aca-panel-filter-tools" data-aca-progress-filter-body>
+            <div class="progress-range-filter" data-progress-range-filter>
+                <div class="progress-range-head">
+                    <label>Avance</label>
+                    <strong data-progress-range-label>{{ selected_avance_min|default:0 }}% - {{ selected_avance_max|default:100 }}%</strong>
+                </div>
+                <div class="progress-range-slider">
+                    <input type="range" name="avance_min" min="0" max="100" value="{{ selected_avance_min|default:0 }}" step="1" data-progress-min>
+                    <input type="range" name="avance_max" min="0" max="100" value="{{ selected_avance_max|default:100 }}" step="1" data-progress-max>
+                </div>
+            </div>
             {% for level in hierarchy_filters.levels %}
-                <div class="form-field">
-                    <label>{{ level.name }}</label>
-                    <select class="input-control" data-progress-nested-level="{{ level.id }}">
-                        <option value="">Todos</option>
+                <details class="form-field aca-panel-filter-dropdown" data-progress-nested-level="{{ level.id }}">
+                    <summary>
+                        <span>{{ level.name }}</span>
+                        <small data-progress-selected-count>0 seleccionados</small>
+                        <i class="bi bi-chevron-down"></i>
+                    </summary>
+                    <div class="aca-panel-filter-menu">
                         {% for node in hierarchy_filters.nodes %}
                             {% if node.level_id == level.id %}
-                                <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
+                                <label class="aca-panel-checkbox" data-progress-node-option>
+                                    <input type="checkbox" value="{{ node.id }}" data-progress-node-checkbox data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if node.id|stringformat:"s" in selected_progress_node_ids %}checked{% endif %}>
+                                    <span>{{ node.label }}</span>
+                                </label>
                             {% endif %}
                         {% endfor %}
-                    </select>
-                </div>
+                    </div>
+                </details>
             {% endfor %}
             <div class="actions aca-progress-filter-actions">
                 <button class="btn btn-primary" type="submit">Aplicar</button>
@@ -89,8 +105,14 @@
     </form>
 </div>
 
-<div class="table-wrap">
-    <table class="datatable display compact-table rcm-records-table" data-column-filters="true" data-page-length="25" data-scroll-x="true">
+<div class="table-wrap aca-datatable-wrap">
+    <table id="fmeca-development-records-table" class="datatable display compact-table rcm-records-table"
+           data-column-filters="true"
+           data-page-length="25"
+           data-scroll-y="52vh"
+           data-scroll-x="true"
+           data-scroll-collapse="false"
+           data-fmeca-development-records-table>
         <thead>
             <tr>
                 <th>ID</th>
@@ -98,7 +120,7 @@
                 <th>Fechas</th>
                 <th>Tipo</th>
                 <th>Estado</th>
-                <th>U.T.</th>
+                <th>Ubicación Técnica</th>
                 <th>Equipo</th>
                 <th>TAG</th>
                 <th>Componente</th>
@@ -106,7 +128,6 @@
                 <th>Falla funcional</th>
                 <th>Modo de falla</th>
                 <th>Observación</th>
-                <th>Valores tarea principal</th>
                 <th>NPR</th>
                 {% for ed in evaluation_columns %}
                     <th>{{ ed.dimension.nombre }}</th>
@@ -133,27 +154,20 @@
                     </td>
                     <td>{{ row.registro.tipo_analisis }}</td>
                     <td>{{ row.registro.get_estado_display }}</td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.ut_display }}" data-copy="{{ row.registro.equipo.ut_display }}">{{ row.registro.equipo.ut_display }}</span></td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.equipo.nombre_equipo }}" data-copy="{{ row.registro.equipo.nombre_equipo }}">{{ row.registro.equipo.nombre_equipo }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.equipo.ut_display }}" data-copy="{{ row.registro.equipo.ut_display }}">{{ row.registro.equipo.ut_display }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.equipo.nombre_equipo }}" data-copy="{{ row.registro.equipo.nombre_equipo }}">{{ row.registro.equipo.nombre_equipo }}</span></td>
                     <td>{{ row.registro.equipo.tag_display }}</td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.componente|default:'' }}" data-copy="{{ row.registro.componente|default:'' }}">{{ row.registro.componente|default:'' }}</span></td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.funcion|default:'' }}" data-copy="{{ row.registro.funcion|default:'' }}">{{ row.registro.funcion|default:'' }}</span></td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.falla_funcional }}" data-copy="{{ row.registro.falla_funcional }}">{{ row.registro.falla_funcional }}</span></td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.modo_de_falla }}" data-copy="{{ row.registro.modo_de_falla }}">{{ row.registro.modo_de_falla }}</span></td>
-                    <td><span class="cell-ellipsis copy-cell" title="Click para copiar: {{ row.registro.observacion|default:'' }}" data-copy="{{ row.registro.observacion|default:'' }}">{{ row.registro.observacion|default:'-' }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.componente|default:'' }}" data-copy="{{ row.registro.componente|default:'' }}">{{ row.registro.componente|default:'' }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.funcion|default:'' }}" data-copy="{{ row.registro.funcion|default:'' }}">{{ row.registro.funcion|default:'' }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.falla_funcional }}" data-copy="{{ row.registro.falla_funcional }}">{{ row.registro.falla_funcional }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.modo_de_falla }}" data-copy="{{ row.registro.modo_de_falla }}">{{ row.registro.modo_de_falla }}</span></td>
+                    <td><span class="cell-ellipsis copy-cell" title="{{ row.registro.observacion|default:'' }}" data-copy="{{ row.registro.observacion|default:'' }}">{{ row.registro.observacion|default:'-' }}</span></td>
                     <td>
-                        {% for task in row.tasks %}
-                            {% if task.tipo_tarea_estrategia.codigo == 'tarea_primaria' %}
-                                <span class="cell-ellipsis" title="Frecuencia: {{ task.frecuencia_texto|default:'-' }} - Especialidad: {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} - Estado: {{ task.estado_equipo|default:'-' }}">
-                                    {{ task.frecuencia_texto|default:'-' }} - {{ task.especialidad|default:task.puesto_trabajo|default:'-' }} - {{ task.estado_equipo|default:'-' }}
-                                </span>
-                            {% endif %}
-                        {% empty %}
-                            -
-                        {% endfor %}
-                    </td>
-                    <td>
-                        {% if row.evaluations %}
+                        {% if row.registro.criticidad is not None %}
+                            <span{% if row.criticality_trace.regla_aplicada %} title="Base: {{ row.criticality_trace.criticidad_base|default:'-' }} ({{ row.criticality_trace.valor_base|default:'-' }}) · Regla: {{ row.criticality_trace.regla_aplicada }} · Final: {{ row.criticality_trace.criticidad_final|default:'-' }}"{% endif %}>
+                                {{ row.registro.criticidad }}{% if row.criticality_trace.regla_aplicada %} <i class="bi bi-lightning-charge" aria-label="Regla especial aplicada"></i>{% endif %}
+                            </span>
+                        {% elif row.evaluations %}
                             {% for evaluation in row.evaluations %}
                                 {% if evaluation.estrategia_dimension.dimension.nombre == 'NPR' %}
                                     {{ evaluation.valor_display|default:'-' }}
@@ -173,7 +187,7 @@
                     <td>
                         {% if row.tasks %}
                             {% for task in row.tasks|slice:":3" %}
-                                <span class="cell-ellipsis copy-cell" title="Click para copiar: {{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}" data-copy="{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}">{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}</span>
+                                <span class="cell-ellipsis copy-cell" title="{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}" data-copy="{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}">{{ task.tipo_tarea_estrategia.nombre }}: {{ task.descripcion }}</span>
                             {% endfor %}
                             {% if row.tasks|length > 3 %}
                                 <div class="muted">+{{ row.tasks|length|add:"-3" }} tareas</div>
@@ -209,7 +223,56 @@
 
 {% block extra_js %}
 <script>
+
+function applyFmecaRecordsProgressRange(form) {
+    const table = document.querySelector('[data-fmeca-development-records-table]');
+    if (!table || !window.jQuery || !jQuery.fn?.dataTable) return;
+    if (!jQuery.fn.dataTable.isDataTable(table)) return;
+
+    const dataTable = jQuery(table).DataTable();
+    const tableId = table.id;
+
+    if (table.dataset.progressRangeSearchBound !== 'true') {
+        table.dataset.progressRangeSearchBound = 'true';
+
+        jQuery.fn.dataTable.ext.search.push(function (settings, _data, dataIndex) {
+            if (settings.nTable.id !== tableId) return true;
+
+            const range = table._progressRange;
+            if (!range) return true;
+
+            const rowNode = dataTable.row(dataIndex).node();
+            const progressCell = rowNode?.children?.[1];
+            const raw = progressCell?.dataset.order || progressCell?.textContent || '';
+            const match = String(raw).replace(',', '.').match(/-?\d+(\.\d+)?/);
+
+            if (!match) return true;
+
+            const value = Number(match[0]);
+            return value >= range.min && value <= range.max;
+        });
+    }
+
+    const min = Number(form?.querySelector('[name="avance_min"]')?.value || 0);
+    const max = Number(form?.querySelector('[name="avance_max"]')?.value || 100);
+
+    if (min <= 0 && max >= 100) {
+        delete table._progressRange;
+    } else {
+        table._progressRange = {
+            min: Math.min(min, max),
+            max: Math.max(min, max)
+        };
+    }
+
+    dataTable.draw();
+}
+
 function syncNestedFmecaFilters(root) {
+    if (window.MindcoNestedHierarchyFilters) {
+        window.MindcoNestedHierarchyFilters.sync(root);
+        return;
+    }
     const scope = root || document;
     const levelInput = scope.querySelector('[name="progress_nivel"]');
     const nodeInput = scope.querySelector('[name="progress_nodo"]');
@@ -262,12 +325,69 @@ function syncNestedFmecaFilters(root) {
     nodeInput.value = deepestNode;
 }
 
-document.addEventListener('change', function (event) {
+function syncFmecaProgressRange(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-progress-range-filter]').forEach(function (rangeFilter) {
+        const minInput = rangeFilter.querySelector('[data-progress-min]');
+        const maxInput = rangeFilter.querySelector('[data-progress-max]');
+        const label = rangeFilter.querySelector('[data-progress-range-label]');
+        const slider = rangeFilter.querySelector('.progress-range-slider');
+        if (!minInput || !maxInput || !label) return;
+        let min = Number(minInput.value || 0);
+        let max = Number(maxInput.value || 100);
+        if (min > max) {
+            if (document.activeElement === minInput) {
+                max = min;
+                maxInput.value = String(max);
+            } else {
+                min = max;
+                minInput.value = String(min);
+            }
+        }
+        min = Math.max(0, Math.min(100, min));
+        max = Math.max(0, Math.min(100, max));
+        rangeFilter.style.setProperty('--range-min', min + '%');
+        rangeFilter.style.setProperty('--range-max', max + '%');
+        if (slider) {
+            slider.style.setProperty('--range-min', min + '%');
+            slider.style.setProperty('--range-max', max + '%');
+        }
+        label.textContent = min + '% - ' + max + '%';
+    });
+}
+
+document.addEventListener('input', function (event) {
     const form = event.target.closest('.aca-progress-filters');
-    if (!form || !event.target.matches('[data-progress-nested-level]')) return;
-    syncNestedFmecaFilters(form);
+    if (!form) return;
+
+    if (event.target.closest('[data-progress-range-filter]')) {
+        syncFmecaProgressRange(form);
+        applyFmecaRecordsProgressRange(form);
+    }
 });
 
+document.addEventListener('change', function (event) {
+    const form = event.target.closest('.aca-progress-filters');
+    if (!form) return;
+    if (event.target.closest('[data-progress-nested-level]')) {
+        syncNestedFmecaFilters(form);
+    }
+    if (event.target.closest('[data-progress-range-filter]')) {
+        syncFmecaProgressRange(form);
+    }
+});
+
+document.addEventListener('submit', function (event) {
+    const form = event.target.closest('.aca-progress-filters');
+    if (!form) return;
+    syncNestedFmecaFilters(form);
+    syncFmecaProgressRange(form);
+});
+
+const initialFmecaProgressForm = document.querySelector('.aca-progress-filters');
 syncNestedFmecaFilters(document);
+syncFmecaProgressRange(document);
+applyFmecaRecordsProgressRange(initialFmecaProgressForm);
+
 </script>
 {% endblock %}

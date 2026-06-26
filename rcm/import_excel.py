@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core import models
+from core.services.criticality_rules import sync_fmeca_criticality_rules
 
 try:
     from openpyxl import load_workbook
@@ -668,6 +669,8 @@ class Command(BaseCommand):
             rcm.criticidad = int(criticidad_value.number)
             rcm.save(update_fields=['criticidad'])
 
+        sync_fmeca_criticality_rules(rcm, fmea, service)
+
         self.create_tasks(fmea, row, header_map, task_types, stats)
         stats.filas_importadas += 1
 
@@ -1155,7 +1158,7 @@ class Command(BaseCommand):
         tipo = normalize_key(ed.dimension.tipo_calculo)
         steps = self.calculation_steps(tipo, config)
         result = None
-        for step_type, operands in steps:
+        for step_type, operands, mode in steps:
             values = []
             for operand in operands:
                 if isinstance(operand, dict) and (operand.get('resultado') is True or operand.get('tipo') == 'resultado'):
@@ -1165,6 +1168,10 @@ class Command(BaseCommand):
                 source = self.source_value(value_context, operand)
                 if source and source.number is not None:
                     values.append(source.number)
+            if mode == 'ponderado' and step_type == 'suma':
+                values = self.weighted_values(operands, values)
+                if values is None:
+                    return None
             result = self.calculate(step_type, values)
             if result is None:
                 return None
@@ -1181,10 +1188,38 @@ class Command(BaseCommand):
                     continue
                 op = normalize_key(step.get('operacion') or step.get('tipo_calculo') or step.get('operation') or tipo)
                 operands = step.get('operandos') or step.get('campos') or step.get('sources') or []
-                steps.append((op, operands if isinstance(operands, list) else []))
+                mode = step.get('modo') or ('ponderado' if step.get('ponderado') is True else '')
+                steps.append((op, operands if isinstance(operands, list) else [], mode))
             return steps
         operands = config.get('operandos') or config.get('campos') or config.get('sources') or []
-        return [(tipo, operands if isinstance(operands, list) else [])]
+        return [(tipo, operands if isinstance(operands, list) else [], '')]
+
+    def weighted_values(self, operands, values):
+        if not operands or len(operands) != len(values):
+            return None
+        weights = []
+        for operand in operands:
+            raw = operand.get('peso', operand.get('ponderador', operand.get('weight'))) if isinstance(operand, dict) else None
+            try:
+                weights.append(Decimal(str(raw).replace(',', '.')) if raw not in (None, '') else None)
+            except (InvalidOperation, TypeError, ValueError):
+                return None
+        if all(weight is None for weight in weights):
+            equal_weight = Decimal('1') / Decimal(len(weights))
+            weights = [equal_weight] * len(weights)
+        elif any(weight is None for weight in weights):
+            assigned = sum((weight for weight in weights if weight is not None), Decimal('0'))
+            missing_count = sum(1 for weight in weights if weight is None)
+            remaining = Decimal('1') - assigned
+            if remaining < 0:
+                return None
+            missing_weight = remaining / Decimal(missing_count)
+            weights = [missing_weight if weight is None else weight for weight in weights]
+        if any(weight < 0 or weight > 1 for weight in weights):
+            return None
+        if abs(sum(weights, Decimal('0')) - Decimal('1')) > Decimal('0.0001'):
+            return None
+        return [value * weight for value, weight in zip(values, weights)]
 
     def calculate(self, tipo, values):
         if not values:

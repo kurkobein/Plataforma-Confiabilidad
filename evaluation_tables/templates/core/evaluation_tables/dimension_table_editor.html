@@ -39,11 +39,57 @@
     border-radius: 8px;
     padding: 8px;
     cursor: pointer;
+    position: relative;
+    padding-right: 34px;
+  }
+
+  .item-card-drag {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    cursor: grab;
+    display: inline-flex;
+    height: 26px;
+    justify-content: center;
+    padding: 0;
+    position: absolute;
+    right: 5px;
+    top: 5px;
+    width: 26px;
+  }
+
+  .item-card-drag:active {
+    cursor: grabbing;
+  }
+
+  .item-card.is-dragging {
+    opacity: .55;
   }
 
   .item-card.active {
     border-color: var(--primary);
     background: var(--primary-soft);
+  }
+
+  .item-card.protected {
+    border-color: #c4b5fd;
+    background: #f5f3ff;
+  }
+
+  .item-card-badge {
+    align-items: center;
+    background: #ede9fe;
+    border: 1px solid #ddd6fe;
+    border-radius: 999px;
+    color: #5b21b6;
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    gap: 4px;
+    margin-left: 6px;
+    padding: 1px 6px;
+    vertical-align: middle;
   }
 
   .item-card .meta {
@@ -122,12 +168,12 @@
 
   .field-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 9px;
   }
 
   .field-grid .full {
-    grid-column: 1/-1;
+    grid-column: 1/3;
   }
 
   .editor-check-grid {
@@ -169,7 +215,7 @@
 
   .builder {
     display: grid;
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    grid-template-columns: minmax(260px, 400px) minmax(0, 1fr);
     gap: 10px;
     margin-top: 15px;
   }
@@ -217,7 +263,7 @@
   #columnsWrap .table-mini th:nth-child(2),
   #columnsWrap .table-mini td:nth-child(2) {
     max-width: 130px;
-    min-width: 130px;
+    min-width: 50px;
     width: 130px;
   }
 
@@ -270,26 +316,99 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: #fff;
-    padding: 8px;
     margin-bottom: 8px;
+    overflow: hidden;
   }
 
   .calc-step-head {
-    display: grid;
-    grid-template-columns: auto minmax(160px, 1fr) auto;
-    gap: 8px;
     align-items: center;
+    display: flex;
+    gap: 7px;
+    min-height: 38px;
+    padding: 5px 7px;
+  }
+
+  .calc-step-toggle {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--ink);
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 24px;
+    height: 24px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .calc-step-toggle i {
+    transition: transform .15s ease;
+  }
+
+  .calc-step.is-collapsed .calc-step-toggle i {
+    transform: rotate(-90deg);
+  }
+
+  .calc-step-title {
+    flex: 0 0 auto;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .calc-step-formula-inline {
+    color: var(--muted);
+    flex: 1 1 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .calc-step-body {
+    border-top: 1px solid var(--line);
+    padding: 8px;
+  }
+
+  .calc-step.is-collapsed .calc-step-body {
+    display: none;
+  }
+
+  .calc-step-controls {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-bottom: 8px;
   }
 
-  .calc-step-head select {
+  .calc-step-operation {
+    display: grid;
+    flex: 0 1 230px;
+    gap: 3px;
+  }
+
+  .calc-step-operation span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .calc-step-operation select {
+    min-height: 30px;
     width: 100%;
+  }
+
+  .calc-step-remove {
+    flex: 0 0 auto;
+    margin-left: auto;
   }
 
   .calc-source-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px 12px;
+    gap: 5px;
   }
 
   .calc-source-list label,
@@ -300,25 +419,223 @@
     font-size: 13px;
   }
 
-  .checkbox-select {
-    height: auto;
-    min-height: 34px;
-    display: flex;
+  .calc-weight-toggle {
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    padding: 6px 8px;
+    display: inline-flex;
+    gap: 5px;
+    margin: 0;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 30px;
   }
 
-  .checkbox-select label {
-    display: inline-flex;
+  .calc-source-option {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    justify-content: space-between;
+    min-width: 0;
+    padding: 5px 6px;
+  }
+
+  .calc-source-option:hover {
+    border-color: #cbd5e1;
+  }
+
+  .calc-source-choice {
     align-items: center;
+    display: inline-flex;
     gap: 6px;
-    font-size: 13px;
+    min-width: 0;
+  }
+
+  .calc-source-choice span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .calc-weight-input {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 21px;
+    overflow: hidden;
+  }
+
+  .calc-weight-input:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-soft);
+  }
+
+  .calc-weight-input input {
+    -moz-appearance: textfield;
+    appearance: textfield;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    font-size: 12px;
+    height: 100%;
+    outline: 0;
+    padding: 3px 5px;
+    text-align: right;
+    width: 25px;
+  }
+
+  .calc-weight-input input::-webkit-inner-spin-button,
+  .calc-weight-input input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    display: none;
     margin: 0;
   }
 
-  .checkbox-select input {
+  .calc-weight-input > span {
+    align-items: center;
+    align-self: stretch;
+    background: #f1f5f9;
+    border-left: 1px solid #e2e8f0;
+    color: var(--muted);
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0 6px;
+  }
+
+  #calcSourcesBlock {
+    width: min(100%, 460px);
+  }
+
+  #calcSourcesWrap {
+    box-sizing: border-box;
+    height: auto;
+    max-height: 320px;
+    overflow: auto;
+    padding: 7px;
+    width: 100%;
+  }
+
+  #calcSourcesBlock > small {
+    display: block;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 720px) {
+    .calc-source-list {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .calc-formula-preview {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-top: 8px;
+    min-height: 30px;
+    padding: 5px 7px;
+  }
+
+  .calc-formula-preview code {
+    color: var(--ink);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .calc-weight-total {
+    border-radius: 999px;
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+  }
+
+  .calc-weight-total.is-valid {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .calc-weight-total.is-invalid {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .process-usage-dropdown {
+    min-width: 0;
+    position: relative;
+  }
+
+  .process-usage-dropdown summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    list-style: none;
+    min-height: 34px;
+    user-select: none;
+  }
+
+  .process-usage-dropdown summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .process-usage-dropdown summary i {
+    color: var(--muted);
+    font-size: 12px;
+    transition: transform .15s ease;
+  }
+
+  .process-usage-dropdown[open] summary i {
+    transform: rotate(180deg);
+  }
+
+  .process-usage-menu {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .12);
+    display: grid;
+    gap: 2px;
+    left: 0;
+    margin-top: 4px;
+    min-width: 100%;
+    padding: 5px;
+    position: absolute;
+    top: 100%;
+    width: max-content;
+    z-index: 30;
+  }
+
+  .process-usage-menu label {
+    align-items: center;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    font-size: 13px;
+    gap: 7px;
+    margin: 0;
+    min-width: 160px;
+    padding: 6px 7px;
+  }
+
+  .process-usage-menu label:hover {
+    background: #f8fafc;
+  }
+
+  .process-usage-menu label.is-disabled {
+    color: var(--muted);
+    cursor: not-allowed;
+    opacity: .6;
+  }
+
+  .process-usage-menu input {
     margin: 0;
   }
 
@@ -353,6 +670,15 @@
     margin-top: 8px;
     color: var(--muted);
     font-size: 12px;
+  }
+
+  .field-recommendation {
+    color: #92400e;
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 4px;
   }
 
   @media (max-width: 1100px) {
@@ -406,14 +732,13 @@
     <div class="main-head">
       <div>
         <strong id="titleMain">Selecciona una dimensión</strong>
-        <div class="muted">Editor práctico de tabla y columnas</div>
       </div>
       <div class="actions">
-        <button class="btn" type="button" onclick="duplicateItem()">
+        <button class="btn" type="button" id="duplicateDimensionButton" onclick="duplicateItem()">
           Duplicar
         </button>
         {% if request.user.is_superuser %}
-        <button class="btn btn-danger" type="button" onclick="removeCurrentItem()">
+        <button class="btn btn-danger" type="button" id="deleteDimensionButton" onclick="removeCurrentItem()">
           Eliminar
         </button>
         {% endif %}
@@ -424,18 +749,19 @@
         No hay dimensiones todavía. Usa "Nueva dimensión".
       </div>
       <div id="editorState" style="display: none">
-        <div id="editorValidation" class="validation-panel"></div>
         <div class="field-grid">
           <div>
             <label>Nombre</label><input class="input-control" id="fNombre" list="dimensionNameSuggestions"
-              oninput="updateField('nombre', this.value)" />
+              oninput="updateField('nombre', this.value)" onchange="applyDimensionSuggestion(this.value)"
+              onblur="finalizeDimensionName()" />
             <datalist id="dimensionNameSuggestions">
               {% for name in dimension_name_suggestions %}
               <option value="{{ name }}"></option>
               {% endfor %}
             </datalist>
+            <small class="field-recommendation" id="fNameRecommendation"></small>
           </div>
-          <div>
+          <div style="display:none;">
             <label>Campo interno</label><input class="input-control" id="fCampo" readonly />
           </div>
           <div>
@@ -450,7 +776,7 @@
               {% endfor %}
             </select>
           </div>
-          <div>
+          <div style="display:none;">
             <label>Tipo dato</label><select class="input-control" id="fTipoDato"
               onchange="updateField('tipo_dato', this.value)">
               {% for value,label in tipos_dato %}
@@ -458,7 +784,7 @@
               {% endfor %}
             </select>
           </div>
-          <div>
+          <div style="display:none;">
             <label>Tipo cálculo</label><select class="input-control" id="fTipoCalculo"
               onchange="updateCalculationType(this.value)">
               {% for value,label in tipos_calculo %}
@@ -468,38 +794,39 @@
           </div>
           <div>
             <label>Uso</label>
-            <div class="input-control checkbox-select" id="fProcesoUso" role="group" aria-label="Uso de la dimensión">
-              {% for value,label in procesos_uso %}
-              {% if value != 'ambos' %}
-              <label><input type="checkbox" value="{{ value }}" data-process-checkbox
-                  onchange="updateProcessUsage()" /> {{ label }}</label>
-              {% endif %}
-              {% endfor %}
-              <label><input type="checkbox" data-process-checkbox disabled /> Malos actores</label>
-            </div>
-          </div>
-          <div id="calcSourcesBlock">
-            <label>Operandos del cálculo</label>
-            <div id="calcSourcesWrap" class="input-control" style="
-                height: auto;
-                max-height: 320px;
-                overflow: auto;
-                padding: 8px;
-              "></div>
-            <small class="muted">Selecciona las dimensiones superiores que alimentan el
-              cálculo.</small>
-          </div>
-          <div id="catalogTypeBlock">
-            <label>Tipo de catálogo</label><select class="input-control" id="fTipo"
-              onchange="changeCatalogType(this.value)">
-              <option value="opciones">Opciones</option>
-              <option value="rangos">Rangos</option>
-              <option value="numerico_libre">Numérico libre</option>
-            </select>
+            <details class="process-usage-dropdown" id="fProcesoUso">
+              <summary class="input-control" aria-label="Seleccionar uso de la dimensión">
+                <span id="fProcesoUsoLabel">ACA</span>
+                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+              </summary>
+              <div class="process-usage-menu" role="group" aria-label="Uso de la dimensión">
+                {% for value,label in procesos_uso %}
+                {% if value != 'ambos' %}
+                <label><input type="checkbox" value="{{ value }}" data-process-checkbox
+                    onchange="updateProcessUsage()" /> <span>{{ label }}</span></label>
+                {% endif %}
+                {% endfor %}
+                <label class="is-disabled" title="Disponible próximamente">
+                  <input type="checkbox" data-process-checkbox disabled />
+                  <span>Malos actores</span>
+                </label>
+              </div>
+            </details>
           </div>
           <div id="dependencyBlock">
             <label>Depende de resultado</label>
             <select class="input-control" id="fDependencia" onchange="updateDependency(this.value)"></select>
+          </div>
+          <div id="catalogTypeBlock">
+            <label>Tipo de catálogo</label>
+            <select class="input-control" id="fTipo"
+              onchange="changeCatalogType(this.value)">
+              <option value="opciones">Opciones</option>
+              <option value="rangos">Rangos</option>
+              <option value="numerico_libre">Numérico libre</option>
+              <option value="calculado">Calculado</option>
+            </select>
+          </div>
           </div>
           <div class="editor-check-grid">
             <label class="editor-check-option">
@@ -523,6 +850,10 @@
               <span>Mostrar en listado FMECA</span>
             </label>
           </div>
+          <div id="calcSourcesBlock" class="full">
+            <label>Pasos del calculo</label>
+            <div id="calcSourcesWrap" class="input-control"></div>
+          </div>
         </div>
 
         <div class="builder" id="catalogBuilder">
@@ -533,6 +864,11 @@
               </button>
             </div>
             <div class="subbody catalog-scroll" id="columnsWrap"></div>
+            <datalist id="columnNameSuggestions">
+              {% for name in column_name_suggestions %}
+              <option value="{{ name }}"></option>
+              {% endfor %}
+            </datalist>
           </div>
           <div class="subpanel">
             <div class="subhead">
@@ -549,9 +885,14 @@
 </div>
 {% endblock %} {% block extra_js %}
 <script>
-  const store = { items: {{ editor_payload_json| safe }}, active: null, collapsedGroups: {}};
+  const store = { items: {{ editor_payload_json| safe }}, active: null, collapsedGroups: {}, collapsedCalculationSteps: {} };
   const columnTypeOptions = [{% for value, label in tipos_columna %}{ value: '{{ value }}', label: '{{ label }}' }, {% endfor %}];
   const processOptions = [{% for value, label in procesos_uso %}{ value: '{{ value }}', label: '{{ label }}' }, {% endfor %}];
+  const dimensionSuggestions = {{ dimension_suggestions_json|safe }};
+  const columnSuggestions = {{ column_suggestions_json|safe }};
+  const AUTO_IMPACT_TOTAL_NAME = 'Impacto total';
+  const AUTO_IMPACT_TOTAL_FIELD = 'impacto_total';
+  const AUTO_IMPACT_TOTAL_DESCRIPTION = 'Total automatico de las dimensiones de impacto configuradas para ACA.';
   function current() { return store.items.find(x => String(x.id) === String(store.active)) || null; }
   function slugifyLite(v) { return (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 100); }
   function escapeHtml(value) {
@@ -568,6 +909,135 @@
   const RESERVED_COLUMN_KEYS = new Set(['etiqueta', 'valor_numerico', 'valor_texto', 'valor_booleano', 'limite_inferior', 'limite_superior', 'desde', 'hasta', 'min', 'max']);
   const RANGE_LOWER_KEYS = ['limite_inferior', 'desde', 'min', 'minimo', 'mínimo'];
   const RANGE_UPPER_KEYS = ['limite_superior', 'hasta', 'max', 'maximo', 'máximo'];
+  const COLUMN_KEY_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+  function normalizedLabel(value) {
+    return slugifyLite(value || '');
+  }
+
+  function isPersistedRecordId(id) {
+    return /^\d+$/.test(String(id || '')) || String(id || '').startsWith('ed_');
+  }
+
+  function isPersistedColumn(col) {
+    return /^\d+$/.test(String(col?.id || ''));
+  }
+
+  function isAutoImpactTotalItem(item) {
+    return Boolean(
+      item
+      && (
+        item.auto_impact_total === true
+        || item.protegida === true
+        || item.campo === AUTO_IMPACT_TOTAL_FIELD
+      )
+    );
+  }
+
+  function autoImpactSourceItems(autoItem) {
+    return store.items.filter(src => {
+      if (!src || String(src.id) === String(autoItem?.id)) return false;
+      if (isAutoImpactTotalItem(src)) return false;
+      if (src.tipo_funcional !== 'impacto') return false;
+      if (src.tipo_calculo) return false;
+      const processValue = normalizeProcessValue(src.proceso_uso);
+      return processValue === acaProcessValue || processValue === bothProcessValue;
+    });
+  }
+
+  function syncAutoImpactTotalItem(item) {
+    if (!isAutoImpactTotalItem(item)) return item;
+    const sources = autoImpactSourceItems(item).map(sourceRef);
+    const currentConfig = item.config_calculo && typeof item.config_calculo === 'object' ? item.config_calculo : {};
+    const hasCustomCalculation = Array.isArray(currentConfig.pasos)
+      ? currentConfig.pasos.some(step => step && Array.isArray(step.operandos) && step.operandos.length)
+      : (Array.isArray(currentConfig.operandos) && currentConfig.operandos.length);
+    item.nombre = AUTO_IMPACT_TOTAL_NAME;
+    item.campo = AUTO_IMPACT_TOTAL_FIELD;
+    item.tipo = 'calculado';
+    item.tipo_funcional = 'resultado';
+    item.tipo_dato = 'numerico';
+    item.tipo_calculo = 'suma';
+    item.descripcion = AUTO_IMPACT_TOTAL_DESCRIPTION;
+    item.proceso_uso = acaProcessValue;
+    item.obligatorio = true;
+    item.considerar_avance_aca = false;
+    item.visible_en_listado_aca = true;
+    item.considerar_avance_fmeca = false;
+    item.visible_en_listado_fmeca = false;
+    item.auto_impact_total = true;
+    item.protegida = true;
+    item.columnas = [];
+    item.filas = [];
+    item.config_calculo = hasCustomCalculation ? currentConfig : {
+      version: 1,
+      auto_impact_total: true,
+      pasos: [{ operacion: 'suma', operandos: sources }],
+      operandos: sources
+    };
+    item.config_calculo.auto_impact_total = true;
+    return item;
+  }
+
+  function syncProtectedItems() {
+    store.items.forEach(syncAutoImpactTotalItem);
+  }
+
+  function processCompatibleSuggestion(item, suggestion) {
+    if (!suggestion || !suggestion.proceso_uso || !item) return true;
+    const itemProcess = normalizeProcessValue(item.proceso_uso);
+    const suggestionProcess = normalizeProcessValue(suggestion.proceso_uso);
+    return suggestionProcess === bothProcessValue || itemProcess === bothProcessValue || itemProcess === suggestionProcess;
+  }
+
+  function dimensionSuggestionsForItem(item) {
+    return dimensionSuggestions.filter(suggestion => processCompatibleSuggestion(item, suggestion));
+  }
+
+  function refreshDimensionNameSuggestions(item) {
+    const datalist = document.getElementById('dimensionNameSuggestions');
+    if (!datalist) return;
+    datalist.innerHTML = dimensionSuggestionsForItem(item || current())
+      .map(suggestion => `<option value="${escapeHtml(suggestion.nombre)}"></option>`)
+      .join('');
+  }
+
+  function suggestionByName(suggestions, value) {
+    const normalized = normalizedLabel(value);
+    if (!normalized) return null;
+    return suggestions.find(item => normalizedLabel(item.nombre) === normalized) || null;
+  }
+
+  function recommendationForKey(key, visibleName, item) {
+    const normalizedKey = slugifyLite(key);
+    const suggestion = [...dimensionSuggestionsForItem(item || current()), ...columnSuggestions]
+      .find(candidate => slugifyLite(candidate.clave || candidate.nombre) === normalizedKey);
+    if (!suggestion) return '';
+    if (normalizedLabel(suggestion.nombre) === normalizedLabel(visibleName)) return '';
+    return `Se recomienda usar '${suggestion.nombre}'.`;
+  }
+
+  function showNameRecommendation(item) {
+    const target = document.getElementById('fNameRecommendation');
+    if (!target || !item) return;
+    const suggestedKey = slugifyLite(item.campo || item.nombre);
+    target.textContent = recommendationForKey(suggestedKey, item.nombre, item);
+  }
+
+  function uniqueColumnKey(item, label, fallback, ignoreColumn) {
+    const used = new Set((item.columnas || [])
+      .filter(col => col && col !== ignoreColumn)
+      .map(col => col.clave_interna)
+      .filter(Boolean));
+    const base = slugifyLite(label || fallback || 'columna') || 'columna';
+    let key = base.slice(0, 100);
+    let counter = 2;
+    while (used.has(key)) {
+      const suffix = `_${counter}`;
+      key = `${base.slice(0, 100 - suffix.length)}${suffix}`;
+      counter += 1;
+    }
+    return key;
+  }
 
   function parseCatalogNumber(raw) {
     if (raw === null || raw === undefined || String(raw).trim() === '') return { empty: true, value: null, error: '' };
@@ -591,11 +1061,51 @@
   function validateCatalogItem(item) {
     const errors = [];
     const warnings = [];
-    if (!item || item.tipo_calculo || item.tipo === 'numerico_libre') return { errors, warnings };
+    if (!item) return { errors, warnings };
+    if (item.tipo_calculo) {
+      calculationSteps(item).forEach((step, stepIdx) => {
+        if (!stepIsWeighted(step)) return;
+        if (step.operacion !== 'suma') {
+          errors.push(`#${stepIdx + 1}: la ponderacion solo se puede usar con Suma.`);
+          return;
+        }
+        if (!step.operandos.length) {
+          errors.push(`#${stepIdx + 1}: selecciona al menos una fuente para ponderar.`);
+          return;
+        }
+        const invalidWeight = step.operandos.some(operand => {
+          const weight = operandWeight(operand);
+          return weight === null || weight < 0 || weight > 1;
+        });
+        if (invalidWeight) {
+          errors.push(`#${stepIdx + 1}: todos los ponderadores deben estar entre 0% y 100%.`);
+          return;
+        }
+        const total = stepWeightTotal(step);
+        if (Math.abs(total - 1) > 0.0001) {
+          errors.push(`#${stepIdx + 1}: los ponderadores suman ${(total * 100).toFixed(2)}% y deben sumar 100%.`);
+        }
+      });
+      return { errors, warnings };
+    }
+    if (item.tipo === 'numerico_libre') return { errors, warnings };
     const columns = Array.isArray(item.columnas) ? item.columnas : [];
     const rows = Array.isArray(item.filas) ? item.filas : [];
     const numericColumns = columns.filter(col => col && col.tipo_dato === 'numero');
     const bounds = [];
+    const seenKeys = new Set();
+
+    columns.forEach((col, colIdx) => {
+      const key = String((col && col.clave_interna) || '').trim();
+      if (!key) {
+        errors.push(`Columna ${colIdx + 1}: la clave tecnica no puede quedar vacia.`);
+      } else if (!COLUMN_KEY_PATTERN.test(key)) {
+        errors.push(`Columna "${col.nombre_columna || key}": la clave tecnica debe usar minusculas, numeros y guion bajo, sin espacios ni tildes.`);
+      } else if (seenKeys.has(key)) {
+        errors.push(`Columna "${col.nombre_columna || key}": la clave tecnica "${key}" esta duplicada.`);
+      }
+      if (key) seenKeys.add(key);
+    });
 
     rows.forEach((row, rowIdx) => {
       const values = row.valores || {};
@@ -723,6 +1233,8 @@
     document.querySelectorAll('[data-process-checkbox]').forEach(input => {
       input.checked = selected.includes(input.value);
     });
+    const label = document.getElementById('fProcesoUsoLabel');
+    if (label) label.textContent = processLabel(item?.proceso_uso || 'aca');
   }
   function syncProcessSpecificOptions(item) {
     const processValue = normalizeProcessValue(item?.proceso_uso);
@@ -753,9 +1265,16 @@
   }
   function updateProcessUsage() {
     const item = current(); if (!item) return;
+    if (isAutoImpactTotalItem(item)) {
+      syncAutoImpactTotalItem(item);
+      renderEditor();
+      return;
+    }
     const selected = Array.from(document.querySelectorAll('[data-process-checkbox]:checked')).map(input => input.value);
     item.proceso_uso = processValueFromSelection(selected);
     syncProcessSpecificOptions(item);
+    refreshDimensionNameSuggestions(item);
+    showNameRecommendation(item);
     expandItemGroup(item);
     syncProcessCheckboxes(item);
     renderList();
@@ -840,6 +1359,106 @@
   function operandIsResult(operand) {
     return operand === '$resultado' || (operand && typeof operand === 'object' && (operand.resultado === true || operand.tipo === 'resultado'));
   }
+  function stepIsWeighted(step) {
+    return Boolean(step && (step.modo === 'ponderado' || step.ponderado === true));
+  }
+  function operandWeight(operand) {
+    if (!operand || typeof operand !== 'object') return null;
+    const raw = operand.peso ?? operand.ponderador ?? operand.weight;
+    if (raw === null || raw === undefined || raw === '') return null;
+    const value = Number(String(raw).replace(',', '.'));
+    return Number.isFinite(value) ? value : null;
+  }
+  function operandWithWeight(operand, weight) {
+    let normalized;
+    if (operandIsResult(operand)) {
+      normalized = { resultado: true };
+    } else if (operand && typeof operand === 'object') {
+      normalized = Object.assign({}, operand);
+    } else {
+      const source = sourceByKey(refSelectionKey(operand)) || sourceByKey(refKey(operand));
+      normalized = source ? sourceRef(source) : { source: String(operand || '') };
+    }
+    delete normalized.ponderador;
+    delete normalized.weight;
+    normalized.peso = Math.max(0, Math.min(1, Number(weight) || 0));
+    return normalized;
+  }
+  function operandWithoutWeight(operand) {
+    if (operandIsResult(operand)) return '$resultado';
+    if (!operand || typeof operand !== 'object') return operand;
+    const normalized = Object.assign({}, operand);
+    delete normalized.peso;
+    delete normalized.ponderador;
+    delete normalized.weight;
+    return normalized;
+  }
+  function distributeStepWeights(step, force) {
+    if (!stepIsWeighted(step) || !Array.isArray(step.operandos) || !step.operandos.length) return;
+    if (!force && step.ponderacion_manual === true) {
+      step.operandos = step.operandos.map(operand => {
+        const integerPercent = Math.round((operandWeight(operand) ?? 0) * 100);
+        return operandWithWeight(operand, integerPercent / 100);
+      });
+      return;
+    }
+    const basePercent = Math.floor(100 / step.operandos.length);
+    const remainder = 100 - (basePercent * step.operandos.length);
+    step.operandos = step.operandos.map((operand, index) => {
+      const percent = basePercent + (index < remainder ? 1 : 0);
+      return operandWithWeight(operand, percent / 100);
+    });
+    step.ponderacion_manual = false;
+  }
+  function stepWeightTotal(step) {
+    return (step.operandos || []).reduce((total, operand) => total + (operandWeight(operand) ?? 0), 0);
+  }
+  function allowIntegerWeightKey(event) {
+    return !['.', ',', 'e', 'E', '+', '-'].includes(event.key);
+  }
+  function sanitizeIntegerWeightInput(input) {
+    if (!input || input.value === '') return;
+    const numeric = Number(String(input.value).replace(',', '.'));
+    input.value = Number.isFinite(numeric)
+      ? String(Math.round(Math.max(0, Math.min(100, numeric))))
+      : '';
+  }
+  function stepOperandLabel(operand) {
+    if (operandIsResult(operand)) return 'Resultado anterior';
+    const source = sourceByKey(refSelectionKey(operand)) || sourceByKey(refKey(operand));
+    return source ? (source.campo || slugifyLite(source.nombre || 'dimension')) : String(refKey(operand) || 'fuente').replace(/^campo:/, '');
+  }
+  function weightedFormula(step) {
+    return (step.operandos || []).map(operand => {
+      const weight = operandWeight(operand) ?? 0;
+      return `${Number(weight.toFixed(4))} × ${stepOperandLabel(operand)}`;
+    }).join(' + ');
+  }
+  function calculationStepFormula(step) {
+    const operands = (step.operandos || []).map(stepOperandLabel);
+    if (!operands.length) return '';
+    if (stepIsWeighted(step)) return weightedFormula(step);
+    if (step.operacion === 'maximo') return `M\u00e1x(${operands.join(', ')})`;
+    if (step.operacion === 'minimo') return `M\u00edn(${operands.join(', ')})`;
+    const symbols = {
+      suma: ' + ',
+      resta: ' - ',
+      multiplicacion: ' \u00d7 ',
+      division: ' \u00f7 '
+    };
+    return operands.join(symbols[step.operacion] || ' + ');
+  }
+  function calculationStepStateKey(stepIdx) {
+    return `${String(store.active || 'nuevo')}:${stepIdx}`;
+  }
+  function calculationStepIsCollapsed(stepIdx) {
+    return store.collapsedCalculationSteps[calculationStepStateKey(stepIdx)] === true;
+  }
+  function toggleCalculationStep(stepIdx) {
+    const key = calculationStepStateKey(stepIdx);
+    store.collapsedCalculationSteps[key] = !calculationStepIsCollapsed(stepIdx);
+    renderCalculationSources();
+  }
   function ensureColumns(item) { if (isCalculated(item) || item.tipo === 'numerico_libre') { item.columnas = []; return; } if (Array.isArray(item.columnas) && item.columnas.length) return; item.columnas = defaultColumns(item.tipo); }
   function defaultColumns(type) {
     if (type === 'numerico_libre') return [];
@@ -859,6 +1478,7 @@
     return (Array.isArray(columns) ? columns : []).filter(col => col && col.clave_interna !== 'valor_secundario');
   }
   function renderList() {
+    syncProtectedItems();
     const list = document.getElementById('itemsList');
     document.getElementById('itemsCount').textContent = store.items.length;
     if (!store.items.length) { list.innerHTML = '<div class="empty-state" style="padding:1rem;">Sin dimensiones todavía.</div>'; return; }
@@ -875,6 +1495,10 @@
       const cards = grouped[groupKey].map(it => {
         const dep = dependencyValue(it);
         const activeClass = String(it.id) === String(store.active) ? 'active' : '';
+        const protectedClass = isAutoImpactTotalItem(it) ? 'protected' : '';
+        const protectedBadge = isAutoImpactTotalItem(it)
+          ? '<span class="item-card-badge"><i class="bi bi-lock"></i> Automática</span>'
+          : '';
         const meta = [
           processLabel(it.proceso_uso),
           it.tipo_funcional || '-',
@@ -886,24 +1510,50 @@
           normalizeProcessValue(it.proceso_uso) === acaProcessValue ? '' : (it.visible_en_listado_fmeca === false ? 'oculta listado FMECA' : 'listado FMECA')
         ];
         if (dep) meta.push('depende: ' + dep);
-        return `<div class="item-card ${activeClass}" onclick="selectItem('${escapeHtml(it.id)}')"><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong><div class="meta">${escapeHtml(meta.join(' | '))}</div></div>`;
+        const metaText = meta
+          .map(value => String(value || '').trim())
+          .filter(Boolean)
+          .join(' | ');
+        return `<div class="item-card ${activeClass} ${protectedClass}" data-dimension-item="${escapeHtml(it.id)}" onclick="selectItem('${escapeHtml(it.id)}')" ondragover="allowDimensionItemDrop(event)" ondrop="dropDimensionItem(event, '${escapeHtml(it.id)}')"><button class="item-card-drag" type="button" draggable="true" ondragstart="startDimensionItemDrag(event, '${escapeHtml(it.id)}')" ondragend="endDimensionItemDrag(event)" onclick="event.stopPropagation()" title="Mover dimensión; guarda los cambios para conservar el orden" aria-label="Mover dimensión"><i class="bi bi-list" aria-hidden="true"></i></button><strong>${escapeHtml(it.nombre || 'Sin nombre')}</strong>${protectedBadge}<div class="meta">${escapeHtml(metaText)}</div></div>`;
       }).join('');
       const toggleLabel = collapsed ? '+' : '-';
       const toggleTitle = collapsed ? 'Desplegar grupo' : 'Compactar grupo';
       return `<div class="process-group ${collapsed ? 'compact' : ''}"><div class="process-group-head"><span class="process-group-title"><button class="process-toggle" type="button" title="${toggleTitle}" onclick="toggleProcessGroup('${escapeHtml(groupKey)}')">${toggleLabel}</button><span>${escapeHtml(processGroupTitle(groupKey))}</span></span><span class="pill">${grouped[groupKey].length}</span></div><div class="process-group-body">${cards}</div></div>`;
     }).join('');
   }
+  function applyEditorProtection(item) {
+    const protectedItem = isAutoImpactTotalItem(item);
+    [fNombre, fDescripcion, fTipoFuncional, fTipoDato, fTipoCalculo, fTipo, fDependencia].forEach(input => {
+      if (input) input.disabled = protectedItem;
+    });
+    document.querySelectorAll('[data-process-checkbox]').forEach(input => {
+      input.disabled = protectedItem || !input.value;
+    });
+    [fObligatorio, fConsiderarAvanceAca, fVisibleListadoAca, fConsiderarAvanceFmeca, fVisibleListadoFmeca].forEach(input => {
+      if (input) input.disabled = protectedItem;
+    });
+    const duplicateButton = document.getElementById('duplicateDimensionButton');
+    const deleteButton = document.getElementById('deleteDimensionButton');
+    if (duplicateButton) duplicateButton.disabled = protectedItem;
+    if (deleteButton) {
+      deleteButton.disabled = protectedItem;
+      deleteButton.style.display = protectedItem ? 'none' : '';
+    }
+  }
   function renderEditor() {
     const item = current();
     document.getElementById('emptyState').style.display = item ? 'none' : 'block';
     document.getElementById('editorState').style.display = item ? 'block' : 'none';
     if (!item) return;
+    syncAutoImpactTotalItem(item);
     ensureColumns(item); ensureRows(item);
+    refreshDimensionNameSuggestions(item);
     document.getElementById('titleMain').textContent = item.nombre || 'Dimensión';
     fNombre.value = item.nombre || ''; fCampo.value = item.campo || ''; fDescripcion.value = item.descripcion || '';
-    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fTipo.value = item.tipo || 'opciones'; fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false; fVisibleListadoAca.checked = item.visible_en_listado_aca !== false; fConsiderarAvanceFmeca.checked = item.considerar_avance_fmeca !== false; fVisibleListadoFmeca.checked = item.visible_en_listado_fmeca !== false; syncProcessSpecificOptions(item);
+    fTipoFuncional.value = item.tipo_funcional || 'atributo'; fTipoDato.value = item.tipo_dato || 'tabla'; fTipoCalculo.value = item.tipo_calculo || ''; syncProcessCheckboxes(item); fObligatorio.checked = item.obligatorio !== false; fConsiderarAvanceAca.checked = item.considerar_avance_aca !== false; fVisibleListadoAca.checked = item.visible_en_listado_aca !== false; fConsiderarAvanceFmeca.checked = item.considerar_avance_fmeca !== false; fVisibleListadoFmeca.checked = item.visible_en_listado_fmeca !== false; syncProcessSpecificOptions(item); showNameRecommendation(item);
     const calculated = isCalculated(item);
-    catalogTypeBlock.style.display = calculated ? 'none' : '';
+    fTipo.value = calculated ? 'calculado' : (item.tipo || 'opciones');
+    catalogTypeBlock.style.display = '';
     catalogBuilder.style.display = (calculated || item.tipo === 'numerico_libre') ? 'none' : '';
     calcSourcesBlock.style.display = calculated ? '' : 'none';
     dependencyBlock.style.display = (!calculated && ['rangos', 'opciones'].includes(item.tipo)) ? '' : 'none';
@@ -914,23 +1564,9 @@
       item.filas.forEach(row => { if (row.valores) delete row.valores.valor_secundario; });
       renderColumns(); renderRows();
     } else { columnsWrap.innerHTML = ''; rowsWrap.innerHTML = ''; }
+    applyEditorProtection(item);
     renderValidation();
   }
-  function renderCalculationSources() {
-    const item = current(); if (!item) return;
-    item.config_calculo = item.config_calculo || {};
-    item.config_calculo.operandos = Array.isArray(item.config_calculo.operandos) ? item.config_calculo.operandos : [];
-    const sources = store.items.filter(x => String(x.id) !== String(item.id) && processCompatible(item, x));
-    if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin cálculo.</span>'; return; }
-    if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span>'; return; }
-    calcSourcesWrap.innerHTML = sources.map(src => {
-      const campo = src.campo || slugifyLite(src.nombre || '');
-      const checked = item.config_calculo.operandos.includes(campo) ? 'checked' : '';
-      return '<label style="display:block;margin-bottom:6px;"><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(\'' + campo + '\', this.checked)"> ' + (src.nombre || campo) + '</label>';
-    }).join('');
-  }
-  function updateCalculationType(value) { const item = current(); if (!item) return; item.tipo_calculo = value; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (value) { item.tipo_funcional = 'resultado'; item.tipo_dato = 'numerico'; item.columnas = []; item.filas = []; } renderList(); renderEditor(); }
-  function toggleCalcSource(campo, checked) { const item = current(); if (!item) return; item.config_calculo = item.config_calculo || {}; item.config_calculo.operandos = item.config_calculo.operandos || []; if (checked && !item.config_calculo.operandos.includes(campo)) item.config_calculo.operandos.push(campo); if (!checked) item.config_calculo.operandos = item.config_calculo.operandos.filter(x => x !== campo); }
   function calculationSteps(item) {
     item.config_calculo = item.config_calculo || {};
     let steps = Array.isArray(item.config_calculo.pasos) ? item.config_calculo.pasos : [];
@@ -940,8 +1576,11 @@
     }
     steps = steps.map(step => ({
       operacion: step.operacion || step.tipo_calculo || item.tipo_calculo || 'suma',
-      operandos: Array.isArray(step.operandos) ? step.operandos : []
+      operandos: Array.isArray(step.operandos) ? step.operandos : [],
+      modo: step.modo || (step.ponderado === true ? 'ponderado' : ''),
+      ponderacion_manual: step.ponderacion_manual === true
     }));
+    steps.forEach(step => distributeStepWeights(step, false));
     item.config_calculo.pasos = steps;
     item.config_calculo.operandos = steps[0]?.operandos || [];
     if (steps[0]?.operacion) item.tipo_calculo = steps[0].operacion;
@@ -954,9 +1593,10 @@
       .join('');
   }
   function syncCalculationConfig(item) {
-    const steps = calculationSteps(item).filter(step => step.operacion && step.operandos.length);
+    const steps = calculationSteps(item);
     item.config_calculo.pasos = steps;
     item.config_calculo.operandos = steps[0]?.operandos || [];
+    if (steps.some(stepIsWeighted)) item.config_calculo.version = 2;
     item.tipo_calculo = steps[0]?.operacion || item.tipo_calculo || '';
   }
   function renderCalculationSources() {
@@ -969,19 +1609,54 @@
     const addStep = '<button class="btn" type="button" onclick="addCalculationStep()">+ Agregar paso</button>';
     if (!sources.length) { calcSourcesWrap.innerHTML = '<span class="muted">No hay dimensiones disponibles.</span><div style="margin-top:8px;">' + addStep + '</div>'; return; }
     calcSourcesWrap.innerHTML = steps.map((step, stepIdx) => {
+      const weighted = stepIsWeighted(step);
       const sourceList = sources.map(src => {
         const key = sourceKey(src);
-        const checked = step.operandos.some(op => operandMatchesSource(op, src)) ? 'checked' : '';
-        return '<label><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(' + stepIdx + ',\'' + key + '\', this.checked)"> ' + (src.nombre || src.campo || key) + '</label>';
+        const operand = step.operandos.find(op => operandMatchesSource(op, src));
+        const checked = operand ? 'checked' : '';
+        const weight = operand ? (operandWeight(operand) ?? 0) * 100 : 0;
+        const weightInput = weighted && operand
+          ? '<span class="calc-weight-input"><input type="number" min="0" max="100" step="1" inputmode="numeric" value="' + Math.round(weight) + '" onkeydown="return allowIntegerWeightKey(event)" oninput="sanitizeIntegerWeightInput(this)" onchange="updateCalcWeight(' + stepIdx + ',\'' + key + '\', this.value)"><span>%</span></span>'
+          : '';
+        return '<label class="calc-source-option"><span class="calc-source-choice"><input type="checkbox" ' + checked + ' onchange="toggleCalcSource(' + stepIdx + ',\'' + key + '\', this.checked)"><span>' + escapeHtml(src.nombre || src.campo || key) + '</span></span>' + weightInput + '</label>';
       }).join('');
-      const resultChecked = step.operandos.some(op => operandIsResult(op)) ? 'checked' : '';
+      const resultOperand = step.operandos.find(op => operandIsResult(op));
+      const resultChecked = resultOperand ? 'checked' : '';
+      const resultWeight = resultOperand ? (operandWeight(resultOperand) ?? 0) * 100 : 0;
+      const resultWeightInput = weighted && resultOperand
+        ? '<span class="calc-weight-input"><input type="number" min="0" max="100" step="1" inputmode="numeric" value="' + Math.round(resultWeight) + '" onkeydown="return allowIntegerWeightKey(event)" oninput="sanitizeIntegerWeightInput(this)" onchange="updateCalcWeight(' + stepIdx + ',\'$resultado\', this.value)"><span>%</span></span>'
+        : '';
       const resultOption = stepIdx > 0
-        ? '<label class="calc-result-option"><input type="checkbox" ' + resultChecked + ' onchange="toggleCalcSource(' + stepIdx + ',\'$resultado\', this.checked)"> Resultado anterior</label>'
+        ? '<label class="calc-result-option calc-source-option"><span class="calc-source-choice"><input type="checkbox" ' + resultChecked + ' onchange="toggleCalcSource(' + stepIdx + ',\'$resultado\', this.checked)"><span>Resultado anterior</span></span>' + resultWeightInput + '</label>'
+        : '';
+      const weightToggle = step.operacion === 'suma'
+        ? '<label class="calc-weight-toggle"><input type="checkbox" ' + (weighted ? 'checked' : '') + ' onchange="toggleStepWeighting(' + stepIdx + ', this.checked)"> Ponderar</label>'
         : '';
       const removeButton = stepIdx > 0
-        ? '<button class="btn btn-danger" type="button" onclick="removeCalculationStep(' + stepIdx + ')">X</button>'
-        : '<span></span>';
-      return '<div class="calc-step"><div class="calc-step-head"><strong>Paso ' + (stepIdx + 1) + '</strong><select onchange="updateCalcStepOperation(' + stepIdx + ', this.value)">' + operationOptions(step.operacion) + '</select>' + removeButton + '</div>' + resultOption + '<div class="calc-source-list">' + sourceList + '</div></div>';
+        ? '<button class="btn btn-danger calc-step-remove" type="button" onclick="removeCalculationStep(' + stepIdx + ')" aria-label="Eliminar paso" title="Eliminar paso"><i class="bi bi-trash"></i></button>'
+        : '';
+      const total = stepWeightTotal(step);
+      const totalValid = Math.abs(total - 1) <= 0.0001;
+      const weightTotal = weighted
+        ? '<span class="calc-weight-total ' + (totalValid ? 'is-valid' : 'is-invalid') + '">' + Math.round(total * 100) + '%</span>'
+        : '';
+      const collapsed = calculationStepIsCollapsed(stepIdx);
+      const formula = calculationStepFormula(step);
+      return '<div class="calc-step ' + (collapsed ? 'is-collapsed' : '') + '">' +
+        '<div class="calc-step-head">' +
+          '<button class="calc-step-toggle" type="button" onclick="toggleCalculationStep(' + stepIdx + ')" aria-expanded="' + (!collapsed) + '" aria-label="' + (collapsed ? 'Desplegar' : 'Plegar') + ' paso ' + (stepIdx + 1) + '"><i class="bi bi-chevron-down"></i></button>' +
+          '<strong class="calc-step-title">#' + (stepIdx + 1) + '</strong>' +
+          '<span class="calc-step-formula-inline" title="' + escapeHtml(formula) + '">' + escapeHtml(formula) + '</span>' +
+          weightTotal +
+        '</div>' +
+        '<div class="calc-step-body">' +
+          '<div class="calc-step-controls">' +
+            '<label class="calc-step-operation"><span>Operaci\u00f3n</span><select onchange="updateCalcStepOperation(' + stepIdx + ', this.value)">' + operationOptions(step.operacion) + '</select></label>' +
+            weightToggle + removeButton +
+          '</div>' +
+          resultOption + '<div class="calc-source-list">' + sourceList + '</div>' +
+        '</div>' +
+      '</div>';
     }).join('') + '<div>' + addStep + '</div>';
   }
   function updateCalculationType(value) {
@@ -1006,9 +1681,46 @@
     const steps = calculationSteps(item);
     if (!steps[stepIdx]) return;
     steps[stepIdx].operacion = value;
+    if (value !== 'suma' && stepIsWeighted(steps[stepIdx])) {
+      steps[stepIdx].modo = '';
+      steps[stepIdx].ponderacion_manual = false;
+      steps[stepIdx].operandos = steps[stepIdx].operandos.map(operandWithoutWeight);
+    }
     syncCalculationConfig(item);
     fTipoCalculo.value = item.tipo_calculo || '';
     renderList();
+    renderCalculationSources();
+    renderValidation();
+  }
+  function toggleStepWeighting(stepIdx, checked) {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    const step = steps[stepIdx];
+    if (!step || step.operacion !== 'suma') return;
+    step.modo = checked ? 'ponderado' : '';
+    step.ponderacion_manual = false;
+    if (checked) distributeStepWeights(step, true);
+    else step.operandos = step.operandos.map(operandWithoutWeight);
+    syncCalculationConfig(item);
+    renderCalculationSources();
+    renderValidation();
+  }
+  function updateCalcWeight(stepIdx, sourceKeyValue, percentValue) {
+    const item = current(); if (!item) return;
+    const steps = calculationSteps(item);
+    const step = steps[stepIdx];
+    if (!step || !stepIsWeighted(step)) return;
+    const numeric = Number(String(percentValue || '').replace(',', '.'));
+    const integerPercent = Number.isFinite(numeric) ? Math.round(Math.max(0, Math.min(100, numeric))) : 0;
+    const weight = integerPercent / 100;
+    const src = sourceKeyValue === '$resultado' ? null : sourceByKey(sourceKeyValue);
+    const index = step.operandos.findIndex(op => sourceKeyValue === '$resultado' ? operandIsResult(op) : (src ? operandMatchesSource(op, src) : refKey(op) === refKey(sourceKeyValue)));
+    if (index < 0) return;
+    step.operandos[index] = operandWithWeight(step.operandos[index], weight);
+    step.ponderacion_manual = true;
+    syncCalculationConfig(item);
+    renderCalculationSources();
+    renderValidation();
   }
   function toggleCalcSource(stepIdx, sourceKeyValue, checked) {
     const item = current(); if (!item) return;
@@ -1018,7 +1730,10 @@
     if (sourceKeyValue === '$resultado') {
       if (checked && !step.operandos.some(op => operandIsResult(op))) step.operandos.push('$resultado');
       if (!checked) step.operandos = step.operandos.filter(op => !operandIsResult(op));
+      distributeStepWeights(step, false);
       syncCalculationConfig(item);
+      renderCalculationSources();
+      renderValidation();
       return;
     }
     const src = sourceByKey(sourceKeyValue);
@@ -1026,12 +1741,16 @@
     const matches = op => src ? operandMatchesSource(op, src) : refKey(op) === refKey(ref);
     if (checked && !step.operandos.some(matches)) step.operandos.push(ref);
     if (!checked) step.operandos = step.operandos.filter(op => !matches(op));
+    distributeStepWeights(step, false);
     syncCalculationConfig(item);
+    renderCalculationSources();
+    renderValidation();
   }
   function addCalculationStep() {
     const item = current(); if (!item) return;
     const steps = calculationSteps(item);
     steps.push({ operacion: 'division', operandos: ['$resultado'] });
+    store.collapsedCalculationSteps[calculationStepStateKey(steps.length - 1)] = false;
     syncCalculationConfig(item);
     renderCalculationSources();
   }
@@ -1082,10 +1801,11 @@
        </thead>
       <tbody>${item.columnas.map((col, idx) => `<tr>
       <td>
-        <input value="${col.nombre_columna || ''}" oninput="updateColumn(${idx},'nombre_columna',this.value)">
+        <input value="${escapeHtml(col.nombre_columna || '')}" list="columnNameSuggestions" oninput="updateColumnName(${idx},this.value)" onchange="applyColumnSuggestion(${idx},this.value)" onblur="finalizeColumnName(${idx})">
+        <small class="field-recommendation">${escapeHtml(columnRecommendationMessage(col))}</small>
         </td>
       <td>
-        <input class="readonly-key" value="${col.clave_interna || ''}" readonly title="Clave tecnica generada automaticamente">
+        <input class="readonly-key" value="${escapeHtml(col.clave_interna || '')}" readonly title="Clave tecnica generada automaticamente">
         </td>
       <td>
         <select onchange="updateColumn(${idx},'tipo_dato',this.value)">${columnTypeOptions.map(opt => `<option value="${opt.value}" ${opt.value === col.tipo_dato ? 'selected' : ''}>${opt.label}</option>`).join('')}</select>
@@ -1096,7 +1816,7 @@
         </button>
         </td>
       <td>
-        <button class="btn btn-danger" type="button" onclick="removeColumn(${idx})">X</button>
+        <button style="border-radius: 0; border: 0; color: red;" class="btn" type="button" onclick="removeColumn(${idx})"><i class="bi bi-trash"></i></button>
         </td>
     </tr>`).join('')}</tbody>
     </table>`;
@@ -1108,7 +1828,7 @@
       <button class="btn btn-icon column-drag-handle" type="button" draggable="true" ondragstart="startColumnDrag(event, ${colIdx})" title="Mover columna"><i class="bi bi-list"></i></button>
       <span>${col.nombre_columna || col.clave_interna}</span>
     </th>`).join('')}<th></th></tr></thead><tbody>`;
-    html += item.filas.map((row, rowIdx) => `<tr>${item.columnas.map(col => `<td>${cellEditor(row, col, rowIdx)}</td>`).join('')}<td><button class="btn btn-danger" type="button" onclick="removeRow(${rowIdx})">X</button></td></tr>`).join('');
+    html += item.filas.map((row, rowIdx) => `<tr>${item.columnas.map(col => `<td>${cellEditor(row, col, rowIdx)}</td>`).join('')}<td><button class="btn" style="border-radius: 0; border: 0; color: red;" type="button" onclick="removeRow(${rowIdx})"><i class="bi bi-trash"></i></button></td></tr>`).join('');
     html += '</tbody></table>';
     rowsWrap.innerHTML = html;
   }
@@ -1122,25 +1842,56 @@
     return `<input type="${type}" ${step} value="${value}" oninput="updateCell(${rowIdx},'${col.clave_interna}',this.value)">`;
   }
   function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
+  function startDimensionItemDrag(event, id) {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(id));
+    event.currentTarget.closest('.item-card')?.classList.add('is-dragging');
+  }
+  function endDimensionItemDrag(event) {
+    event.currentTarget.closest('.item-card')?.classList.remove('is-dragging');
+  }
+  function allowDimensionItemDrop(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }
+  function dropDimensionItem(event, targetId) {
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceId = event.dataTransfer.getData('text/plain');
+    const fromIndex = store.items.findIndex(item => String(item.id) === String(sourceId));
+    const toIndex = store.items.findIndex(item => String(item.id) === String(targetId));
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const [moved] = store.items.splice(fromIndex, 1);
+    store.items.splice(toIndex, 0, moved);
+    renderList();
+  }
   function newItem() {
     const id = 'new_' + Date.now();
-    store.items.push({ id, nombre: 'Nueva dimensión', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, visible_en_listado_aca: true, considerar_avance_fmeca: false, visible_en_listado_fmeca: false, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
+    store.items.push({ id, nombre: '', campo: '', tipo: 'opciones', descripcion: '', tipo_funcional: 'atributo', tipo_dato: 'tabla', proceso_uso: 'aca', obligatorio: true, considerar_avance_aca: true, visible_en_listado_aca: true, considerar_avance_fmeca: false, visible_en_listado_fmeca: false, tipo_calculo: '', config_calculo: { operandos: [] }, columnas: defaultColumns('opciones'), filas: [] });
     store.active = id; expandItemGroup(current()); renderList(); renderEditor();
   }
   function duplicateItem() {
     const item = current(); if (!item) return;
+    if (isAutoImpactTotalItem(item)) return;
     const copy = JSON.parse(JSON.stringify(item)); copy.id = 'new_' + Date.now(); copy.nombre = (copy.nombre || 'Dimensión') + ' copia';
     store.items.push(copy); store.active = copy.id; expandItemGroup(copy); renderList(); renderEditor();
   }
   function deleteItem() {
-     if (!current()) return; store.items = store.items.filter(x => String(x.id) !== String(store.active)); store.active = store.items[0]?.id || null; renderList(); renderEditor(); }
+     if (!current() || isAutoImpactTotalItem(current())) return; store.items = store.items.filter(x => String(x.id) !== String(store.active)); store.active = store.items[0]?.id || null; renderList(); renderEditor(); }
   function updateField(field, value) {
     const item = current(); if (!item) return;
+    if (isAutoImpactTotalItem(item)) {
+      syncAutoImpactTotalItem(item);
+      renderEditor();
+      return;
+    }
 
     if (field === 'nombre') {
       item.nombre = value;
-      item.campo = slugifyLite(value);
+      if (!isPersistedRecordId(item.id)) item.campo = slugifyLite(value);
       fCampo.value = item.campo;
+      showNameRecommendation(item);
     } else if (field === 'campo') {
       return;
     } else {
@@ -1151,7 +1902,31 @@
   }
   function changeCatalogType(value) {
     const item = current(); if (!item) return;
+    if (isAutoImpactTotalItem(item)) {
+      syncAutoImpactTotalItem(item);
+      renderEditor();
+      return;
+    }
+    if (value === 'calculado') {
+      item.tipo = 'calculado';
+      item.tipo_calculo = item.tipo_calculo || 'suma';
+      item.tipo_funcional = 'resultado';
+      item.tipo_dato = 'numerico';
+      item.config_calculo = item.config_calculo || {};
+      const steps = calculationSteps(item);
+      steps[0].operacion = steps[0].operacion || item.tipo_calculo;
+      syncCalculationConfig(item);
+      item.columnas = [];
+      item.filas = [];
+      renderList();
+      renderEditor();
+      return;
+    }
     item.tipo = value;
+    item.tipo_calculo = '';
+    item.config_calculo = item.config_calculo || {};
+    delete item.config_calculo.pasos;
+    delete item.config_calculo.operandos;
     if (!['rangos', 'opciones'].includes(value) && item.config_calculo) { delete item.config_calculo.dependencia; }
     if (value === 'numerico_libre') {
       item.tipo_dato = 'numerico';
@@ -1162,9 +1937,25 @@
       item.columnas = defaultColumns(value);
       item.filas = [];
     }
+    renderList();
     renderEditor();
   }
-  function addColumn() { const item = current(); if (!item) return; const next = item.columnas.length + 1; item.columnas.push({ id: 'c' + Date.now(), nombre_columna: `Nueva columna ${next}`, clave_interna: `nueva_columna_${next}`, tipo_dato: 'texto', visible_en_registro: true }); renderColumns(); renderRows(); renderValidation(); }
+  function addColumn() {
+    const item = current(); if (!item) return;
+    const next = item.columnas.length + 1;
+    const nombre = '';
+    item.columnas.push({
+      id: 'c' + Date.now(),
+      nombre_columna: nombre,
+      clave_interna: '',
+      tipo_dato: 'texto',
+      _new_column_empty: true,
+      visible_en_registro: true
+    });
+    renderColumns();
+    renderRows();
+    renderValidation();
+  }
   function toggleColumnVisibility(idx) {
     const item = current(); if (!item) return;
     const col = item.columnas[idx]; if (!col) return;
@@ -1184,23 +1975,7 @@
     }
 
     if(field === 'nombre_columna'){
-      const oldKey = col.clave_interna;
-      const generatedKey = slugifyLite(value || `columna_${idx + 1}`) || `col_${idx + 1}`;
-      const canRegenerateKey = !oldKey || /^nueva_columna(_\d+)?$/.test(oldKey) || /^col_\d+$/.test(oldKey);
-      if(canRegenerateKey && oldKey !== generatedKey && !RESERVED_COLUMN_KEYS.has(oldKey)){
-        item.filas.forEach(row => {
-          row.valores = row.valores || {};
-          if(oldKey && Object.prototype.hasOwnProperty.call(row.valores, oldKey)){
-            row.valores[generatedKey] = row.valores[oldKey];
-            delete row.valores[oldKey];
-          }
-        });
-        col.clave_interna = generatedKey;
-      }
-      col.nombre_columna = value;
-      renderColumns();
-      renderRows();
-      renderValidation();
+      updateColumnName(idx, value);
       return;
     }
 
@@ -1209,6 +1984,87 @@
     renderRows();
     renderValidation();
   }
+
+  function applyDimensionSuggestion(value) {
+    const item = current(); if (!item) return;
+    const suggestion = suggestionByName(dimensionSuggestionsForItem(item), value);
+    if (!suggestion) {
+      finalizeDimensionName();
+      return;
+    }
+    item.nombre = suggestion.nombre;
+    if (!isPersistedRecordId(item.id)) {
+      item.campo = slugifyLite(suggestion.clave || suggestion.nombre);
+    }
+    if (suggestion.tipo_dato) item.tipo_dato = suggestion.tipo_dato;
+    if (suggestion.tipo_funcional) item.tipo_funcional = suggestion.tipo_funcional;
+    if (suggestion.rol_columna) item.rol_columna = suggestion.rol_columna;
+    fNombre.value = item.nombre;
+    fCampo.value = item.campo || '';
+    renderList();
+    renderEditor();
+  }
+
+  function finalizeDimensionName() {
+    const item = current(); if (!item) return;
+    if (!isPersistedRecordId(item.id)) {
+      item.campo = item.campo || slugifyLite(item.nombre || 'dimension');
+      fCampo.value = item.campo;
+    }
+    showNameRecommendation(item);
+    renderList();
+  }
+
+  function updateColumnName(idx, value) {
+    const item = current(); if (!item) return;
+    const col = item.columnas[idx]; if (!col) return;
+    col.nombre_columna = value;
+    if (!isPersistedColumn(col) && (!col.clave_interna || col._new_column_empty === true) && col._clave_locked !== true) {
+      col.clave_interna = uniqueColumnKey(item, value || `Columna ${idx + 1}`, `columna_${idx + 1}`, col);
+    }
+    renderValidation();
+  }
+
+  function applyColumnSuggestion(idx, value) {
+    const item = current(); if (!item) return;
+    const col = item.columnas[idx]; if (!col) return;
+    const suggestion = suggestionByName(columnSuggestions, value);
+    if (!suggestion) {
+      finalizeColumnName(idx);
+      return;
+    }
+    col.nombre_columna = suggestion.nombre;
+    if (!isPersistedColumn(col) && (!col.clave_interna || col._new_column_empty === true)) {
+      col.clave_interna = uniqueColumnKey(item, suggestion.clave || suggestion.nombre, `columna_${idx + 1}`, col);
+      col._clave_locked = true;
+      col._new_column_empty = false;
+    }
+    if (suggestion.tipo_dato) col.tipo_dato = suggestion.tipo_dato;
+    if (suggestion.rol_columna) col.rol_columna = suggestion.rol_columna;
+    renderColumns();
+    renderRows();
+    renderValidation();
+  }
+
+  function finalizeColumnName(idx) {
+    const item = current(); if (!item) return;
+    const col = item.columnas[idx]; if (!col) return;
+    if (!isPersistedColumn(col)) {
+      col.clave_interna = col.clave_interna || uniqueColumnKey(item, col.nombre_columna || `Columna ${idx + 1}`, `columna_${idx + 1}`, col);
+      col._clave_locked = true;
+      col._new_column_empty = false;
+    }
+    renderColumns();
+    renderRows();
+    renderValidation();
+  }
+
+  function columnRecommendationMessage(col) {
+    if (!col) return '';
+    const key = col.clave_interna || slugifyLite(col.nombre_columna);
+    return recommendationForKey(key, col.nombre_columna);
+  }
+
   function removeColumn(idx) { const item = current(); if (!item) return; const removed = item.columnas[idx]?.clave_interna; item.columnas.splice(idx, 1); item.filas.forEach(row => { if (row.valores && removed in row.valores) delete row.valores[removed]; }); renderColumns(); renderRows(); renderValidation(); }
   function moveColumn(fromIdx, toIdx) {
     const item = current(); if (!item) return;
@@ -1236,19 +2092,29 @@
   function updateCell(rowIdx, key, value) { const item = current(); if (!item) return; const row = item.filas[rowIdx]; row.valores = row.valores || {}; row.valores[key] = value; if (key === 'etiqueta') row.etiqueta = value; renderValidation(); }
   function removeRow(idx) { const item = current(); if (!item) return; item.filas.splice(idx, 1); renderRows(); renderValidation(); }
   function normalizedOperand(operand) {
-    if (operandIsResult(operand)) return '$resultado';
+    const weight = operandWeight(operand);
+    if (operandIsResult(operand)) return weight === null ? '$resultado' : { resultado: true, peso: weight };
     const source = sourceByKey(refSelectionKey(operand)) || sourceByKey(refKey(operand));
-    return source ? sourceRef(source) : operand;
+    const normalized = source ? sourceRef(source) : operand;
+    return weight === null ? normalized : operandWithWeight(normalized, weight);
   }
   function normalizedCalculationConfig(item) {
     const config = item.config_calculo || { operandos: [] };
     const steps = Array.isArray(config.pasos) ? config.pasos : [];
     if (steps.length) {
-      const normalizedSteps = steps.map(step => ({
-        operacion: step.operacion || step.tipo_calculo || item.tipo_calculo || 'suma',
-        operandos: Array.isArray(step.operandos) ? step.operandos.map(normalizedOperand) : []
-      })).filter(step => step.operacion && step.operandos.length);
+      const normalizedSteps = steps.map(step => {
+        const normalized = {
+          operacion: step.operacion || step.tipo_calculo || item.tipo_calculo || 'suma',
+          operandos: Array.isArray(step.operandos) ? step.operandos.map(normalizedOperand) : []
+        };
+        if (stepIsWeighted(step)) {
+          normalized.modo = 'ponderado';
+          normalized.ponderacion_manual = step.ponderacion_manual === true;
+        }
+        return normalized;
+      }).filter(step => step.operacion && step.operandos.length);
       return {
+        version: normalizedSteps.some(step => step.modo === 'ponderado') ? 2 : 1,
         pasos: normalizedSteps,
         operandos: normalizedSteps[0]?.operandos || []
       };
@@ -1264,6 +2130,7 @@
     return source ? sourceRef(source) : ref;
   }
   function normalize() {
+    syncProtectedItems();
     store.items.forEach(item => { if (item.tipo_calculo) syncCalculationConfig(item); });
     return store.items.map((item, idx) => ({
       id: String(item.id).startsWith('new_') ? null : item.id,
@@ -1273,6 +2140,7 @@
       descripcion: item.descripcion || '',
       tipo_funcional: item.tipo_funcional || 'atributo',
       tipo_dato: item.tipo === 'numerico_libre' ? 'numerico' : (item.tipo_dato || 'tabla'),
+      rol_columna: item.rol_columna || '',
       proceso_uso: item.proceso_uso || 'aca',
       considerar_avance_aca: normalizeProcessValue(item.proceso_uso) === fmecaProcessValue ? false : item.considerar_avance_aca !== false,
       visible_en_listado_aca: normalizeProcessValue(item.proceso_uso) === fmecaProcessValue ? false : item.visible_en_listado_aca !== false,
@@ -1283,13 +2151,7 @@
         ? normalizedCalculationConfig(item)
         : ((['rangos', 'opciones'].includes(item.tipo) && normalizedDependency(item)) ? { dependencia: normalizedDependency(item) } : null),
       obligatorio: item.obligatorio !== false,
-      columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : withoutSecondaryColumns(item.columnas).map((col, colIdx) => ({
-        id: col.id || null,
-        nombre_columna: col.nombre_columna || `Columna ${colIdx + 1}`,
-        clave_interna: col.clave_interna || slugifyLite(col.nombre_columna || `col_${colIdx + 1}`),
-        tipo_dato: col.tipo_dato || 'texto',
-        visible_en_registro: col.visible_en_registro !== false
-      })),
+      columnas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : normalizeColumnsForPayload(item),
       filas: (item.tipo_calculo || item.tipo === 'numerico_libre') ? [] : (item.filas || []).map((row, rowIdx) => {
         const valores = Object.assign({}, row.valores || {});
         delete valores.valor_secundario;
@@ -1300,6 +2162,30 @@
         return { etiqueta: row.etiqueta || '', orden: rowIdx + 1, valores, valores_por_columna: valoresPorColumna };
       })
     }));
+  }
+  function normalizeColumnsForPayload(item) {
+    const used = new Set();
+    return withoutSecondaryColumns(item.columnas).map((col, colIdx) => {
+      const nombre = col.nombre_columna || `Columna ${colIdx + 1}`;
+      const rawKey = col.clave_interna || slugifyLite(nombre || `columna_${colIdx + 1}`);
+      const base = slugifyLite(rawKey) || slugifyLite(nombre) || `columna_${colIdx + 1}`;
+      let key = base.slice(0, 100);
+      let counter = 2;
+      while (used.has(key)) {
+        const suffix = `_${counter}`;
+        key = `${base.slice(0, 100 - suffix.length)}${suffix}`;
+        counter += 1;
+      }
+      used.add(key);
+      return {
+        id: col.id || null,
+        nombre_columna: nombre,
+        clave_interna: key,
+        tipo_dato: col.tipo_dato || 'texto',
+        rol_columna: col.rol_columna || '',
+        visible_en_registro: col.visible_en_registro !== false
+      };
+    });
   }
   function saveAll() {
     const validation = validateAllItems();
@@ -1314,6 +2200,10 @@
   (function init() {
     const calcLabel = document.querySelector('#calcSourcesBlock label');
     if (calcLabel) calcLabel.textContent = 'Pasos del calculo';
+    document.addEventListener('click', event => {
+      const dropdown = document.getElementById('fProcesoUso');
+      if (dropdown?.open && !dropdown.contains(event.target)) dropdown.open = false;
+    });
     if (store.items.length) { store.active = store.items[0].id; }
     renderList(); renderEditor();
   })();
@@ -1322,6 +2212,7 @@
   function removeCurrentItem() {
     const item = current();
     if (!item) return;
+    if (isAutoImpactTotalItem(item)) return;
 
     const label = item.nombre || "esta dimensión";
 

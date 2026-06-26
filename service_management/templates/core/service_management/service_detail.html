@@ -29,6 +29,11 @@
         <div class="muted">De la empresa del servicio</div>
     </div>
     <div class="stat">
+        <small>Equipos evaluados</small>
+        <strong>{{ evaluated_equipment_count }}</strong>
+        <div class="muted">Con registro ACA o FMECA</div>
+    </div>
+    <div class="stat">
         <small>Familias</small>
         <strong>{{ family_count }}</strong>
         <div class="muted">Grupos para análisis</div>
@@ -63,7 +68,7 @@
                 </div>
             </div>
             <div class="stat">
-                <small>RCM/FMECA</small>
+                <small>FMECA</small>
                 <strong style="font-size:18px;">{{ rcm_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn btn-primary" href="{% url 'service_fmeca_list' service.pk %}">
@@ -75,7 +80,7 @@
                 </div>
             </div>
             <div class="stat">
-                <small>PAUTAS</small>
+                <small>PLANES</small>
                 <strong style="font-size:18px;">{{ pauta_count }}</strong>
                 <div class="actions" style="margin-top:10px;">
                     <a class="btn btn-primary" href="{% url 'service_pautas_list' service.pk %}">
@@ -109,7 +114,7 @@
                 </div>
             </form>
         </div>
-        <div class="table-wrap-2">
+        <div class="table-wrap-2 service-detail-pagination">
                 <table id="service-access-table" class="display no-datatable" data-page-length="5">
                     <thead><tr><th>Usuario</th><th>Empresa</th><th>Cargo</th><th>Permiso</th><th></th></tr></thead>
                     <tbody>
@@ -142,10 +147,9 @@
 <div class="card">
     <h3 class="card-title">Equipos del servicio</h3>
     <div class="service-equipment-intro">
-        <p class="muted">Se muestran los equipos asociados directamente al servicio.</p>
         <div class="actions">
             {% if request.user.is_superuser %}
-            <a class="btn" href="{% url 'model_create' 'equipo' %}">Registrar equipo</a>
+            <a class="btn" href="{% url 'model_list' 'equipo' %}">Registrar equipo</a>
             {% endif %}
             <a class="btn" href="{% url 'service_equipment_families' service.pk %}">
                 Gestionar familias
@@ -174,6 +178,10 @@
                 <button class="btn btn-primary" type="button" id="service-equipment-link-button">
                     Vincular seleccionados
                 </button>
+                <button class="btn btn-danger" type="button" id="service-equipment-unlink-button">
+                    Desvincular seleccionados
+                </button>
+                <span class="pill-danger" id="service-equipment-unlink-warning" hidden></span>
                 <span class="muted" id="service-equipment-link-status"></span>
             </div>
         {% endif %}
@@ -198,6 +206,28 @@
     </div>
 </div>
 
+{% if permission.can_edit %}
+<div class="logout-modal" id="service-equipment-unlink-modal" hidden>
+    <div class="logout-modal-backdrop" data-unlink-modal-close></div>
+    <div class="logout-modal-card service-equipment-unlink-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-equipment-unlink-title">
+        <h3 id="service-equipment-unlink-title">Desvincular equipos</h3>
+        <p class="muted" id="service-equipment-unlink-summary">
+            Se desvincularán los equipos seleccionados de este servicio.
+        </p>
+        <div class="message error" id="service-equipment-unlink-aca-warning" hidden>
+            Hay equipos con ACA asociados. Si se desvinculan se eliminarán.
+        </div>
+        <div class="actions">
+            <button class="btn" type="button" data-unlink-modal-close>Cancelar</button>
+            <button class="btn btn-danger hold-confirm-button" type="button" id="service-equipment-unlink-confirm">
+                <span>Eliminar</span>
+                <span class="hold-confirm-progress" aria-hidden="true"></span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="service-config-grid">
     <div class="card">
         <div class="service-equipment-intro">
@@ -210,7 +240,7 @@
         </div>
         {% if dimension_rows %}
             <p class="muted">Estas son las dimensiones activas que se usarán para este servicio.</p>
-            <div class="table-wrap">
+            <div class="table-wrap service-detail-pagination">
                 <table class="datatable display" data-dt-controls="paging-only">
                     <thead>
                         <tr>
@@ -382,19 +412,30 @@
     const modeInputs = Array.from(document.querySelectorAll('input[name="service_equipment_mode"]'));
     const linkActions = document.getElementById('service-equipment-link-actions');
     const linkButton = document.getElementById('service-equipment-link-button');
+    const unlinkButton = document.getElementById('service-equipment-unlink-button');
+    const unlinkWarning = document.getElementById('service-equipment-unlink-warning');
+    const unlinkModal = document.getElementById('service-equipment-unlink-modal');
+    const unlinkSummary = document.getElementById('service-equipment-unlink-summary');
+    const unlinkAcaWarning = document.getElementById('service-equipment-unlink-aca-warning');
+    const unlinkConfirm = document.getElementById('service-equipment-unlink-confirm');
     const linkStatus = document.getElementById('service-equipment-link-status');
     const tableHead = tableBody ? tableBody.closest('table')?.querySelector('thead tr') : null;
     const endpoints = {
         nodes: "{% url 'service_equipment_nodes' service.pk %}",
         search: "{% url 'service_equipment_search' service.pk %}",
         available: "{% url 'service_equipment_available' service.pk %}",
-        link: "{% url 'service_equipment_link' service.pk %}"
+        link: "{% url 'service_equipment_link' service.pk %}",
+        unlink: "{% url 'service_equipment_unlink' service.pk %}"
     };
     const csrfToken = "{{ csrf_token|escapejs }}";
     const nodeCache = new Map();
     const selectedLinkIds = new Set();
+    const linkableItemsById = new Map();
+    let unlinkHoldTimer = null;
+    let unlinkHoldStarted = false;
     let searchTimer = null;
     let activeRequest = 0;
+    let autoSelectedNodeId = '';
 
     function currentMode() {
         const checked = modeInputs.find(input => input.checked);
@@ -415,7 +456,9 @@
         for (let index = selects.length - 1; index >= 0; index -= 1) {
             if (selects[index].value) return selects[index].value;
         }
-        return '';
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return autoSelectedNodeId || '';
     }
 
     function tableColspan() {
@@ -459,12 +502,54 @@
 
     function updateLinkTools() {
         if (linkActions) linkActions.hidden = currentMode() !== 'link';
+        const selectedItems = selectedVisibleLinkItems();
+        const selectedUnlinked = selectedItems.filter(item => !item.linked);
+        const selectedLinked = selectedItems.filter(item => item.linked);
+        const selectedLinkedWithAca = selectedLinked.filter(item => Number(item.aca_count || 0) > 0);
         if (linkButton) {
-            linkButton.disabled = selectedLinkIds.size === 0;
-            linkButton.textContent = selectedLinkIds.size
-                ? `Vincular seleccionados (${selectedLinkIds.size})`
+            linkButton.disabled = selectedUnlinked.length === 0;
+            linkButton.textContent = selectedUnlinked.length
+                ? `Vincular seleccionados (${selectedUnlinked.length})`
                 : 'Vincular seleccionados';
         }
+        if (unlinkButton) {
+            unlinkButton.disabled = selectedLinked.length === 0;
+            unlinkButton.textContent = selectedLinked.length
+                ? `Desvincular seleccionados (${selectedLinked.length})`
+                : 'Desvincular seleccionados';
+        }
+        if (unlinkWarning) {
+            if (selectedLinkedWithAca.length) {
+                const total = selectedLinkedWithAca.reduce((sum, item) => sum + Number(item.aca_count || 0), 0);
+                unlinkWarning.hidden = false;
+                unlinkWarning.textContent = `${total} registro${total === 1 ? '' : 's'} ACA asociado${total === 1 ? '' : 's'}`;
+            } else {
+                unlinkWarning.hidden = true;
+                unlinkWarning.textContent = '';
+            }
+        }
+    }
+
+    function selectedVisibleLinkItems() {
+        if (!tableBody) return [];
+        return Array.from(tableBody.querySelectorAll('[data-link-equipment-id]:checked'))
+            .map(function (checkbox) {
+                const id = Number(checkbox.dataset.linkEquipmentId);
+                const item = linkableItemsById.get(id);
+                if (item) {
+                    return {
+                        ...item,
+                        linked: item.linked === undefined ? checkbox.dataset.linked === '1' : item.linked === true,
+                        aca_count: item.aca_count === undefined ? Number(checkbox.dataset.acaCount || 0) : Number(item.aca_count || 0),
+                    };
+                }
+                return {
+                    id: id,
+                    linked: checkbox.dataset.linked === '1',
+                    aca_count: Number(checkbox.dataset.acaCount || 0),
+                };
+            })
+            .filter(item => item && item.id);
     }
 
     async function fetchJson(url) {
@@ -483,39 +568,74 @@
         return nodes;
     }
 
-    async function repopulateFilters(changedIndex) {
-        const selects = Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'));
-        for (let index = changedIndex + 1; index < selects.length; index += 1) {
-            selects[index].value = '';
-        }
-        for (const [index, select] of selects.entries()) {
-            const previous = index > 0 ? selects[index - 1].value : '';
-            const level = levels[index];
-            if (!level) continue;
-            const selected = select.value;
-            select.disabled = index > 0 && !previous;
-            if (select.disabled) {
-                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
-                continue;
-            }
-            select.innerHTML = '<option value="">Cargando...</option>';
-            let options = [];
-            try {
-                options = await loadNodes(index === 0 ? '' : previous);
-            } catch (error) {
-                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
-                continue;
-            }
-            options = options
+    async function renderFilterLevel(parentId, levelIndex, skipLeadingSingles) {
+        if (!filtersBox || levelIndex >= levels.length) return;
+        filtersBox.querySelectorAll('[data-equipment-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = levels[levelIndex];
+        let options = [];
+        try {
+            const nodes = await loadNodes(parentId || '');
+            options = nodes
                 .filter(node => Number(node.level_id) === Number(level.id))
-                .sort((a, b) => a.label.localeCompare(b.label));
-            select.innerHTML = '<option value="">Todos</option>' + options
-                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
-                .join('');
-            if (options.some(node => String(node.id) === String(selected))) {
-                select.value = selected;
-            }
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.equipmentLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>No se pudieron cargar datos</option></select>
+            `;
+            filtersBox.appendChild(field);
+            return;
         }
+
+        if (!options.length) {
+            autoSelectedNodeId = parentId || autoSelectedNodeId || '';
+            return;
+        }
+
+        if (options.length === 1 && skipLeadingSingles) {
+            autoSelectedNodeId = String(options[0].id || '');
+            await renderFilterLevel(autoSelectedNodeId, levelIndex + 1, true);
+            return;
+        }
+
+        autoSelectedNodeId = parentId || '';
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.equipmentLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-equipment-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${options.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        filtersBox.appendChild(field);
+        const select = field.querySelector('[data-equipment-level-filter]');
+        if (options.length === 1) {
+            select.value = String(options[0].id || '');
+            autoSelectedNodeId = select.value;
+            await renderFilterLevel(select.value, levelIndex + 1, false);
+        }
+        select.addEventListener('change', function () {
+            const value = select.value;
+            if (!value) {
+                autoSelectedNodeId = select.dataset.parentId || '';
+                filtersBox.querySelectorAll('[data-equipment-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                renderTable();
+                return;
+            }
+            renderFilterLevel(value, levelIndex + 1, false).then(renderTable);
+        });
     }
 
     async function renderTable() {
@@ -600,6 +720,8 @@
         }
         if (requestId !== activeRequest) return;
         const items = data.items || [];
+        linkableItemsById.clear();
+        items.forEach(item => linkableItemsById.set(Number(item.id), item));
         if (countInput) {
             countInput.value = data.truncated
                 ? `${data.count} encontrados, mostrando ${items.length}`
@@ -610,12 +732,11 @@
             return;
         }
         tableBody.innerHTML = items.map(item => {
-            const disabled = item.linked ? 'disabled' : '';
-            const checked = selectedLinkIds.has(Number(item.id)) && !item.linked ? 'checked' : '';
+            const checked = selectedLinkIds.has(Number(item.id)) ? 'checked' : '';
             const state = item.linked ? '<span class="pill-soft">Ya vinculado</span>' : '';
             return `
                 <tr>
-                    <td><input type="checkbox" data-link-equipment-id="${item.id}" ${checked} ${disabled}></td>
+                    <td><input type="checkbox" data-link-equipment-id="${item.id}" data-linked="${item.linked ? '1' : '0'}" data-aca-count="${item.aca_count || 0}" ${checked}></td>
                     <td><strong>${escapeHtml(item.ut)}</strong> ${state}</td>
                     <td>${escapeHtml(item.descripcion_ut)}</td>
                     <td>${escapeHtml(item.equipo)}</td>
@@ -673,6 +794,12 @@
 
     async function linkSelectedEquipment() {
         if (!selectedLinkIds.size || !linkButton) return;
+        const ids = selectedVisibleLinkItems().filter(item => !item.linked).map(item => item.id);
+        if (!ids.length) {
+            if (linkStatus) linkStatus.textContent = 'Selecciona equipos no vinculados.';
+            updateLinkTools();
+            return;
+        }
         linkButton.disabled = true;
         if (linkStatus) linkStatus.textContent = 'Vinculando...';
         let data;
@@ -684,7 +811,7 @@
                     'X-CSRFToken': csrfToken,
                     'X-Requested-With': 'XMLHttpRequest',
                 },
-                body: JSON.stringify({ equipment_ids: Array.from(selectedLinkIds) }),
+                body: JSON.stringify({ equipment_ids: ids }),
             });
             const contentType = response.headers.get('content-type') || '';
             if (contentType.includes('application/json')) {
@@ -707,6 +834,81 @@
         await renderLinkableEquipment();
     }
 
+    function selectedLinkedItems() {
+        return selectedVisibleLinkItems().filter(item => item.linked);
+    }
+
+    function cancelUnlinkHold() {
+        unlinkHoldStarted = false;
+        if (unlinkHoldTimer) {
+            clearTimeout(unlinkHoldTimer);
+            unlinkHoldTimer = null;
+        }
+        if (unlinkConfirm) unlinkConfirm.classList.remove('is-holding');
+    }
+
+    function closeUnlinkModal() {
+        if (unlinkModal) unlinkModal.hidden = true;
+        cancelUnlinkHold();
+    }
+
+    function openUnlinkModal() {
+        const items = selectedLinkedItems();
+        if (!items.length) {
+            if (linkStatus) linkStatus.textContent = 'Selecciona equipos vinculados para desvincular.';
+            return;
+        }
+        const acaTotal = items.reduce((sum, item) => sum + Number(item.aca_count || 0), 0);
+        if (unlinkSummary) {
+            unlinkSummary.textContent = `Se desvincularán ${items.length} equipo${items.length === 1 ? '' : 's'} de este servicio.`;
+        }
+        if (unlinkAcaWarning) {
+            unlinkAcaWarning.hidden = acaTotal === 0;
+            unlinkAcaWarning.textContent = acaTotal
+                ? `Hay ${acaTotal} registro${acaTotal === 1 ? '' : 's'} ACA asociado${acaTotal === 1 ? '' : 's'}. Si se desvinculan, esos registros ACA se eliminarán.`
+                : '';
+        }
+        if (unlinkModal) unlinkModal.hidden = false;
+    }
+
+    async function unlinkSelectedEquipment() {
+        const ids = selectedLinkedItems().map(item => item.id);
+        if (!ids.length || !unlinkButton) return;
+        closeUnlinkModal();
+        unlinkButton.disabled = true;
+        if (linkStatus) linkStatus.textContent = 'Desvinculando...';
+        let data;
+        try {
+            const response = await fetch(endpoints.unlink, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ equipment_ids: ids }),
+            });
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(response.status === 403
+                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
+                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo desvincular.')
+                );
+            }
+            if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo desvincular.');
+        } catch (error) {
+            if (linkStatus) linkStatus.textContent = error.message || 'No se pudo desvincular.';
+            updateLinkTools();
+            return;
+        }
+        selectedLinkIds.clear();
+        if (linkStatus) linkStatus.textContent = data.message || 'Equipos desvinculados.';
+        await renderLinkableEquipment();
+    }
+
     function scheduleRenderTable() {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(renderTable, 250);
@@ -714,19 +916,7 @@
 
     function initFilters() {
         if (!filtersBox) return;
-        filtersBox.innerHTML = levels.map((level, index) => `
-            <div class="form-field">
-                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
-                <select class="input-control" data-equipment-level-filter data-level-index="${index}">
-                    <option value="">Todos</option>
-                </select>
-            </div>
-        `).join('');
-        filtersBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
-            select.addEventListener('change', function () {
-                repopulateFilters(Number(select.dataset.levelIndex || 0)).then(renderTable);
-            });
-        });
+        filtersBox.innerHTML = '';
         if (searchInput) searchInput.addEventListener('input', scheduleRenderTable);
         modeInputs.forEach(function (input) {
             input.addEventListener('change', function () {
@@ -740,6 +930,27 @@
             });
         });
         if (linkButton) linkButton.addEventListener('click', linkSelectedEquipment);
+        if (unlinkButton) unlinkButton.addEventListener('click', openUnlinkModal);
+        if (unlinkModal) {
+            unlinkModal.querySelectorAll('[data-unlink-modal-close]').forEach(function (button) {
+                button.addEventListener('click', closeUnlinkModal);
+            });
+        }
+        if (unlinkConfirm) {
+            unlinkConfirm.addEventListener('pointerdown', function () {
+                if (unlinkHoldStarted) return;
+                unlinkHoldStarted = true;
+                unlinkConfirm.classList.add('is-holding');
+                unlinkHoldTimer = setTimeout(function () {
+                    unlinkHoldTimer = null;
+                    unlinkHoldStarted = false;
+                    unlinkSelectedEquipment();
+                }, 2000);
+            });
+            ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (eventName) {
+                unlinkConfirm.addEventListener(eventName, cancelUnlinkHold);
+            });
+        }
         if (tableBody) {
             tableBody.addEventListener('change', function (event) {
                 const checkbox = event.target.closest('[data-link-equipment-id]');
@@ -754,7 +965,7 @@
             tableHead.addEventListener('change', function (event) {
                 const toggle = event.target.closest('[data-link-toggle-all]');
                 if (!toggle) return;
-                tableBody.querySelectorAll('[data-link-equipment-id]:not(:disabled)').forEach(function (checkbox) {
+                tableBody.querySelectorAll('[data-link-equipment-id]').forEach(function (checkbox) {
                     checkbox.checked = toggle.checked;
                     const equipmentId = Number(checkbox.dataset.linkEquipmentId);
                     if (toggle.checked) selectedLinkIds.add(equipmentId);
@@ -763,7 +974,7 @@
                 updateLinkTools();
             });
         }
-        repopulateFilters(-1).then(renderTable);
+        renderFilterLevel('', 0, true).then(renderTable);
     }
 
     initFilters();

@@ -15,16 +15,6 @@ MODEL_REGISTRY = OrderedDict({
         'delete_superuser_only': True,
     },
 
-    'metodologia': {
-        'model': models.Metodologia,
-        'label': 'Metodologías',
-        'group': 'Configuración',
-        'search_fields': ['nombre', 'abreviatura', 'descripcion'],
-        'show_in_sidebar': False,
-        'show_in_dashboard': True,
-        'allow_direct_crud': True,
-        'delete_superuser_only': True,
-    },
     'cargo': {
         'model': models.Cargo,
         'label': 'Cargos',
@@ -159,7 +149,7 @@ MODEL_REGISTRY = OrderedDict({
     },
     'fmea_fmeca': {
         'model': models.FMEA_FMECA,
-        'label': 'FMEA/FMECA',
+        'label': 'FMECA',
         'group': 'RCM/FMEA',
         'search_fields': [],
         'show_in_sidebar': False,

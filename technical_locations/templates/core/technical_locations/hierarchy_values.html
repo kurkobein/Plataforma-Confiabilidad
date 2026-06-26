@@ -4,12 +4,11 @@
 <div class="page-header">
     <div>
         <h2>Valores UT - {{ empresa }}</h2>
-        <p>Registra los codigos y nombres disponibles para cada nivel de la estructura.</p>
+        <p>Jerarquía técnica</p>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'hierarchy_tree' empresa.pk %}">Volver</a>
         <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
-        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Registrar UT</a>
     </div>
 </div>
 

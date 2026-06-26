@@ -49,19 +49,35 @@
         <input type="hidden" name="progress_nivel" value="{{ selected_progress_nivel }}" data-progress-level-filter>
         <input type="hidden" name="progress_nodo" value="{{ selected_progress_nodo }}" data-progress-node-filter>
 
-        <div class="aca-progress-filter-body" data-aca-progress-filter-body>
+        <div class="aca-filtros-jerarquicos" data-aca-progress-filter-body>
+            <div class="progress-range-filter" data-progress-range-filter>
+                <div class="progress-range-head">
+                    <label>Avance</label>
+                    <strong data-progress-range-label>{{ selected_avance_min|default:0 }}% - {{ selected_avance_max|default:100 }}%</strong>
+                </div>
+                <div class="progress-range-slider">
+                    <input type="range" name="avance_min" min="0" max="100" value="{{ selected_avance_min|default:0 }}" step="1" data-progress-min>
+                    <input type="range" name="avance_max" min="0" max="100" value="{{ selected_avance_max|default:100 }}" step="1" data-progress-max>
+                </div>
+            </div>
             {% for level in hierarchy_filters.levels %}
-                <div class="form-field">
-                    <label for="progress-nested-level-{{ level.id }}">{{ level.name }}</label>
-                    <select class="input-control" id="progress-nested-level-{{ level.id }}" data-progress-nested-level="{{ level.id }}">
-                        <option value="">Todos</option>
+                <details class="form-field aca-panel-filter-dropdown" data-progress-nested-level="{{ level.id }}">
+                    <summary>
+                        <span>{{ level.name }}</span>
+                        <small data-progress-selected-count>0 seleccionados</small>
+                        <i class="bi bi-chevron-down"></i>
+                    </summary>
+                    <div class="aca-panel-filter-menu">
                         {% for node in hierarchy_filters.nodes %}
                             {% if node.level_id == level.id %}
-                                <option value="{{ node.id }}" data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if selected_progress_nodo == node.id|stringformat:"s" %}selected{% endif %}>{{ node.label }}</option>
+                                <label class="aca-panel-checkbox" data-progress-node-option>
+                                    <input type="checkbox" value="{{ node.id }}" data-progress-node-checkbox data-level-id="{{ node.level_id }}" data-path="{{ node.path }}" {% if node.id|stringformat:"s" in selected_progress_node_ids %}checked{% endif %}>
+                                    <span>{{ node.label }}</span>
+                                </label>
                             {% endif %}
                         {% endfor %}
-                    </select>
-                </div>
+                    </div>
+                </details>
             {% endfor %}
             <div class="actions aca-progress-filter-actions">
                 <button class="btn btn-primary" type="submit">Aplicar</button>

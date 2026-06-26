@@ -1,11 +1,11 @@
 {% extends 'core/base.html' %}
 
-{% block title %}Desarrollo RCM/FMECA | Mindco{% endblock %}
+{% block title %}Desarrollo FMECA | Mindco{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Desarrollo RCM/FMECA</h2>
+        <h2>Desarrollo FMECA</h2>
         <p>Selecciona un servicio para entrar al desarrollo de registros RCM/FMECA.</p>
     </div>
 </div>
@@ -36,8 +36,7 @@
                     </td>
                     <td>
                         <div class="actions">
-                            <a class="btn btn-primary" href="{% url 'service_fmeca_list' row.service.pk %}">Abrir desarrollo</a>
-                            <a class="btn" href="{% url 'fmeca_panel' %}?service={{ row.service.pk }}">Ver panel</a>
+                            <a class="btn" href="{% url 'service_fmeca_list' row.service.pk %}">Ver desarrollo</a>
                         </div>
                     </td>
                 </tr>

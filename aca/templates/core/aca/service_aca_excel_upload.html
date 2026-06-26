@@ -57,20 +57,32 @@
         </form>
     </div>
 
-    <div class="card">
-        <h3 class="card-title">Encabezados esperados</h3>
-        <p class="muted">El sistema reconoce encabezados flexibles. Usa TAG o UT para encontrar el equipo, y nombres de dimensiones iguales o similares a las tablas configuradas.</p>
-        <div class="aca-upload-hints">
-            <span>TAG</span>
-            <span>UT</span>
-            <span>Equipo / Componente</span>
-            <span>Frecuencia</span>
-            <span>Impacto seguridad</span>
-            <span>Impacto operacional</span>
-            <span>Costo mantenci&oacute;n</span>
-            <span>Consecuencia</span>
-            <span>Criticidad final</span>
+    <div class="card hierarchy-side-card bulk-format-card">
+        <h3 class="card-title">Formatos soportados</h3>
+        <p class="muted">El sistema reconoce encabezados flexibles. Usa TAG o UT para encontrar el equipo y nombres de dimensiones iguales o similares a las tablas configuradas.</p>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Formato</th>
+                        <th>Encabezados de ejemplo</th>
+                        <th>Plantilla</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>ACA</td>
+                        <td>TAG, UT, Equipo / Componente, dimensiones de la estrategia y Criticidad final.</td>
+                        <td>
+                            <a class="btn" href="{% url 'service_aca_excel_template' service.pk %}">
+                                <i class="bi bi-download"></i> Descargar Excel
+                            </a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
+        <p class="muted">La plantilla se genera para este servicio e incluye las dimensiones ACA configuradas en su estrategia.</p>
     </div>
 </div>
 
@@ -134,7 +146,6 @@
                         {% for column in report.preview_dimension_columns %}
                             <th>{{ column.name }}</th>
                         {% endfor %}
-                        <th>Valor criticidad</th>
                         <th>Criticidad final</th>
                         <th>Estado</th>
                         <th>Detalle</th>
@@ -151,7 +162,6 @@
                             {% for value in row.dimension_values %}
                                 <td><span class="cell-ellipsis" title="{{ value }}">{{ value|default:'-' }}</span></td>
                             {% endfor %}
-                            <td>{{ row.criticidad_valor|default:'-' }}</td>
                             <td>{{ row.criticidad_final|default:'-' }}</td>
                             <td>
                                 {% if row.status == 'Se cargará' %}
