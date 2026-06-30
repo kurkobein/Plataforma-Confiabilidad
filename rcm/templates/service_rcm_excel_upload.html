@@ -10,6 +10,23 @@
             <p>{{ service.codigo_servicio }} - carga por Excel con previsualizaci&oacute;n antes de guardar.</p>
         </div>
     </div>
+    <div class="actions rcm-header-field-actions">
+        <button class="btn rcm-field-map-trigger" type="button"
+                data-rcm-field-map="falla_funcional" data-field-label="Falla funcional">
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            <span>Falla funcional</span>
+        </button>
+        <button class="btn rcm-field-map-trigger" type="button"
+                data-rcm-field-map="modo_de_falla" data-field-label="Modo de falla">
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            <span>Modo de falla</span>
+        </button>
+        <button class="btn rcm-field-map-trigger" type="button"
+                data-rcm-field-map="efecto" data-field-label="Efecto">
+            <i class="bi bi-file-earmark-spreadsheet"></i>
+            <span>Efecto</span>
+        </button>
+    </div>
 </div>
 
 <div class="aca-upload-layout">
@@ -54,7 +71,6 @@
                 <button class="btn" type="submit" name="action" value="preview" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Previsualizar</button>
                 <button class="btn btn-primary" type="submit" name="action" value="confirm" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Confirmar carga</button>
             </div>
-            <p class="muted">La previsualizaci&oacute;n no guarda datos. Si confirmas, cada fila v&aacute;lida crear&aacute; su propio RCM, FMECA, evaluaciones y tareas.</p>
         </form>
     </div>
 
@@ -83,7 +99,57 @@
                 </tbody>
             </table>
         </div>
-        <p class="muted">La plantilla incluye columnas base de RCM/FMECA, tareas y dimensiones configuradas para la estrategia del servicio.</p>
+    </div>
+</div>
+
+<div class="aca-bulk-modal rcm-field-map-modal" id="rcm-field-map-modal" hidden>
+    <div class="aca-bulk-modal-card rcm-field-map-card">
+        <div class="aca-bulk-modal-head">
+            <div>
+                <strong id="rcm-field-map-title">Configurar columna</strong>
+                <small class="muted">Selecciona un archivo, una hoja y luego el encabezado de la columna.</small>
+            </div>
+            <button class="btn" type="button" id="rcm-field-map-close" aria-label="Cerrar">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="rcm-field-map-controls">
+            <div class="rcm-field-map-source">
+                <div class="form-field">
+                    <label>Archivo Excel</label>
+                    <label class="bulk-file-dropzone rcm-field-file-dropzone" for="rcm-field-map-file">
+                        <i class="bi bi-file-earmark-spreadsheet"></i>
+                        <strong>Selecciona o arrastra el Excel</strong>
+                        <span id="rcm-field-map-file-name">Sin archivo seleccionado</span>
+                        <input id="rcm-field-map-file" type="file" accept=".xlsx,.xlsm">
+                    </label>
+                </div>
+                <div class="form-field">
+                    <label for="rcm-field-map-sheet">Hoja</label>
+                    <select class="input-control" id="rcm-field-map-sheet" disabled>
+                        <option value="">Selecciona un archivo</option>
+                    </select>
+                </div>
+            </div>
+            <div class="rcm-field-map-results">
+                <div class="rcm-field-map-feedback muted" id="rcm-field-map-feedback">
+                    Carga un archivo para mostrar sus columnas.
+                </div>
+                <div class="rcm-field-map-preview" id="rcm-field-map-preview" hidden>
+                    <table class="compact-table">
+                        <thead id="rcm-field-map-head"></thead>
+                        <tbody id="rcm-field-map-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="rcm-field-map-selection" id="rcm-field-map-selection" hidden>
+            Columna seleccionada: <strong id="rcm-field-map-selected-label"></strong>
+        </div>
+        <div class="actions rcm-field-map-actions">
+            <button class="btn" type="button" id="rcm-field-map-reset">Cancelar</button>
+            <button class="btn btn-primary" type="button" id="rcm-field-map-save" disabled>Confirmar carga</button>
+        </div>
     </div>
 </div>
 
@@ -155,7 +221,9 @@
                         <th>Equipo</th>
                         <th>Componente</th>
                         <th>Funci&oacute;n</th>
+                        <th>Falla funcional</th>
                         <th>Modo de falla</th>
+                        <th>Efecto</th>
                         <th>NPR</th>
                         <th>Tareas</th>
                         <th>Estado</th>
@@ -170,7 +238,9 @@
                             <td><span class="cell-ellipsis" title="{{ row.equipo }}">{{ row.equipo|default:'-' }}</span></td>
                             <td><span class="cell-ellipsis" title="{{ row.componente }}">{{ row.componente|default:'-' }}</span></td>
                             <td><span class="cell-ellipsis" title="{{ row.funcion }}">{{ row.funcion|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.falla_funcional }}">{{ row.falla_funcional|default:'-' }}</span></td>
                             <td><span class="cell-ellipsis" title="{{ row.modo }}">{{ row.modo|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.efecto }}">{{ row.efecto|default:'-' }}</span></td>
                             <td>{{ row.npr|default:'-' }}</td>
                             <td>{{ row.tasks_found }}</td>
                             <td>{{ row.status }}</td>
@@ -191,6 +261,193 @@
     const fileInput = dropzone ? dropzone.querySelector('input[type="file"]') : null;
     const fileName = dropzone ? dropzone.querySelector('[data-bulk-file-name]') : null;
     const submitButtons = Array.from(form.querySelectorAll('[data-bulk-submit]'));
+    const mappingUrl = '{% url "service_fmeca_excel_field_preview" service.pk %}';
+    const mappingModal = document.getElementById('rcm-field-map-modal');
+    const mappingTitle = document.getElementById('rcm-field-map-title');
+    const mappingFile = document.getElementById('rcm-field-map-file');
+    const mappingFileDropzone = mappingFile.closest('.rcm-field-file-dropzone');
+    const mappingFileName = document.getElementById('rcm-field-map-file-name');
+    const mappingSheet = document.getElementById('rcm-field-map-sheet');
+    const mappingFeedback = document.getElementById('rcm-field-map-feedback');
+    const mappingPreview = document.getElementById('rcm-field-map-preview');
+    const mappingHead = document.getElementById('rcm-field-map-head');
+    const mappingBody = document.getElementById('rcm-field-map-body');
+    const mappingSelection = document.getElementById('rcm-field-map-selection');
+    const mappingSelectedLabel = document.getElementById('rcm-field-map-selected-label');
+    const mappingSave = document.getElementById('rcm-field-map-save');
+    let activeField = '';
+    let activeFieldLabel = '';
+    let previewData = null;
+    let selectedColumn = null;
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function clearMappingPreview(message) {
+        previewData = null;
+        selectedColumn = null;
+        mappingFeedback.classList.remove('has-warning');
+        mappingHead.innerHTML = '';
+        mappingBody.innerHTML = '';
+        mappingPreview.hidden = true;
+        mappingSelection.hidden = true;
+        mappingSave.disabled = true;
+        mappingFeedback.hidden = false;
+        mappingFeedback.textContent = message || 'Carga un archivo para mostrar sus columnas.';
+    }
+
+    function renderMappingPreview(data) {
+        previewData = data;
+        mappingSheet.innerHTML = (data.sheets || []).map(sheet => (
+            `<option value="${escapeHtml(sheet)}" ${sheet === data.selected_sheet ? 'selected' : ''}>${escapeHtml(sheet)}</option>`
+        )).join('');
+        mappingSheet.disabled = !(data.sheets || []).length;
+        selectedColumn = null;
+        mappingHead.innerHTML = `<tr>${(data.columns || []).map(column => `
+            <th>
+                <button class="rcm-field-map-column${Number(column.index) === selectedColumn ? ' is-selected' : ''}"
+                        type="button" data-map-column="${column.index}">
+                    <small>${escapeHtml(column.letter)}</small>
+                    <span>${escapeHtml(column.label)}</span>
+                </button>
+            </th>
+        `).join('')}</tr>`;
+        mappingBody.innerHTML = (data.rows || []).map(row => `
+            <tr>${(data.columns || []).map(column => `
+                <td title="${escapeHtml(row.values[String(column.index)] || '')}">
+                    ${escapeHtml(row.values[String(column.index)] || '')}
+                </td>
+            `).join('')}</tr>
+        `).join('');
+        mappingPreview.hidden = false;
+        mappingFeedback.hidden = true;
+        syncSelectedColumn();
+    }
+
+    function syncSelectedColumn() {
+        mappingHead.querySelectorAll('[data-map-column]').forEach(button => {
+            button.classList.toggle('is-selected', Number(button.dataset.mapColumn) === Number(selectedColumn));
+        });
+        const column = (previewData?.columns || []).find(item => Number(item.index) === Number(selectedColumn));
+        mappingSelection.hidden = !column;
+        mappingSave.disabled = !column;
+        mappingSelectedLabel.textContent = column ? `${column.letter} - ${column.label}` : '';
+    }
+
+    async function loadMappingPreview(file, sheet) {
+        const payload = new FormData();
+        payload.append('csrfmiddlewaretoken', form.querySelector('[name="csrfmiddlewaretoken"]').value);
+        payload.append('field', activeField);
+        if (sheet) payload.append('sheet', sheet);
+        if (file) payload.append('archivo', file);
+        mappingFeedback.classList.remove('has-warning');
+        mappingFeedback.hidden = false;
+        mappingFeedback.textContent = 'Leyendo archivo...';
+        mappingPreview.hidden = true;
+        mappingSave.disabled = true;
+        try {
+            const response = await fetch(mappingUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'X-CSRFToken': form.querySelector('[name="csrfmiddlewaretoken"]').value,
+                },
+                body: payload,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'No se pudo leer el archivo.');
+            renderMappingPreview(data);
+        } catch (error) {
+            clearMappingPreview(error.message || 'No se pudo leer el archivo.');
+        }
+    }
+
+    function openMappingModal(button) {
+        activeField = button.dataset.rcmFieldMap;
+        activeFieldLabel = button.dataset.fieldLabel || activeField;
+        mappingTitle.textContent = `Carga masiva: ${activeFieldLabel}`;
+        mappingFile.value = '';
+        mappingFileDropzone.classList.remove('has-file');
+        mappingFileName.textContent = 'Sin archivo seleccionado';
+        mappingModal.hidden = false;
+        mappingSheet.innerHTML = '<option value="">Selecciona un archivo</option>';
+        mappingSheet.disabled = true;
+        clearMappingPreview();
+    }
+
+    function closeMappingModal() {
+        mappingModal.hidden = true;
+        activeField = '';
+        activeFieldLabel = '';
+    }
+
+    document.querySelectorAll('[data-rcm-field-map]').forEach(button => {
+        button.addEventListener('click', () => openMappingModal(button));
+    });
+    document.getElementById('rcm-field-map-close').addEventListener('click', closeMappingModal);
+    mappingModal.addEventListener('click', event => {
+        if (event.target === mappingModal) closeMappingModal();
+    });
+    mappingFile.addEventListener('change', () => {
+        const file = mappingFile.files && mappingFile.files[0];
+        mappingFileDropzone.classList.toggle('has-file', Boolean(file));
+        mappingFileName.textContent = file ? file.name : 'Sin archivo seleccionado';
+        if (file) loadMappingPreview(file, '');
+    });
+    mappingSheet.addEventListener('change', () => loadMappingPreview(null, mappingSheet.value));
+    mappingHead.addEventListener('click', event => {
+        const button = event.target.closest('[data-map-column]');
+        if (!button) return;
+        selectedColumn = Number(button.dataset.mapColumn);
+        syncSelectedColumn();
+    });
+    mappingSave.addEventListener('click', async () => {
+        const column = (previewData?.columns || []).find(item => Number(item.index) === Number(selectedColumn));
+        if (!activeField || !column || !previewData) return;
+        const payload = new FormData();
+        payload.append('csrfmiddlewaretoken', form.querySelector('[name="csrfmiddlewaretoken"]').value);
+        payload.append('action', 'confirm');
+        payload.append('field', activeField);
+        payload.append('sheet', previewData.selected_sheet);
+        payload.append('column', Number(column.index));
+        payload.append('header_row', Number(previewData.header_row || 1));
+        mappingSave.disabled = true;
+        mappingFeedback.classList.remove('has-warning');
+        mappingFeedback.hidden = false;
+        mappingFeedback.textContent = 'Cargando opciones...';
+        try {
+            const response = await fetch(mappingUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'X-CSRFToken': form.querySelector('[name="csrfmiddlewaretoken"]').value,
+                },
+                body: payload,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'No se pudo completar la carga.');
+            const sourceButton = document.querySelector(`[data-rcm-field-map="${activeField}"]`);
+            sourceButton?.classList.add('is-configured');
+            mappingPreview.hidden = true;
+            mappingSelection.hidden = true;
+            const duplicateDetails = (data.duplicate_examples || []).slice(0, 3).join(' | ');
+            mappingFeedback.classList.toggle('has-warning', Number(data.duplicates || 0) > 0);
+            mappingFeedback.textContent = Number(data.duplicates || 0) > 0
+                ? `${data.message} Se omitieron ${data.duplicates} duplicados (${data.duplicates_file} en el archivo y ${data.duplicates_database} ya existentes).${duplicateDetails ? ` ${duplicateDetails}` : ''}`
+                : data.message;
+        } catch (error) {
+            mappingFeedback.classList.add('has-warning');
+            mappingFeedback.textContent = error.message || 'No se pudo completar la carga.';
+            mappingSave.disabled = false;
+        }
+    });
+    document.getElementById('rcm-field-map-reset').addEventListener('click', closeMappingModal);
 
     function syncFileState() {
         const storedName = dropzone?.dataset.storedFileName || '';

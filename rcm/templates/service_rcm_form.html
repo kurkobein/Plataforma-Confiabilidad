@@ -156,7 +156,7 @@
         </div>
 
         <div class="card">
-            <h3 class="card-title">Análisis RCM</h3>
+            <h3 class="card-title">Análisis FMECA</h3>
             <div class="form-grid">
                 <div class="form-field">
                     <label for="{{ form.estado.id_for_label }}">{{ form.estado.label }}</label>
@@ -193,7 +193,7 @@
     </div>
 
     <div class="card">
-        <h3 class="card-title">FMECA</h3>
+        <!-- <h3 class="card-title">FMECA</h3> -->
         <div class="form-field">
             <label for="{{ form.criticidad.id_for_label }}">{{ form.criticidad.label }}</label>
             <div class="rcm-criticality-inline">
@@ -1353,7 +1353,7 @@
         const config = taskConfigByType.get(String(typeSelect.value || ''));
         const values = parseTaskValues(card);
         if (!typeSelect.value) {
-            wrap.innerHTML = '<div class="empty-state" style="padding:1rem;">Selecciona un tipo de tarea para ver sus campos.</div>';
+            wrap.innerHTML = '';
             return;
         }
         if (!config || !(config.campos || []).length) {

@@ -185,7 +185,7 @@ def build_runtime_rule(form_cleaned=None):
         agrupar_por_frecuencia=True,
         agrupar_por_especialidad=True,
         agrupar_por_estado_equipo=True,
-        incluir_tareas_primarias=bool(form_cleaned.get('incluir_tareas_primarias', True)),
+        incluir_tareas_primarias=True,
         incluir_tareas_secundarias=bool(form_cleaned.get('incluir_tareas_secundarias', False)),
     )
 

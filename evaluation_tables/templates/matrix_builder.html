@@ -79,6 +79,20 @@ Editar matriz
     align-items: center;
     margin-bottom: 8px;
   }
+  .matrix-builder-invalid {
+    background: #fef2f2 !important;
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.12);
+  }
+  .matrix-builder-validation {
+    color: #b91c1c;
+    display: none;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .matrix-builder-validation.is-visible {
+    display: block;
+  }
   .legend-swatch {
     width: 100%;
     height: 32px;
@@ -254,6 +268,7 @@ Editar matriz
           {% if builder_form.y_count.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.y_count.errors }}</div>{% endif %}
         </div>
       </div>
+      <div class="matrix-builder-validation" id="matrixBuilderValidation" role="alert"></div>
       <div class="axis-dimension-box{% if not builder_form.estrategia.value %} is-hidden{% endif %}" id="matrixAxisDimensionBox">
         <h3>Dimensiones que alimentan la matriz</h3>
         <div class="form-grid matrix-axis-fields">
@@ -345,6 +360,7 @@ Editar matriz
     const matrixGrid = document.getElementById("matrixGrid");
     const legendList = document.getElementById("legendList");
     const legendError = document.getElementById("legendError");
+    const builderValidation = document.getElementById("matrixBuilderValidation");
     const probJson = document.getElementById("prob-levels-json");
     const impactJson = document.getElementById("impact-levels-json");
     const cellsJson = document.getElementById("matrix-cells-json");
@@ -354,6 +370,8 @@ Editar matriz
     const rulesCount = document.getElementById("criticalityRulesCount");
     const ruleSources = JSON.parse(document.getElementById("criticality-rule-sources").textContent || "[]");
     let criticalityRules = JSON.parse(document.getElementById("criticality-rules-state").textContent || "[]");
+    const MATRIX_MIN_SIZE = 2;
+    const MATRIX_MAX_SIZE = 10;
 
     let rows = Number(state.rows_count || 5);
     let cols = Number(state.cols_count || 5);
@@ -681,14 +699,17 @@ Editar matriz
         }));
     }
     function parseRange(rangeText) {
-      const m = String(rangeText || "")
-        .trim()
-        .match(/^(\-?\d+(?:[\.,]\d+)?)\s*-\s*(\-?\d+(?:[\.,]\d+)?)$/);
+      const text = String(rangeText || "").trim();
+      const m = text.match(/^(\-?\d+(?:[\.,]\d{1,2})?)\s*-\s*(\-?\d+(?:[\.,]\d{1,2})?)$/);
       if (!m) return null;
       const start = decimalValue(m[1], NaN);
       const end = decimalValue(m[2], NaN);
       return Number.isFinite(start) && Number.isFinite(end) && end >= start
-        ? { start: round2(start), end: round2(end) }
+        ? {
+            start: round2(start),
+            end: round2(end),
+            decimal: /[\.,]\d/.test(m[1]) || /[\.,]\d/.test(m[2]),
+          }
         : null;
     }
     function bounds() {
@@ -709,14 +730,34 @@ Editar matriz
       if (b.min === b.max || round2(b.max - b.min) < 0.04) {
         return [{ name: "Bajo", range: `${formatNumber(b.min)}-${formatNumber(b.max)}`, color: "#2ecc71" }];
       }
-      const span = Math.max(b.max - b.min, 0);
-      const step = span > 0 ? round2(span / 4) : 1;
       const labels = [
         ["Bajo", "#2ecc71"],
         ["Medio", "#f1c40f"],
         ["Alto", "#e67e22"],
         ["Crítico", "#e74c3c"],
       ];
+      const integerMode = Number.isInteger(b.min) && Number.isInteger(b.max);
+      if (integerMode) {
+        let current = b.min;
+        const activeLabels = labels.slice(0, Math.min(labels.length, b.max - b.min + 1));
+        return activeLabels.map((item, idx) => {
+          const remainingLevels = activeLabels.length - idx;
+          const remainingValues = b.max - current + 1;
+          const width = Math.max(1, Math.ceil(remainingValues / remainingLevels));
+          const end = idx === activeLabels.length - 1
+            ? b.max
+            : Math.min(b.max, current + width - 1);
+          const payload = {
+            name: item[0],
+            range: `${formatNumber(current)}-${formatNumber(end)}`,
+            color: item[1],
+          };
+          current = end + 1;
+          return payload;
+        });
+      }
+      const span = Math.max(b.max - b.min, 0);
+      const step = span > 0 ? round2(span / 4) : 1;
       let current = b.min;
       return labels.map((item, idx) => {
         let end = idx < 3 ? round2(b.min + step * (idx + 1)) : b.max;
@@ -731,28 +772,52 @@ Editar matriz
       });
     }
     function validateLegend(showMessage = true) {
-      const clean = legendItems.filter((item) => item.name && item.range);
-      if (!clean.length) {
-        if (showMessage)
-          showLegendError("Debes definir al menos un rango en la leyenda.");
-        return false;
-      }
-      const parsed = clean.map((item) => ({
+      const parsed = legendItems.map((item, index) => ({
         ...item,
+        index,
         parsed: parseRange(item.range),
       }));
-      const invalid = parsed.find((item) => !item.parsed);
-      if (invalid) {
-        if (showMessage)
-          showLegendError(
-            `El rango "${invalid.range}" no es valido. Usa el formato 0,1-4,5.`,
-          );
+      const errors = new Map();
+      let errorMessage = "";
+      if (!parsed.length) {
+        errorMessage = "Debes definir al menos un rango en la leyenda.";
+      }
+      parsed.forEach((item) => {
+        if (!item.name || !item.range || !item.parsed) {
+          errors.set(item.index, true);
+          if (!errorMessage) {
+            errorMessage = `El rango "${item.range || "vacío"}" no es válido. Usa enteros o hasta 2 decimales.`;
+          }
+        }
+      });
+      const validRanges = parsed.filter((item) => item.name && item.range && item.parsed);
+      const decimalMode = validRanges.some((item) => item.parsed.decimal);
+      const continuityStep = decimalMode ? 0.01 : 1;
+      for (let index = 1; index < validRanges.length; index++) {
+        const previous = validRanges[index - 1];
+        const current = validRanges[index];
+        const expectedStart = round2(previous.parsed.end + continuityStep);
+        if (Math.abs(current.parsed.start - expectedStart) > 0.000001) {
+          errors.set(current.index, true);
+          if (!errorMessage) {
+            const issue = current.parsed.start < expectedStart ? "se superpone" : "deja un espacio";
+            errorMessage = `El rango "${current.range}" ${issue} respecto del anterior. Debe comenzar en ${formatNumber(expectedStart)}.`;
+          }
+        }
+      }
+      legendList.querySelectorAll("[data-legend-range]").forEach((input) => {
+        const index = Number(input.dataset.legendRange);
+        input.classList.toggle("matrix-builder-invalid", errors.has(index));
+        if (errors.has(index)) input.setAttribute("aria-invalid", "true");
+        else input.removeAttribute("aria-invalid");
+      });
+      if (errorMessage) {
+        if (showMessage) showLegendError(errorMessage);
         return false;
       }
-      parsed.sort((a, b) => a.parsed.start - b.parsed.start);
       const uncovered = matrixValues().filter(
         (value) =>
-          !parsed.some(
+          !validRanges.some(
             (item) => value >= item.parsed.start && value <= item.parsed.end,
           ),
       );
@@ -763,7 +828,7 @@ Editar matriz
         return false;
       }
       hideLegendError();
-      legendItems = parsed.map((item) => ({
+      legendItems = validRanges.map((item) => ({
         name: item.name,
         range: `${formatNumber(item.parsed.start)}-${formatNumber(item.parsed.end)}`,
         color: item.color,
@@ -836,6 +901,7 @@ Editar matriz
           (el.oninput = (e) => {
             legendItems[Number(e.target.dataset.legendName)].name =
               e.target.value;
+            validateLegend(false);
             renderGrid();
           }),
       );
@@ -844,6 +910,7 @@ Editar matriz
           (el.oninput = (e) => {
             legendItems[Number(e.target.dataset.legendRange)].range =
               e.target.value;
+            validateLegend(false);
             renderGrid();
           }),
       );
@@ -948,8 +1015,36 @@ Editar matriz
       cellsJson.value = JSON.stringify(cells);
       legendJson.value = JSON.stringify(legendItems);
     }
+    function showBuilderValidation(message) {
+      if (!builderValidation) return;
+      builderValidation.textContent = message || "";
+      builderValidation.classList.toggle("is-visible", Boolean(message));
+    }
+    function validateMatrixSize(showMessage = true) {
+      const fields = [
+        { input: xCountInput, label: "columnas" },
+        { input: yCountInput, label: "filas" },
+      ];
+      let message = "";
+      fields.forEach(({ input, label }) => {
+        const value = Number(input.value);
+        const valid = Number.isInteger(value) && value >= MATRIX_MIN_SIZE && value <= MATRIX_MAX_SIZE;
+        input.classList.toggle("matrix-builder-invalid", !valid);
+        if (!valid) {
+          input.setAttribute("aria-invalid", "true");
+          if (!message) {
+            message = `La cantidad de ${label} debe ser un número entero entre ${MATRIX_MIN_SIZE} y ${MATRIX_MAX_SIZE}.`;
+          }
+        } else {
+          input.removeAttribute("aria-invalid");
+        }
+      });
+      if (showMessage || !message) showBuilderValidation(message);
+      return !message;
+    }
     function submitBuilder(action) {
       ensureDefinitions();
+      if (!validateMatrixSize(true)) return;
       if (action === "save" && !validateLegend(true)) return;
       syncCriticalityRulesJson();
       actionInput.value = action;
@@ -1005,8 +1100,12 @@ Editar matriz
         refreshMatrixCellsOnly();
       },
     };
-    xCountInput.addEventListener("change", () => renderGrid());
-    yCountInput.addEventListener("change", () => renderGrid());
+    [xCountInput, yCountInput].forEach((input) => {
+      input.addEventListener("input", () => validateMatrixSize(false));
+      input.addEventListener("change", () => {
+        if (validateMatrixSize(true)) renderGrid();
+      });
+    });
     if (probDimensionSelect) {
       probDimensionSelect.addEventListener("change", () => applyAxisDimension("probabilidad"));
     }
@@ -1029,6 +1128,8 @@ Editar matriz
     renderCriticalityRules();
     renderLegend();
     renderGrid();
+    validateMatrixSize(false);
+    validateLegend(false);
     window.submitBuilder = submitBuilder;
     window.addLegend = addLegend;
   })();

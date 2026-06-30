@@ -572,6 +572,47 @@ class RCM(BaseUnmanagedModel):
         return f'RCM {self.id} - {self.equipo}'
 
 
+class RCMCampoOpcion(BaseUnmanagedModel):
+    CAMPO_FALLA_FUNCIONAL = 'falla_funcional'
+    CAMPO_MODO_DE_FALLA = 'modo_de_falla'
+    CAMPO_EFECTO = 'efecto'
+    CAMPO_CHOICES = [
+        (CAMPO_FALLA_FUNCIONAL, 'Falla funcional'),
+        (CAMPO_MODO_DE_FALLA, 'Modo de falla'),
+        (CAMPO_EFECTO, 'Efecto'),
+    ]
+
+    servicio = models.ForeignKey(
+        Servicio,
+        on_delete=models.CASCADE,
+        db_column='servicio_id',
+        related_name='opciones_campos_rcm',
+    )
+    campo = models.CharField(max_length=32, choices=CAMPO_CHOICES)
+    valor = models.TextField()
+    clave_normalizada = models.CharField(max_length=64)
+    activo = models.BooleanField(default=True)
+
+    class Meta(BaseUnmanagedModel.Meta):
+        db_table = 'reliability_rcmcampoopcion'
+        ordering = ['campo', 'valor']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['servicio', 'campo', 'clave_normalizada'],
+                name='uq_rcm_opcion_servicio_campo_clave',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        from rcm.field_options import rcm_field_option_key
+
+        self.clave_normalizada = rcm_field_option_key(self.valor)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.get_campo_display()}: {self.valor}'
+
+
 class RCMAdjunto(BaseUnmanagedModel):
     rcm = models.ForeignKey(RCM, on_delete=models.CASCADE, db_column='rcm_id', related_name='adjuntos')
     archivo = models.FileField(

@@ -334,3 +334,78 @@ def filter_fmeca_by_hierarchy(queryset, nodo_id=None):
     if not node_ids:
         return queryset.none()
     return queryset.filter(rcm__equipo__nodo_id__in=node_ids)
+
+
+def group_fmeca_progress_by_hierarchy_level(fmeas, level_id, progress_dimensions):
+    if not level_id:
+        return []
+    try:
+        level_id = int(level_id)
+    except (TypeError, ValueError):
+        return []
+
+    records = list(fmeas)
+    company_ids = {
+        fmea.rcm.equipo.nodo.empresa_id
+        for fmea in records
+        if fmea.rcm.equipo_id and getattr(fmea.rcm.equipo, 'nodo', None)
+    }
+    all_nodes = list(
+        models.NodoJerarquia.objects.filter(
+            empresa_id__in=company_ids,
+            activo=True,
+        ).select_related('nivel')
+    ) if company_ids else []
+    node_by_id = {node.pk: node for node in all_nodes}
+
+    grouped = {}
+    for fmea in records:
+        equipment = fmea.rcm.equipo
+        node = node_by_id.get(getattr(equipment, 'nodo_id', None))
+        group_node = next(
+            (
+                path_node
+                for path_node in _node_path(node, node_by_id)
+                if path_node.nivel_id == level_id
+            ),
+            None,
+        )
+        if group_node:
+            group_key = f'node:{group_node.pk}'
+            group_label = _node_option_label(group_node, node_by_id)
+            display_label = group_node.nombre or group_node.codigo or group_label
+            group_order = (_node_path_code(group_node, node_by_id), display_label)
+        else:
+            group_key = 'missing'
+            group_label = 'Sin jerarquía'
+            display_label = 'Sin jerarquía'
+            group_order = ('zzzz', display_label)
+        grouped.setdefault(group_key, {
+            'key': group_key,
+            'label': group_label,
+            'display_label': display_label,
+            'order': group_order,
+            'records': [],
+        })['records'].append(fmea)
+
+    result = []
+    for group in grouped.values():
+        summary = _build_progress_summary_for_records(
+            group['records'],
+            progress_dimensions,
+        )
+        result.append({
+            'key': group['key'],
+            'label': group['label'],
+            'display_label': group['display_label'],
+            'total_records': summary['total_records'],
+            'average_progress_percent': summary['average_progress_percent'] or Decimal('0'),
+            'average_progress_label': summary['average_progress_label'],
+            'average_progress_degrees': summary['average_progress_degrees'],
+            'complete_records': summary['complete_records'],
+            'incomplete_records': summary['incomplete_records'],
+            'major_gap': summary['major_gap'],
+            'order': group['order'],
+        })
+    result.sort(key=lambda item: item['order'])
+    return result

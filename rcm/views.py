@@ -8,14 +8,18 @@ from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core import models
-from core.access import get_accessible_services
+from core.access import get_accessible_services, get_service_equipment
 from rcm.forms import RCMExcelBulkUploadForm, RCMRegistroForm, RCMTaskFormSet
+from rcm.field_options import (
+    RCM_FIELD_OPTION_LABELS,
+    rcm_field_option_key,
+)
 from rcm.import_excel import Command as RCMExcelImportCommand
 from rcm.import_excel import BASE_ALIASES, ImportStats, TASK_ALIASES, clean_text
 from rcm.services.progress import (
@@ -24,6 +28,7 @@ from rcm.services.progress import (
     get_fmeca_progress_dimensions,
     get_fmeca_queryset,
     get_hierarchy_filter_options,
+    group_fmeca_progress_by_hierarchy_level,
 )
 from core.services.criticality_rules import (
     sync_fmeca_criticality_rules,
@@ -45,6 +50,182 @@ from core.views import (
     open_session_upload,
     store_session_upload,
 )
+
+
+RCM_EXTRA_FIELD_CONFIG = RCM_FIELD_OPTION_LABELS
+
+
+def _rcm_field_upload_session_key(service_pk, field_name):
+    return f'rcm_excel_field_{service_pk}_{field_name}'
+
+
+def _clear_rcm_field_uploads(request, service_pk):
+    for field_name in RCM_EXTRA_FIELD_CONFIG:
+        clear_session_upload(
+            request,
+            _rcm_field_upload_session_key(service_pk, field_name),
+        )
+
+
+def _fallback_excel_header_row(ws, max_rows=30):
+    for row_number in range(1, min(ws.max_row, max_rows) + 1):
+        if any(clean_text(cell.value) for cell in ws[row_number]):
+            return row_number
+    return 1
+
+
+def _rcm_field_preview_payload(uploaded_file, requested_sheet=''):
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    uploaded_file.seek(0)
+    workbook = load_workbook(BytesIO(uploaded_file.read()), data_only=True, read_only=True)
+    if not workbook.sheetnames:
+        workbook.close()
+        raise ValueError('El archivo no contiene hojas.')
+    selected_sheet = requested_sheet if requested_sheet in workbook.sheetnames else workbook.sheetnames[0]
+    ws = workbook[selected_sheet]
+    importer = RCMExcelImportCommand()
+    header_row = importer.detect_header_row(ws) or _fallback_excel_header_row(ws)
+    preview_end = min(ws.max_row, header_row + 10)
+    columns = []
+    for column in range(1, min(ws.max_column, 80) + 1):
+        label = clean_text(ws.cell(header_row, column).value)
+        has_data = bool(label) or any(
+            clean_text(ws.cell(row_number, column).value)
+            for row_number in range(header_row + 1, preview_end + 1)
+        )
+        if has_data:
+            columns.append({
+                'index': column,
+                'letter': get_column_letter(column),
+                'label': label or f'Columna {get_column_letter(column)}',
+            })
+    rows = []
+    for row_number in range(header_row + 1, preview_end + 1):
+        values = {
+            str(column['index']): clean_text(ws.cell(row_number, column['index']).value)
+            for column in columns
+        }
+        if any(values.values()):
+            rows.append({'index': row_number, 'values': values})
+    result = {
+        'sheets': workbook.sheetnames,
+        'selected_sheet': selected_sheet,
+        'header_row': header_row,
+        'columns': columns,
+        'rows': rows,
+    }
+    workbook.close()
+    return result
+
+
+def _rcm_import_field_options_from_stored_excel(
+    request,
+    service,
+    field_name,
+    sheet_name,
+    header_row,
+    column,
+):
+    from openpyxl import load_workbook
+
+    stored_file, _stored_ref = open_session_upload(
+        request,
+        _rcm_field_upload_session_key(service.pk, field_name),
+    )
+    if not stored_file:
+        raise ValueError('Vuelve a seleccionar el archivo Excel.')
+    try:
+        stored_file.seek(0)
+        workbook = load_workbook(BytesIO(stored_file.read()), data_only=True, read_only=True)
+        if sheet_name not in workbook.sheetnames:
+            workbook.close()
+            raise ValueError('La hoja seleccionada no existe.')
+        ws = workbook[sheet_name]
+        header_row = int(header_row or 1)
+        column = int(column or 0)
+        if column < 1 or column > ws.max_column:
+            workbook.close()
+            raise ValueError('La columna seleccionada no existe.')
+
+        source_rows = []
+        for row_number in range(header_row + 1, ws.max_row + 1):
+            value = clean_text(ws.cell(row_number, column).value)
+            if not value:
+                continue
+            source_rows.append({
+                'row': row_number,
+                'value': value,
+                'key': rcm_field_option_key(value),
+            })
+        workbook.close()
+    finally:
+        stored_file.close()
+
+    existing_options = {
+        option.clave_normalizada: option
+        for option in models.RCMCampoOpcion.objects.filter(
+            servicio=service,
+            campo=field_name,
+        )
+    }
+    seen_in_file = {}
+    duplicate_file = []
+    duplicate_database = []
+    new_options = []
+    for source in source_rows:
+        key = source['key']
+        if not key:
+            continue
+        if key in seen_in_file:
+            duplicate_file.append({
+                'row': source['row'],
+                'first_row': seen_in_file[key]['row'],
+                'value': source['value'],
+            })
+            continue
+        seen_in_file[key] = source
+        if key in existing_options:
+            duplicate_database.append({
+                'row': source['row'],
+                'value': source['value'],
+                'existing_value': existing_options[key].valor,
+            })
+            continue
+        new_options.append(models.RCMCampoOpcion(
+            servicio=service,
+            campo=field_name,
+            valor=source['value'],
+            clave_normalizada=key,
+            activo=True,
+        ))
+
+    if new_options:
+        models.RCMCampoOpcion.objects.bulk_create(
+            new_options,
+            batch_size=500,
+            ignore_conflicts=True,
+        )
+
+    duplicate_examples = []
+    for item in duplicate_file:
+        duplicate_examples.append(
+            f'fila {item["row"]}: "{item["value"]}" repite la fila {item["first_row"]}'
+        )
+    for item in duplicate_database:
+        duplicate_examples.append(
+            f'fila {item["row"]}: "{item["value"]}" ya existe como "{item["existing_value"]}"'
+        )
+    duplicate_total = len(duplicate_file) + len(duplicate_database)
+    return {
+        'created': len(new_options),
+        'source_rows': len(source_rows),
+        'duplicates': duplicate_total,
+        'duplicates_file': len(duplicate_file),
+        'duplicates_database': len(duplicate_database),
+        'duplicate_examples': duplicate_examples[:8],
+    }
 
 
 @login_required
@@ -176,6 +357,30 @@ def fmeca_panel(request):
         if selected_avance_min != 0 or selected_avance_max != 100:
             progress_summary = build_fmeca_service_progress_summary(selected_service, fmeas=fmeas)
             progress_by_fmea_id = progress_summary.get('progress_by_fmea_id', {})
+        area_level = next(
+            (
+                level for level in levels
+                if str(level.get('name') or '').strip().casefold() in {'area', 'área'}
+            ),
+            None,
+        )
+        chart_level_id = deepest_level_id or (
+            area_level.get('id') if area_level else (levels[0].get('id') if levels else '')
+        )
+        progress_dimensions = get_fmeca_progress_dimensions(selected_service.estrategia)
+        panel_chart_summary = group_fmeca_progress_by_hierarchy_level(
+            fmeas,
+            chart_level_id,
+            progress_dimensions,
+        )
+        panel_table_level_name = next(
+            (
+                level.get('name')
+                for level in levels
+                if str(level.get('id')) == str(chart_level_id)
+            ),
+            'Nivel',
+        )
         table_rows = []
         for fmea in fmeas:
             rcm = fmea.rcm
@@ -209,6 +414,9 @@ def fmeca_panel(request):
             'selected_progress_node_ids': [str(node_id) for node_id in selected_panel_node_ids],
             'selected_avance_min': selected_avance_min,
             'selected_avance_max': selected_avance_max,
+            'panel_chart_summary': panel_chart_summary,
+            'panel_table_level_name': panel_table_level_name,
+            'panel_total_filtered': len(fmeas),
             'table_rows': table_rows,
         })
     return render(request, 'fmeca_panel.html', context)
@@ -536,7 +744,9 @@ def _rcm_excel_sample_rows(importer, ws, header_map, start_row, limit=10):
             'equipo': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['descripcion_equipo'])),
             'componente': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['componente'])),
             'funcion': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['funcion'])),
+            'falla_funcional': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['falla_funcional'])),
             'modo': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['modo_de_falla'])),
+            'efecto': clean_text(importer.get_cell(row, header_map, BASE_ALIASES['efecto'])),
             'npr': npr or clean_text(importer.get_cell(row, header_map, BASE_ALIASES['npr'])),
             'tasks_found': tasks_found,
             'status': status,
@@ -544,7 +754,14 @@ def _rcm_excel_sample_rows(importer, ws, header_map, start_row, limit=10):
     return sample
 
 
-def _run_rcm_excel_upload(servicio, uploaded_file, sheet_name='', replace=False, create_task_types=False, preview=True):
+def _run_rcm_excel_upload(
+    servicio,
+    uploaded_file,
+    sheet_name='',
+    replace=False,
+    create_task_types=False,
+    preview=True,
+):
     from openpyxl import load_workbook
 
     if not servicio.estrategia_id:
@@ -636,6 +853,69 @@ def _run_rcm_excel_upload(servicio, uploaded_file, sheet_name='', replace=False,
 
 
 @login_required
+def service_rcm_excel_field_preview(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    if not permission.get('can_edit'):
+        raise PermissionDenied('No tienes permisos para configurar esta carga.')
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Metodo no permitido.'}, status=405)
+
+    field_name = clean_text(request.POST.get('field'))
+    if field_name not in RCM_EXTRA_FIELD_CONFIG:
+        return JsonResponse({'error': 'Campo de destino no valido.'}, status=400)
+
+    uploaded_file = request.FILES.get('archivo')
+    session_key = _rcm_field_upload_session_key(servicio.pk, field_name)
+    if uploaded_file:
+        extension = uploaded_file.name.rsplit('.', 1)[-1].lower() if '.' in uploaded_file.name else ''
+        if extension not in {'xlsx', 'xlsm'}:
+            return JsonResponse({'error': 'Selecciona un archivo Excel .xlsx o .xlsm.'}, status=400)
+        store_session_upload(request, session_key, uploaded_file, 'rcm_fields')
+
+    if request.POST.get('action') == 'confirm':
+        try:
+            with transaction.atomic():
+                result = _rcm_import_field_options_from_stored_excel(
+                    request,
+                    servicio,
+                    field_name,
+                    sheet_name=clean_text(request.POST.get('sheet')),
+                    header_row=request.POST.get('header_row'),
+                    column=request.POST.get('column'),
+                )
+            clear_session_upload(request, session_key)
+            return JsonResponse({
+                'ok': True,
+                'field': field_name,
+                'field_label': RCM_EXTRA_FIELD_CONFIG[field_name],
+                'message': (
+                    f'{RCM_EXTRA_FIELD_CONFIG[field_name]}: '
+                    f'{result["created"]} opciones nuevas cargadas.'
+                ),
+                **result,
+            })
+        except Exception as exc:
+            return JsonResponse({'error': str(exc)}, status=400)
+
+    stored_file, stored_ref = open_session_upload(request, session_key)
+    if not stored_file:
+        return JsonResponse({'error': 'Selecciona un archivo Excel para continuar.'}, status=400)
+    try:
+        payload = _rcm_field_preview_payload(
+            stored_file,
+            requested_sheet=clean_text(request.POST.get('sheet')),
+        )
+        payload['file_name'] = (stored_ref or {}).get('name') or ''
+        payload['field'] = field_name
+        payload['field_label'] = RCM_EXTRA_FIELD_CONFIG[field_name]
+        return JsonResponse(payload)
+    except Exception as exc:
+        return JsonResponse({'error': f'No se pudo leer el Excel: {exc}'}, status=400)
+    finally:
+        stored_file.close()
+
+
+@login_required
 def service_rcm_excel_upload(request, pk):
     servicio, permission = _service_or_404(request, pk, edit=True)
     if not permission.get('can_edit'):
@@ -684,6 +964,7 @@ def service_rcm_excel_upload(request, pk):
                     pass
     else:
         clear_session_upload(request, upload_session_key)
+        _clear_rcm_field_uploads(request, servicio.pk)
         form = RCMExcelBulkUploadForm()
     stored_upload = request.session.get(upload_session_key)
 
@@ -1341,9 +1622,20 @@ def _save_rcm_tasks(fmea, task_formset):
     stale_tasks.delete()
 
 
-def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equipo=None, attachment_payload=None):
+def _save_rcm_form(
+    servicio,
+    permission,
+    form,
+    task_formset=None,
+    rcm=None,
+    equipo=None,
+    attachment_payload=None,
+    origin='RCM Manual',
+    created_at=None,
+):
     cleaned = form.cleaned_data
     now = timezone.now()
+    created_at = created_at or now
     selected_equipment = equipo or cleaned['equipo']
     attachment_payload = attachment_payload or []
 
@@ -1389,9 +1681,9 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
             usuario=permission.get('profile'),
             servicio=servicio,
             estrategia=servicio.estrategia,
-            origen='RCM Manual',
+            origen=origin,
             status=cleaned['estado'],
-            creado_en=now,
+            creado_en=created_at,
             actualizado=now,
         )
         rcm = models.RCM.objects.create(
@@ -1433,6 +1725,262 @@ def _save_rcm_form(servicio, permission, form, task_formset=None, rcm=None, equi
         _save_rcm_tasks(fmea, task_formset)
     _save_rcm_attachments(rcm, attachment_payload, permission.get('profile'))
     return rcm
+
+
+def _fmeca_bulk_dimension_payload(service):
+    metadata_form = RCMRegistroForm(service=service)
+    runtime_by_field = {
+        item['field_name']: item
+        for item in metadata_form.dimension_runtime_payload
+    }
+    dimensions = []
+    for item in metadata_form.impact_dimensions:
+        runtime = dict(runtime_by_field.get(item['field_name'], {}))
+        runtime.update({
+            'field_name': item['field_name'],
+            'nombre': item['dimension'].nombre,
+            'required': item['estrategia_dimension'].obligatorio,
+            'is_calculated': item['is_calculated'],
+            'options': [
+                {
+                    'value': row['pk'],
+                    'label': ' | '.join(
+                        str(value) for value in row.get('cells', [])
+                        if value not in (None, '')
+                    ) or f'Opcion {index}',
+                    'numeric': row.get('value_numeric', ''),
+                }
+                for index, row in enumerate(item.get('option_rows') or [], start=1)
+            ],
+        })
+        dimensions.append(runtime)
+
+    field_options = {}
+    for field_name in ('falla_funcional', 'modo_de_falla', 'efecto'):
+        field_options[field_name] = [
+            {'value': value, 'label': label}
+            for value, label in metadata_form.fields[field_name].choices
+            if value
+        ]
+    return dimensions, field_options
+
+
+def _fmeca_bulk_row_is_empty(row):
+    if not isinstance(row, dict):
+        return True
+    if row.get('equipo_id') or row.get('family_id'):
+        return False
+    for field_name in (
+        'componente',
+        'funcion',
+        'falla_funcional',
+        'modo_de_falla',
+        'efecto',
+        'criticidad',
+        'observacion',
+    ):
+        if str(row.get(field_name) or '').strip():
+            return False
+    dimensions = row.get('dimensions') if isinstance(row.get('dimensions'), dict) else {}
+    return not any(value not in (None, '') for value in dimensions.values())
+
+
+def _fmeca_bulk_attachment_payload(request, row_id):
+    files = request.FILES.getlist(f'row_files_{row_id}')
+    if not files:
+        return [], []
+    allowed = set(models.RECORD_ATTACHMENT_EXTENSIONS)
+    payload = []
+    invalid = []
+    for uploaded in files:
+        extension = (uploaded.name.rsplit('.', 1)[-1] if '.' in uploaded.name else '').lower()
+        if extension not in allowed:
+            invalid.append(uploaded.name)
+            continue
+        payload.append({
+            'name': uploaded.name,
+            'content': uploaded.read(),
+        })
+    return payload, invalid
+
+
+def _fmeca_bulk_context(
+    service,
+    permission,
+    *,
+    dimension_payload,
+    field_options,
+    errors=None,
+    raw_payload='',
+    selected_date=None,
+):
+    initial_equipment = list(
+        get_service_equipment(service)
+        .order_by('tag_equipo', 'nombre_equipo', 'ut')[:50]
+    )
+    return {
+        'service': service,
+        'permission': permission,
+        'dimension_payload': dimension_payload,
+        'field_options': field_options,
+        'service_equipment_payload': _service_equipment_browser_payload(service),
+        'service_equipment_endpoints': _service_equipment_endpoints(service),
+        'initial_equipment_payload': _equipment_items_payload(initial_equipment),
+        'service_family_payload': _service_family_payload(service),
+        'bulk_errors': errors or [],
+        'bulk_payload': raw_payload or json.dumps({'rows': []}),
+        'selected_date': selected_date or timezone.localdate(),
+    }
+
+
+@login_required
+def service_fmeca_bulk_new(request, pk):
+    servicio, permission = _service_or_404(request, pk, edit=True)
+    if not servicio.estrategia_id:
+        messages.warning(
+            request,
+            'El servicio debe tener una estrategia antes de registrar FMECA.',
+        )
+        return redirect('service_detail', pk=servicio.pk)
+
+    dimension_payload, field_options = _fmeca_bulk_dimension_payload(servicio)
+    raw_payload = request.POST.get('bulk_payload', '') if request.method == 'POST' else ''
+    selected_date = parse_date(request.POST.get('fecha_analisis', '')) or timezone.localdate()
+
+    if request.method == 'POST':
+        errors = []
+        try:
+            payload = json.loads(raw_payload or '{}')
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+            errors.append('No se pudo leer la carga grupal.')
+        submitted_rows = payload.get('rows') if isinstance(payload, dict) else []
+        if not isinstance(submitted_rows, list):
+            submitted_rows = []
+
+        is_draft = request.POST.get('save_as') == 'draft'
+        status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
+        equipment_qs = get_service_equipment(servicio)
+        families = (
+            models.FamiliaEquipo.objects.filter(servicio=servicio, activa=True)
+            .prefetch_related('items__equipo')
+        )
+        prepared_rows = []
+
+        for index, row in enumerate(submitted_rows, start=1):
+            if _fmeca_bulk_row_is_empty(row):
+                continue
+            row_errors = []
+            target_type = row.get('target_type') if row.get('target_type') in {'equipo', 'familia'} else 'equipo'
+            target_equipment = []
+            if target_type == 'familia':
+                family = families.filter(pk=row.get('family_id')).first() if row.get('family_id') else None
+                if family:
+                    target_equipment = [
+                        item.equipo
+                        for item in family.items.all()
+                        if item.equipo_id and item.equipo
+                    ]
+                    if not target_equipment:
+                        row_errors.append('La familia seleccionada no tiene equipos.')
+                else:
+                    row_errors.append('Selecciona una familia valida.')
+            else:
+                equipment = equipment_qs.filter(pk=row.get('equipo_id')).first() if row.get('equipo_id') else None
+                if equipment:
+                    target_equipment = [equipment]
+                else:
+                    row_errors.append('Selecciona un equipo valido.')
+
+            row_id = row.get('row_id') if str(row.get('row_id') or '').isdigit() else index
+            attachments, invalid_files = _fmeca_bulk_attachment_payload(request, row_id)
+            if invalid_files:
+                row_errors.append('Archivos no permitidos: ' + ', '.join(invalid_files) + '.')
+
+            form_data = {
+                'equipo': target_equipment[0].pk if target_equipment else '',
+                'familia_equipo': '',
+                'fecha_analisis': selected_date.isoformat(),
+                'estado': status,
+                'criticidad': row.get('criticidad', ''),
+                'componente': row.get('componente', ''),
+                'funcion': row.get('funcion', ''),
+                'falla_funcional': row.get('falla_funcional', ''),
+                'modo_de_falla': row.get('modo_de_falla', ''),
+                'efecto': row.get('efecto', ''),
+                'observacion': row.get('observacion', ''),
+            }
+            row_dimensions = row.get('dimensions') if isinstance(row.get('dimensions'), dict) else {}
+            for dimension in dimension_payload:
+                form_data[dimension['field_name']] = row_dimensions.get(dimension['field_name'], '')
+
+            row_form = RCMRegistroForm(
+                form_data,
+                service=servicio,
+                allow_incomplete=is_draft,
+            )
+            if not row_form.is_valid():
+                for field_name, field_errors in row_form.errors.items():
+                    field = row_form.fields.get(field_name)
+                    label = field.label if field else 'Fila'
+                    for error in field_errors:
+                        row_errors.append(f'{label}: {error}')
+            if row_errors:
+                errors.append(f'Fila {index}: ' + ' '.join(row_errors))
+                continue
+            prepared_rows.append({
+                'form': row_form,
+                'equipment': target_equipment,
+                'attachments': attachments,
+            })
+
+        if not prepared_rows and not errors:
+            errors.append('No hay filas validas para guardar.')
+        if errors:
+            return render(
+                request,
+                'fmeca_bulk_form.html',
+                _fmeca_bulk_context(
+                    servicio,
+                    permission,
+                    dimension_payload=dimension_payload,
+                    field_options=field_options,
+                    errors=errors,
+                    raw_payload=raw_payload,
+                    selected_date=selected_date,
+                ),
+            )
+
+        created_count = 0
+        group_created_at = timezone.now()
+        with transaction.atomic():
+            for prepared in prepared_rows:
+                for equipment in prepared['equipment']:
+                    _save_rcm_form(
+                        servicio,
+                        permission,
+                        prepared['form'],
+                        equipo=equipment,
+                        attachment_payload=prepared['attachments'],
+                        origin='FMECA grupal',
+                        created_at=group_created_at,
+                    )
+                    created_count += 1
+        messages.success(request, f'Se crearon {created_count} registros FMECA correctamente.')
+        return redirect('service_fmeca_list', pk=servicio.pk)
+
+    return render(
+        request,
+        'fmeca_bulk_form.html',
+        _fmeca_bulk_context(
+            servicio,
+            permission,
+            dimension_payload=dimension_payload,
+            field_options=field_options,
+            raw_payload=raw_payload,
+            selected_date=selected_date,
+        ),
+    )
 
 
 def _service_aca_criticality_payload(servicio):

@@ -33,8 +33,26 @@ class MatrizBuilderForm(forms.Form):
         label='Resolucion ACA',
         help_text='Exacta mantiene el comportamiento actual. Umbral inferior usa el resultado calculado y toma la celda mas cercana por debajo.',
     )
-    x_count = forms.IntegerField(min_value=2, max_value=12, initial=5, label='Columnas (eje X)')
-    y_count = forms.IntegerField(min_value=2, max_value=12, initial=5, label='Filas (eje Y)')
+    x_count = forms.IntegerField(
+        min_value=2,
+        max_value=10,
+        initial=5,
+        label='Columnas (eje X)',
+        error_messages={
+            'min_value': 'La matriz debe tener al menos 2 columnas.',
+            'max_value': 'La matriz admite un máximo de 10 columnas.',
+        },
+    )
+    y_count = forms.IntegerField(
+        min_value=2,
+        max_value=10,
+        initial=5,
+        label='Filas (eje Y)',
+        error_messages={
+            'min_value': 'La matriz debe tener al menos 2 filas.',
+            'max_value': 'La matriz admite un máximo de 10 filas.',
+        },
+    )
 
     def __init__(self, *args, strategy=None, **kwargs):
         super().__init__(*args, **kwargs)

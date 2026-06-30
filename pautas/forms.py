@@ -84,21 +84,6 @@ class GenerarPautasForm(forms.Form):
         label='Plantilla Excel',
         empty_label='Seleccionar plantilla',
     )
-    incluir_tareas_primarias = forms.BooleanField(
-        required=False,
-        initial=True,
-        label='Incluir tareas primarias',
-    )
-    incluir_tareas_secundarias = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Incluir tareas secundarias',
-    )
-    generar_una_pauta = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Crear una unica pauta con los registros seleccionados',
-    )
     equipo = forms.CharField(required=False, label='Equipo / UT / TAG')
     frecuencia = forms.CharField(required=False, label='Frecuencia')
     especialidad = forms.CharField(required=False, label='Especialidad / puesto de trabajo')

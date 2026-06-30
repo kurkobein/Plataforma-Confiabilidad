@@ -24,9 +24,10 @@
     </div>
 {% endif %}
 
-<form method="post" id="aca-bulk-form">
+<form method="post" id="aca-bulk-form" enctype="multipart/form-data">
     {% csrf_token %}
     <input type="hidden" name="bulk_payload" id="bulk-payload">
+    <div id="aca-bulk-row-file-inputs" hidden></div>
 
     <div class="aca-bulk-shell">
         <div class="aca-bulk-table-wrap">
@@ -156,6 +157,38 @@
         </div>
     </div>
 </div>
+
+<div class="aca-bulk-modal aca-bulk-row-detail-modal" id="aca-bulk-row-detail-modal" hidden>
+    <div class="aca-bulk-modal-card aca-bulk-row-detail-card">
+        <div class="aca-bulk-modal-head">
+            <div>
+                <strong>Observaci&oacute;n y archivos</strong>
+                <small class="muted" id="aca-bulk-row-detail-label"></small>
+            </div>
+            <button class="btn" type="button" id="aca-bulk-row-detail-close" aria-label="Cerrar">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div class="form-field">
+            <label for="aca-bulk-row-observation">Observaci&oacute;n</label>
+            <textarea class="input-textarea" id="aca-bulk-row-observation" rows="4"
+                      placeholder="Comentario general opcional del registro"></textarea>
+        </div>
+        <div class="form-field">
+            <label>Documentos relacionados</label>
+            <button class="aca-bulk-row-file-picker" type="button" id="aca-bulk-row-file-picker">
+                <i class="bi bi-paperclip"></i>
+                <span>Seleccionar archivos</span>
+                <small>PDF, Word, Excel, im&aacute;genes, texto o ZIP</small>
+            </button>
+            <div class="attachment-list attachment-preview-list aca-bulk-row-file-list"
+                 id="aca-bulk-row-file-list"></div>
+        </div>
+        <div class="actions aca-bulk-row-detail-actions">
+            <button class="btn btn-primary" type="button" id="aca-bulk-row-detail-done">Listo</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -186,6 +219,12 @@
     const modalTitle = document.getElementById('aca-bulk-modal-title');
     const modalHead = document.getElementById('aca-bulk-modal-head');
     const modalBody = document.getElementById('aca-bulk-modal-body');
+    const rowFileInputs = document.getElementById('aca-bulk-row-file-inputs');
+    const rowDetailModal = document.getElementById('aca-bulk-row-detail-modal');
+    const rowDetailLabel = document.getElementById('aca-bulk-row-detail-label');
+    const rowObservation = document.getElementById('aca-bulk-row-observation');
+    const rowFilePicker = document.getElementById('aca-bulk-row-file-picker');
+    const rowFileList = document.getElementById('aca-bulk-row-file-list');
     const freeValueBox = document.getElementById('aca-bulk-free-value');
     const freeValuePanel = document.getElementById('aca-bulk-free-value-panel');
     const freeValueInput = document.getElementById('aca-bulk-free-value-input');
@@ -195,6 +234,7 @@
     const rows = {};
     let nextRowId = 1;
     let activePicker = null;
+    let activeDetailRowId = null;
     let equipmentLevels = equipmentBrowserPayload.levels || [];
     const equipmentNodeCache = new Map();
 
@@ -824,9 +864,129 @@
         }
     }
 
+    function rowFileInput(rowId) {
+        return rowFileInputs.querySelector(`[data-row-file-input="${rowId}"]`);
+    }
+
+    function ensureRowFileInput(rowId) {
+        let input = rowFileInput(rowId);
+        if (input) return input;
+        input = document.createElement('input');
+        input.type = 'file';
+        input.name = `row_attachments_${rowId}`;
+        input.multiple = true;
+        input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip';
+        input.dataset.rowFileInput = String(rowId);
+        input.addEventListener('change', function () {
+            updateRowDetailButton(rowId);
+            if (Number(activeDetailRowId) === Number(rowId)) renderRowFileList(rowId);
+        });
+        rowFileInputs.appendChild(input);
+        return input;
+    }
+
+    function pendingRowFiles(rowId) {
+        const input = rowFileInput(rowId);
+        return input && input.files ? Array.from(input.files) : [];
+    }
+
+    function rowHasDetail(rowId) {
+        const row = rows[rowId];
+        if (!row) return false;
+        return Boolean(
+            String(row.observacion || '').trim()
+            || pendingRowFiles(rowId).length
+            || (row.existing_attachments || []).length
+        );
+    }
+
+    function updateRowDetailButton(rowId) {
+        const button = tbody.querySelector(`[data-row-detail="${rowId}"]`);
+        if (!button) return;
+        const fileCount = pendingRowFiles(rowId).length + ((rows[rowId]?.existing_attachments || []).length);
+        button.classList.toggle('has-content', rowHasDetail(rowId));
+        button.title = rowHasDetail(rowId) ? 'Editar observacion y archivos' : 'Agregar observacion y archivos';
+        let badge = button.querySelector('.aca-bulk-row-detail-count');
+        if (fileCount && !badge) {
+            badge = document.createElement('span');
+            badge.className = 'aca-bulk-row-detail-count';
+            button.appendChild(badge);
+        }
+        if (badge) {
+            badge.textContent = fileCount;
+            badge.hidden = !fileCount;
+        }
+    }
+
+    function rowDetailTargetLabel(row) {
+        if (!row) return '';
+        if (row.target_type === 'familia') {
+            return row.family?.nombre || familyById(row.family_id)?.nombre || `Fila ${row.id}`;
+        }
+        return equipmentShortLabel(row.equipo) || `Fila ${row.id}`;
+    }
+
+    function renderRowFileList(rowId) {
+        const row = rows[rowId];
+        if (!row) return;
+        const existing = row.existing_attachments || [];
+        const pending = pendingRowFiles(rowId);
+        const items = [
+            ...existing.map(item => `
+                <div class="attachment-item">
+                    <i class="bi bi-file-earmark-check"></i>
+                    <span title="${escapeHtml(item.name || '')}">${escapeHtml(item.name || 'Archivo existente')}</span>
+                    <small class="muted">Guardado</small>
+                </div>
+            `),
+            ...pending.map(file => `
+                <div class="attachment-item">
+                    <i class="bi bi-file-earmark-plus"></i>
+                    <span title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+                    <small class="muted">Nuevo</small>
+                </div>
+            `),
+        ];
+        rowFileList.innerHTML = items.length
+            ? items.join('')
+            : '<div class="muted aca-bulk-row-file-empty">No hay archivos asociados.</div>';
+    }
+
+    function openRowDetail(rowId) {
+        const row = rows[rowId];
+        if (!row) return;
+        activeDetailRowId = rowId;
+        rowDetailLabel.textContent = rowDetailTargetLabel(row);
+        rowObservation.value = row.observacion || '';
+        renderRowFileList(rowId);
+        rowDetailModal.hidden = false;
+        window.setTimeout(() => rowObservation.focus(), 0);
+    }
+
+    function closeRowDetail() {
+        rowDetailModal.hidden = true;
+        activeDetailRowId = null;
+    }
+
     function addRow(initial) {
         const rowId = nextRowId++;
-        rows[rowId] = Object.assign({ id: rowId, criticidad_id: '', target_type: '', target_locked: false, equipo_id: '', equipo: null, family_id: '', family: null, equipmentOptions: initialEquipment, dimensions: {}, matrix_cell_id: '', criticidad: '', criticidad_color: '' }, initial || {});
+        rows[rowId] = Object.assign({
+            id: rowId,
+            criticidad_id: '',
+            target_type: '',
+            target_locked: false,
+            equipo_id: '',
+            equipo: null,
+            family_id: '',
+            family: null,
+            equipmentOptions: initialEquipment,
+            dimensions: {},
+            matrix_cell_id: '',
+            criticidad: '',
+            criticidad_color: '',
+            observacion: '',
+            existing_attachments: [],
+        }, initial || {});
         if (!rows[rowId].equipmentOptions || !rows[rowId].equipmentOptions.length) rows[rowId].equipmentOptions = initialEquipment;
         rows[rowId].equipmentOptions = sortEquipmentList(rows[rowId].equipmentOptions);
         if (rows[rowId].family_id && !rows[rowId].family) rows[rowId].family = familyById(rows[rowId].family_id);
@@ -837,6 +997,7 @@
             rows[rowId].target_locked = true;
         }
         rows[rowId].id = rowId;
+        ensureRowFileInput(rowId);
         renderRow(rowId, true);
         recalcRow(rowId);
     }
@@ -844,6 +1005,7 @@
     function clearRows() {
         Object.keys(rows).forEach(key => delete rows[key]);
         tbody.innerHTML = '';
+        rowFileInputs.innerHTML = '';
         nextRowId = 1;
         updateMatrixCounters();
     }
@@ -1083,11 +1245,18 @@
             </td>
             ${dimensions.map(dimension => renderDimensionCell(row, dimension)).join('')}
             <td><span class="aca-bulk-crit${row.criticidad_color ? ' is-colored' : ''}"${optionColorStyle(row.criticidad_color)}>${escapeHtml(row.criticidad || '-')}</span></td>
-            <td class="actions">
-                <button class="btn" type="button" data-duplicate-row="${rowId}"><i class="bi bi-copy"></i></button>
-                <button class="btn btn-danger" type="button" data-remove-row="${rowId}"><i class="bi bi-trash3"></i></button>
+            <td class="aca-bulk-row-actions">
+                <div class="actions aca-bulk-row-actions-inner">
+                    <button class="btn aca-bulk-row-detail-button${rowHasDetail(rowId) ? ' has-content' : ''}" type="button"
+                            data-row-detail="${rowId}" title="Observacion y archivos" aria-label="Observacion y archivos">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+                    <button class="btn" type="button" data-duplicate-row="${rowId}" title="Duplicar fila"><i class="bi bi-copy"></i></button>
+                    <button class="btn btn-danger" type="button" data-remove-row="${rowId}" title="Eliminar fila"><i class="bi bi-trash3"></i></button>
+                </div>
             </td>
         `;
+        updateRowDetailButton(rowId);
     }
 
     function renderDimensionCell(row, dimension) {
@@ -1497,6 +1666,7 @@
     function buildPayload() {
         return {
             rows: Object.values(rows).map(row => ({
+                row_id: row.id,
                 target_type: row.target_type || 'equipo',
                 target_locked: row.target_locked || false,
                 equipo_id: row.equipo_id,
@@ -1504,6 +1674,7 @@
                 family: row.family || null,
                 criticidad_id: row.criticidad_id || '',
                 equipo: row.equipo || null,
+                observacion: row.observacion || '',
                 dimensions: row.dimensions || {},
                 matrix_cell_id: row.matrix_cell_id || '',
             }))
@@ -1520,6 +1691,21 @@
     modal.addEventListener('click', event => {
         if (event.target !== modal) return;
         closeDimensionPicker();
+    });
+    document.getElementById('aca-bulk-row-detail-close').addEventListener('click', closeRowDetail);
+    document.getElementById('aca-bulk-row-detail-done').addEventListener('click', closeRowDetail);
+    rowDetailModal.addEventListener('click', event => {
+        if (event.target === rowDetailModal) closeRowDetail();
+    });
+    rowObservation.addEventListener('input', function () {
+        const row = rows[activeDetailRowId];
+        if (!row) return;
+        row.observacion = rowObservation.value;
+        updateRowDetailButton(activeDetailRowId);
+    });
+    rowFilePicker.addEventListener('click', function () {
+        if (!activeDetailRowId) return;
+        ensureRowFileInput(activeDetailRowId).click();
     });
     document.getElementById('aca-bulk-free-value-toggle').addEventListener('click', () => {
         freeValuePanel.hidden = false;
@@ -1614,6 +1800,11 @@
     });
 
     tbody.addEventListener('click', event => {
+        const rowDetail = event.target.closest('[data-row-detail]');
+        if (rowDetail) {
+            openRowDetail(Number(rowDetail.dataset.rowDetail));
+            return;
+        }
         const pick = event.target.closest('.aca-bulk-dimension-cell');
         if (pick) openDimensionPicker(Number(pick.dataset.rowId), pick.dataset.dimensionId);
         const equipmentOpen = event.target.closest('[data-equipment-open]');
@@ -1680,7 +1871,10 @@
         }
         const remove = event.target.closest('[data-remove-row]');
         if (remove) {
-            delete rows[Number(remove.dataset.removeRow)];
+            const rowId = Number(remove.dataset.removeRow);
+            delete rows[rowId];
+            rowFileInput(rowId)?.remove();
+            if (Number(activeDetailRowId) === rowId) closeRowDetail();
             remove.closest('tr').remove();
             renderAllRows();
             updateMatrixCounters();
@@ -1688,7 +1882,17 @@
         const duplicate = event.target.closest('[data-duplicate-row]');
         if (duplicate) {
             const source = rows[Number(duplicate.dataset.duplicateRow)];
-            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, { id: undefined, criticidad_id: '', equipo_id: '', equipo: null, family_id: '', family: null, target_type: '', target_locked: false }))));
+            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, {
+                id: undefined,
+                criticidad_id: '',
+                equipo_id: '',
+                equipo: null,
+                family_id: '',
+                family: null,
+                target_type: '',
+                target_locked: false,
+                existing_attachments: [],
+            }))));
         }
     });
 

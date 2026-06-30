@@ -2326,6 +2326,75 @@ def _matrix_builder_context(is_create, matriz, builder_form, matrix_preview, dis
     }
 
 
+def _matrix_builder_bound_post_state(request, builder_form, matriz=None):
+    def posted_count(name, default):
+        try:
+            value = int(request.POST.get(name, default))
+        except (TypeError, ValueError):
+            return default
+        # Preserve a moderately oversized submitted grid without allowing an
+        # arbitrary POST to force an excessively large preview.
+        return max(2, min(value, 20))
+
+    cleaned = getattr(builder_form, 'cleaned_data', {}) or {}
+    strategy = cleaned.get('estrategia')
+    if not strategy:
+        strategy_id = request.POST.get('estrategia')
+        if str(strategy_id or '').isdigit():
+            strategy = models.Estrategia.objects.filter(pk=strategy_id).first()
+    if not strategy and matriz:
+        strategy = matriz.estrategia
+
+    def selected_dimension(field_name, existing=None):
+        selected = cleaned.get(field_name)
+        if selected:
+            return selected
+        selected_id = request.POST.get(field_name)
+        queryset = models.EstrategiaDimension.objects.select_related('dimension')
+        if strategy:
+            queryset = queryset.filter(estrategia=strategy)
+        if str(selected_id or '').isdigit():
+            return queryset.filter(pk=selected_id).first() or existing
+        return existing
+
+    selected_prob = selected_dimension(
+        'dimension_probabilidad',
+        matriz.dimension_probabilidad if matriz else None,
+    )
+    selected_impact = selected_dimension(
+        'dimension_impacto',
+        matriz.dimension_impacto if matriz else None,
+    )
+    prob_count = posted_count('x_count', 5)
+    impact_count = posted_count('y_count', 5)
+    fallback_prob = _level_defs_from_strategy_dimension(selected_prob, prob_count, 'p')
+    fallback_impact = _level_defs_from_strategy_dimension(selected_impact, impact_count, 'c')
+    prob_defs, impact_defs = _definitions_from_request(
+        request,
+        prob_count,
+        impact_count,
+        fallback_prob,
+        fallback_impact,
+    )
+    display_legend = _safe_legend_items(
+        _json_payload(request, 'legend_items_json', []) or []
+    )
+    display_rules, _rule_errors = normalize_rules(
+        _json_payload(request, 'criticality_rules_json', []) or []
+    )
+    matrix_preview = _matrix_preview_from_defs(
+        'probabilidad',
+        prob_defs,
+        impact_defs,
+        _cell_data_from_request(request),
+        strategy,
+        selected_prob,
+        selected_impact,
+        display_legend,
+    )
+    return matrix_preview, display_legend, display_rules
+
+
 @transaction.atomic
 def matriz_builder_new(request):
     _ensure_admin_access(request)
@@ -2394,7 +2463,10 @@ def matriz_builder_new(request):
                 messages.success(request, 'La matriz se creó correctamente y sus dimensiones se asignaron automáticamente.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
-            matrix_preview = _matrix_preview_from_defs('probabilidad', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'c'))
+            matrix_preview, display_legend, display_rules = _matrix_builder_bound_post_state(
+                request,
+                builder_form,
+            )
     else:
         initial_strategy = request.GET.get('estrategia') or None
         builder_form = MatrizBuilderForm(initial={
@@ -2489,7 +2561,11 @@ def matriz_builder_edit(request, pk):
                 messages.success(request, 'La matriz se actualizó correctamente y sus dimensiones se ajustaron automáticamente.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
-            matrix_preview = _matrix_preview_from_defs('probabilidad', _matrix_level_dicts([], 5, 'p'), _matrix_level_dicts([], 5, 'c'))
+            matrix_preview, display_legend, display_rules = _matrix_builder_bound_post_state(
+                request,
+                builder_form,
+                matriz,
+            )
     else:
         prob_levels = list(matriz.niveles_probabilidad.order_by('orden_visual', 'id'))
         impact_levels = list(matriz.niveles_impacto.order_by('orden_visual', 'id'))

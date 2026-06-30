@@ -9,20 +9,12 @@ from django.utils import timezone
 
 from core import models as app_models
 from core.access import get_service_equipment
+from rcm.field_options import normalize_rcm_field_option
 
 
 class RCMExcelBulkUploadForm(forms.Form):
-    archivo = forms.FileField(
-        label='Archivo Excel',
-        required=False,
-        help_text='Archivo .xlsx con registros RCM/FMECA. Puede usar encabezados equivalentes a los configurados.',
-    )
-    hoja = forms.CharField(
-        label='Hoja',
-        required=False,
-        initial='',
-        help_text='Opcional. Si queda vacío se detectará la hoja RCM/FMECA más compatible.',
-    )
+
+
     replace = forms.BooleanField(
         label='Reemplazar carga previa del mismo archivo',
         required=False,
@@ -492,18 +484,19 @@ class RCMRegistroForm(forms.Form):
     )
     componente = forms.CharField(required=False, max_length=255, label='Componente')
     funcion = forms.CharField(label='Función', required=False, widget=forms.Textarea(attrs={'rows': 3}))
-    falla_funcional = forms.CharField(label='Falla funcional', widget=forms.Textarea(attrs={'rows': 3}))
-    modo_de_falla = forms.CharField(label='Modo de falla', widget=forms.Textarea(attrs={'rows': 3}))
-    efecto = forms.CharField(label='Efecto', widget=forms.Textarea(attrs={'rows': 3}))
+    falla_funcional = forms.ChoiceField(label='Falla funcional', choices=())
+    modo_de_falla = forms.ChoiceField(label='Modo de falla', choices=())
+    efecto = forms.ChoiceField(label='Efecto', choices=())
     observacion = forms.CharField(
         required=False,
         label='Observación',
         widget=forms.Textarea(attrs={'rows': 3}),
     )
 
-    def __init__(self, *args, service=None, rcm=None, **kwargs):
+    def __init__(self, *args, service=None, rcm=None, allow_incomplete=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = service
+        self.allow_incomplete = allow_incomplete
         self.impact_dimensions = []
         self.impact_value_map = {}
         self.evaluation_dimensions = self.impact_dimensions
@@ -539,7 +532,38 @@ class RCMRegistroForm(forms.Form):
                 servicio=service,
                 activa=True,
             ).order_by('nombre')
+            for field_name in ('falla_funcional', 'modo_de_falla', 'efecto'):
+                option_values = list(
+                    app_models.RCMCampoOpcion.objects.filter(
+                        servicio=service,
+                        campo=field_name,
+                        activo=True,
+                    )
+                    .order_by('valor')
+                    .values_list('valor', flat=True)
+                )
+                preserved_values = [
+                    self.data.get(self.add_prefix(field_name)) if self.is_bound else '',
+                    self.initial.get(field_name),
+                ]
+                known_keys = {
+                    normalize_rcm_field_option(value)
+                    for value in option_values
+                    if normalize_rcm_field_option(value)
+                }
+                for value in preserved_values:
+                    normalized = normalize_rcm_field_option(value)
+                    if normalized and normalized not in known_keys:
+                        option_values.append(str(value))
+                        known_keys.add(normalized)
+                self.fields[field_name].choices = [
+                    ('', f'Selecciona {self.fields[field_name].label.lower()}'),
+                    *((value, value) for value in option_values),
+                ]
         self.fields['familia_equipo'].empty_label = 'Sin familia'
+        if self.allow_incomplete:
+            for field_name in ('falla_funcional', 'modo_de_falla', 'efecto'):
+                self.fields[field_name].required = False
 
         for estrategia_dimension in _rcm_impact_dimension_queryset(service):
             dimension = estrategia_dimension.dimension
@@ -725,7 +749,7 @@ class RCMRegistroForm(forms.Form):
                 if dependency:
                     pending_items.append({'item': item, 'kind': 'dependent', 'dependency': dependency})
                     continue
-                if item['estrategia_dimension'].obligatorio:
+                if item['estrategia_dimension'].obligatorio and not self.allow_incomplete:
                     self.add_error(field_name, 'Selecciona un valor para esta dimensión.')
                 continue
 
@@ -799,7 +823,7 @@ class RCMRegistroForm(forms.Form):
 
         for pending in pending_items:
             item = pending['item']
-            if not item['estrategia_dimension'].obligatorio:
+            if not item['estrategia_dimension'].obligatorio or self.allow_incomplete:
                 continue
             if pending['kind'] == 'calculated':
                 self.add_error(item['field_name'], 'No se pudo calcular esta dimensión con los valores seleccionados.')

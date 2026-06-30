@@ -116,6 +116,36 @@
         </form>
     </details>
 
+    <details class="card aca-panel-section" open>
+        <summary>
+            <span>Gráfico por {{ panel_table_level_name }}</span>
+            <small>{{ panel_total_filtered }} registros filtrados.</small>
+        </summary>
+        {% if panel_chart_summary %}
+            <div class="aca-progress-level-chart-grid">
+                {% for group in panel_chart_summary %}
+                    <div class="aca-progress-level-card">
+                        <div class="aca-progress-donut aca-progress-donut-small"
+                             style="--progress-degrees: {{ group.average_progress_degrees|default:0|unlocalize }}deg;">
+                            <span>{{ group.average_progress_label }}</span>
+                        </div>
+                        <div class="aca-progress-level-copy">
+                            <strong title="{{ group.label }}">{{ group.display_label|default:group.label }}</strong>
+                            <span>{{ group.total_records }} registros · {{ group.complete_records }} completos · {{ group.incomplete_records }} incompletos</span>
+                            {% if group.major_gap %}
+                                <small>Brecha: {{ group.major_gap.name }} ({{ group.major_gap.missing_count }})</small>
+                            {% else %}
+                                <small>Sin brechas</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="muted">No hay datos suficientes para graficar este nivel.</p>
+        {% endif %}
+    </details>
+
     <h3 class="card-title aca-table-heading">Registros filtrados</h3>
     <div class="table-wrap aca-datatable-wrap">
             <table id="fmeca-panel-records-table" class="datatable display compact-table fmeca-panel-records-table"

@@ -607,7 +607,19 @@ class Command(BaseCommand):
             .order_by('orden', 'id')
         )
 
-    def import_row(self, row, row_number, header_map, service, strategy, dims, task_types, analysis_date, origin, stats):
+    def import_row(
+        self,
+        row,
+        row_number,
+        header_map,
+        service,
+        strategy,
+        dims,
+        task_types,
+        analysis_date,
+        origin,
+        stats,
+    ):
         resolved, eval_stats = self.resolve_dimensions(row, header_map, dims, stats)
         npr_value = self.find_resolved_value(resolved, ['npr'])
         if npr_value and npr_value.number == Decimal('0'):

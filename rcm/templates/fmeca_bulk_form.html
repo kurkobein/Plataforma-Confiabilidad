@@ -1,0 +1,447 @@
+{% extends 'base.html' %}
+{% block title %}Carga grupal FMECA | {{ service.codigo_servicio }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_fmeca_list' service.pk %}" aria-label="Volver" title="Volver">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <div class="page-title-copy">
+            <h2>Carga grupal FMECA</h2>
+            <p>{{ service.codigo_servicio }} - registra varios equipos o familias en una sola planilla.</p>
+        </div>
+    </div>
+    <div class="actions">
+        <label class="fmeca-bulk-date">
+            <span>Fecha de análisis</span>
+            <input class="input-control" type="date" name="fecha_analisis_header"
+                   value="{{ selected_date|date:'Y-m-d' }}" data-fmeca-bulk-date>
+        </label>
+        <button class="btn" type="button" id="fmeca-bulk-add-row">
+            <i class="bi bi-plus-lg"></i> Agregar fila
+        </button>
+    </div>
+</div>
+
+{% if bulk_errors %}
+<div class="card fmeca-bulk-errors">
+    <h3 class="card-title">Revisa la carga</h3>
+    {% for error in bulk_errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" id="fmeca-bulk-form">
+    {% csrf_token %}
+    <input type="hidden" name="bulk_payload" id="fmeca-bulk-payload">
+    <input type="hidden" name="fecha_analisis" value="{{ selected_date|date:'Y-m-d' }}" id="fmeca-bulk-date-value">
+    <div id="fmeca-bulk-file-inputs" hidden></div>
+
+    <div class="fmeca-bulk-shell">
+        <div class="fmeca-bulk-table-wrap">
+            <table class="fmeca-bulk-table">
+                <thead>
+                    <tr>
+                        <th class="fmeca-col-index">#</th>
+                        <th class="fmeca-col-status">Estado</th>
+                        <th class="fmeca-col-target">Equipo / familia</th>
+                        <th class="fmeca-col-short">Componente</th>
+                        <th class="fmeca-col-text">Función</th>
+                        <th class="fmeca-col-option">Falla funcional</th>
+                        <th class="fmeca-col-option">Modo de falla</th>
+                        <th class="fmeca-col-option">Efecto</th>
+                        {% for dimension in dimension_payload %}
+                            <th class="fmeca-col-dimension{% if dimension.is_calculated %} fmeca-bulk-calculated{% endif %}">
+                                {{ dimension.nombre }}
+                                {% if dimension.is_calculated %}<i class="bi bi-calculator" title="Calculada"></i>{% endif %}
+                            </th>
+                        {% endfor %}
+                        <th class="fmeca-col-number">Criticidad</th>
+                        <th class="fmeca-col-notes">Observación</th>
+                        <th class="fmeca-col-files">Archivos</th>
+                        <th class="fmeca-col-actions">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="fmeca-bulk-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="fmeca-bulk-footer">
+        <span class="muted">Las tareas se pueden agregar después desde la edición de cada registro.</span>
+        <div class="actions">
+            <button class="btn btn-primary" type="submit" name="save_as" value="complete">Guardar carga grupal</button>
+            <button class="btn" type="submit" name="save_as" value="draft">Guardar borrador</button>
+        </div>
+    </div>
+</form>
+
+<div class="aca-bulk-modal fmeca-equipment-modal" id="fmeca-equipment-modal" hidden>
+    <div class="aca-bulk-modal-card fmeca-equipment-modal-card">
+        <div class="aca-bulk-modal-head">
+            <div>
+                <strong>Seleccionar equipo</strong>
+                <small class="muted">Busca por TAG, UT, nombre o descripción.</small>
+            </div>
+            <button class="btn" type="button" id="fmeca-equipment-close" aria-label="Cerrar">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <input class="input-control" type="search" id="fmeca-equipment-search"
+               placeholder="Buscar equipo">
+        <div class="fmeca-equipment-results" id="fmeca-equipment-results"></div>
+        <small class="muted" id="fmeca-equipment-count"></small>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ dimension_payload|json_script:"fmeca-bulk-dimensions" }}
+{{ field_options|json_script:"fmeca-bulk-field-options" }}
+{{ service_equipment_endpoints|json_script:"fmeca-bulk-endpoints" }}
+{{ initial_equipment_payload|json_script:"fmeca-bulk-initial-equipment" }}
+{{ service_family_payload|json_script:"fmeca-bulk-families" }}
+{{ bulk_payload|json_script:"fmeca-bulk-initial-payload" }}
+<script>
+(function () {
+    const dimensions = JSON.parse(document.getElementById('fmeca-bulk-dimensions').textContent || '[]');
+    const fieldOptions = JSON.parse(document.getElementById('fmeca-bulk-field-options').textContent || '{}');
+    const endpoints = JSON.parse(document.getElementById('fmeca-bulk-endpoints').textContent || '{}');
+    const initialEquipment = JSON.parse(document.getElementById('fmeca-bulk-initial-equipment').textContent || '[]');
+    const families = JSON.parse(document.getElementById('fmeca-bulk-families').textContent || '[]');
+    const initialPayloadText = JSON.parse(document.getElementById('fmeca-bulk-initial-payload').textContent || '""');
+    const form = document.getElementById('fmeca-bulk-form');
+    const tbody = document.getElementById('fmeca-bulk-body');
+    const payloadInput = document.getElementById('fmeca-bulk-payload');
+    const fileInputs = document.getElementById('fmeca-bulk-file-inputs');
+    const dateControl = document.querySelector('[data-fmeca-bulk-date]');
+    const dateValue = document.getElementById('fmeca-bulk-date-value');
+    const equipmentModal = document.getElementById('fmeca-equipment-modal');
+    const equipmentSearch = document.getElementById('fmeca-equipment-search');
+    const equipmentResults = document.getElementById('fmeca-equipment-results');
+    const equipmentCount = document.getElementById('fmeca-equipment-count');
+    const rows = {};
+    const equipmentMap = new Map();
+    let nextRowId = 1;
+    let activeEquipmentRow = null;
+    let searchTimer = null;
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function compareText(left, right) {
+        return String(left || '').localeCompare(String(right || ''), 'es', {
+            sensitivity: 'base',
+            numeric: true
+        });
+    }
+
+    initialEquipment.sort((a, b) => compareText(a.tag, b.tag) || compareText(a.equipo, b.equipo));
+    families.sort((a, b) => compareText(a.nombre, b.nombre));
+    initialEquipment.forEach(item => equipmentMap.set(String(item.id), item));
+
+    function emptyRow(rowId) {
+        return {
+            row_id: rowId,
+            target_type: 'equipo',
+            equipo_id: '',
+            equipo: null,
+            family_id: '',
+            componente: '',
+            funcion: '',
+            falla_funcional: '',
+            modo_de_falla: '',
+            efecto: '',
+            dimensions: {},
+            criticidad: '',
+            observacion: '',
+            file_count: 0
+        };
+    }
+
+    function ensureFileInput(rowId) {
+        let input = fileInputs.querySelector(`[data-row-file="${rowId}"]`);
+        if (input) return input;
+        input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.name = `row_files_${rowId}`;
+        input.dataset.rowFile = String(rowId);
+        input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip';
+        input.addEventListener('change', function () {
+            if (!rows[rowId]) return;
+            rows[rowId].file_count = input.files.length;
+            renderFileCell(rowId);
+        });
+        fileInputs.appendChild(input);
+        return input;
+    }
+
+    function addRow(initial) {
+        const requestedId = Number(initial?.row_id || 0);
+        const rowId = requestedId > 0 && !rows[requestedId] ? requestedId : nextRowId;
+        nextRowId = Math.max(nextRowId, rowId + 1);
+        rows[rowId] = Object.assign(emptyRow(rowId), initial || {}, {row_id: rowId});
+        if (rows[rowId].equipo_id && !rows[rowId].equipo) {
+            rows[rowId].equipo = equipmentMap.get(String(rows[rowId].equipo_id)) || null;
+        }
+        ensureFileInput(rowId);
+        renderRow(rowId);
+    }
+
+    function optionHtml(items, selectedValue, placeholder) {
+        const selected = String(selectedValue || '');
+        return `<option value="">${escapeHtml(placeholder)}</option>` + (items || []).map(item => (
+            `<option value="${escapeHtml(item.value)}"${String(item.value) === selected ? ' selected' : ''}>${escapeHtml(item.label)}</option>`
+        )).join('');
+    }
+
+    function familyOptions(row) {
+        return '<option value="">Selecciona una familia</option>' + families.map(family => {
+            const count = (family.equipos || []).length;
+            return `<option value="${family.id}"${String(family.id) === String(row.family_id) ? ' selected' : ''}>${escapeHtml(family.nombre)} (${count})</option>`;
+        }).join('');
+    }
+
+    function equipmentLabel(item) {
+        if (!item) return 'Elegir equipo';
+        return [item.tag, item.equipo, item.ut].filter(Boolean).join(' | ');
+    }
+
+    function targetControl(row) {
+        const typeSelect = `
+            <select class="input-control fmeca-bulk-target-type" data-row-id="${row.row_id}">
+                <option value="equipo"${row.target_type === 'equipo' ? ' selected' : ''}>Equipo individual</option>
+                <option value="familia"${row.target_type === 'familia' ? ' selected' : ''}>Familia de equipos</option>
+            </select>`;
+        if (row.target_type === 'familia') {
+            return `<div class="fmeca-bulk-target-stack">${typeSelect}<select class="input-control fmeca-bulk-family" data-row-id="${row.row_id}">${familyOptions(row)}</select></div>`;
+        }
+        return `<div class="fmeca-bulk-target-stack">${typeSelect}
+            <button class="btn fmeca-bulk-equipment-button" type="button" data-equipment-open="${row.row_id}" title="${escapeHtml(equipmentLabel(row.equipo))}">
+                <span>${escapeHtml(equipmentLabel(row.equipo))}</span>
+            </button></div>`;
+    }
+
+    function dimensionControl(row, dimension) {
+        const value = row.dimensions?.[dimension.field_name] ?? '';
+        if (dimension.is_calculated || dimension.mode === 'calculado' || dimension.dependency) {
+            return `<input class="input-control fmeca-bulk-readonly" value="${escapeHtml(value)}" readonly placeholder="Automático">`;
+        }
+        if ((dimension.options || []).length) {
+            return `<select class="input-control" data-row-dimension="${row.row_id}" data-field-name="${escapeHtml(dimension.field_name)}">
+                ${optionHtml(dimension.options, value, 'Seleccionar')}
+            </select>`;
+        }
+        return `<input class="input-control" type="number" step="any"
+                      data-row-dimension="${row.row_id}" data-field-name="${escapeHtml(dimension.field_name)}"
+                      value="${escapeHtml(value)}" placeholder="Valor">`;
+    }
+
+    function rowComplete(row) {
+        const hasTarget = row.target_type === 'familia' ? row.family_id : row.equipo_id;
+        if (!hasTarget || !row.falla_funcional || !row.modo_de_falla || !row.efecto) return false;
+        return dimensions.every(dimension => {
+            const value = row.dimensions?.[dimension.field_name];
+            return (
+                !dimension.required
+                || dimension.is_calculated
+                || dimension.dependency
+                || (value !== null && value !== undefined && value !== '')
+            );
+        });
+    }
+
+    function statusHtml(row) {
+        const hasTarget = row.target_type === 'familia' ? row.family_id : row.equipo_id;
+        if (!hasTarget) return '<span class="pill-soft">Sin selección</span>';
+        return rowComplete(row)
+            ? '<span class="pill-success">Lista</span>'
+            : '<span class="pill-soft">Incompleta</span>';
+    }
+
+    function renderRow(rowId) {
+        const row = rows[rowId];
+        let tr = tbody.querySelector(`tr[data-row-id="${rowId}"]`);
+        if (!tr) {
+            tr = document.createElement('tr');
+            tr.dataset.rowId = String(rowId);
+            tbody.appendChild(tr);
+        }
+        tr.innerHTML = `
+            <td class="fmeca-bulk-index fmeca-col-index">${rowId}</td>
+            <td class="fmeca-col-status" data-row-status="${rowId}">${statusHtml(row)}</td>
+            <td class="fmeca-bulk-target-cell fmeca-col-target">${targetControl(row)}</td>
+            <td class="fmeca-col-short"><input class="input-control" data-row-field="componente" value="${escapeHtml(row.componente)}"></td>
+            <td class="fmeca-col-text"><input class="input-control" data-row-field="funcion" value="${escapeHtml(row.funcion)}"></td>
+            <td class="fmeca-col-option"><select class="input-control" data-row-field="falla_funcional">${optionHtml(fieldOptions.falla_funcional, row.falla_funcional, 'Seleccionar')}</select></td>
+            <td class="fmeca-col-option"><select class="input-control" data-row-field="modo_de_falla">${optionHtml(fieldOptions.modo_de_falla, row.modo_de_falla, 'Seleccionar')}</select></td>
+            <td class="fmeca-col-option"><select class="input-control" data-row-field="efecto">${optionHtml(fieldOptions.efecto, row.efecto, 'Seleccionar')}</select></td>
+            ${dimensions.map(dimension => `<td class="fmeca-col-dimension${dimension.is_calculated ? ' fmeca-bulk-calculated' : ''}">${dimensionControl(row, dimension)}</td>`).join('')}
+            <td class="fmeca-col-number"><input class="input-control fmeca-bulk-number" type="number" min="0" data-row-field="criticidad" value="${escapeHtml(row.criticidad)}" placeholder="Automática"></td>
+            <td class="fmeca-col-notes"><input class="input-control" data-row-field="observacion" value="${escapeHtml(row.observacion)}" placeholder="Opcional"></td>
+            <td class="fmeca-col-files" data-row-files-cell="${rowId}"></td>
+            <td class="fmeca-col-actions">
+                <div class="actions fmeca-bulk-row-actions">
+                    <button class="btn" type="button" data-duplicate-row="${rowId}" title="Duplicar"><i class="bi bi-copy"></i></button>
+                    <button class="btn btn-danger" type="button" data-remove-row="${rowId}" title="Eliminar"><i class="bi bi-trash3"></i></button>
+                </div>
+            </td>`;
+        renderFileCell(rowId);
+    }
+
+    function renderFileCell(rowId) {
+        const cell = tbody.querySelector(`[data-row-files-cell="${rowId}"]`);
+        if (!cell || !rows[rowId]) return;
+        const count = rows[rowId].file_count || 0;
+        cell.innerHTML = `
+            <button class="btn fmeca-bulk-file-button" type="button" data-row-files="${rowId}" title="Adjuntar archivos">
+                <i class="bi bi-paperclip"></i>${count ? `<span>${count}</span>` : ''}
+            </button>`;
+    }
+
+    function syncStatus(rowId) {
+        const status = tbody.querySelector(`[data-row-status="${rowId}"]`);
+        if (status && rows[rowId]) status.innerHTML = statusHtml(rows[rowId]);
+    }
+
+    function renderEquipmentResults(items, total) {
+        items = Array.from(items || []).sort((a, b) => compareText(a.tag, b.tag) || compareText(a.equipo, b.equipo));
+        items.forEach(item => equipmentMap.set(String(item.id), item));
+        equipmentResults.innerHTML = items.length ? items.map(item => `
+            <button class="fmeca-equipment-option" type="button" data-equipment-id="${item.id}">
+                <strong>${escapeHtml(item.tag || '-')}</strong>
+                <span>${escapeHtml(item.equipo || '')}</span>
+                <small>${escapeHtml(item.ut || '')}</small>
+            </button>`).join('') : '<div class="muted">No se encontraron equipos.</div>';
+        equipmentCount.textContent = `${total ?? items.length} resultado(s)`;
+    }
+
+    async function searchEquipment(query) {
+        if (!endpoints.search) return renderEquipmentResults(initialEquipment, initialEquipment.length);
+        const url = new URL(endpoints.search, window.location.origin);
+        url.searchParams.set('q', query || '');
+        url.searchParams.set('limit', '50');
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            renderEquipmentResults(data.items || [], data.count || 0);
+        } catch (_error) {
+            equipmentResults.innerHTML = '<div class="form-error">No se pudo cargar el listado.</div>';
+        }
+    }
+
+    function openEquipment(rowId) {
+        activeEquipmentRow = rowId;
+        equipmentModal.hidden = false;
+        equipmentSearch.value = '';
+        renderEquipmentResults(initialEquipment, initialEquipment.length);
+        equipmentSearch.focus();
+    }
+
+    tbody.addEventListener('input', function (event) {
+        const tr = event.target.closest('tr[data-row-id]');
+        if (!tr) return;
+        const row = rows[Number(tr.dataset.rowId)];
+        if (!row) return;
+        if (event.target.dataset.rowField) row[event.target.dataset.rowField] = event.target.value;
+        if (event.target.dataset.rowDimension) {
+            row.dimensions[event.target.dataset.fieldName] = event.target.value;
+        }
+        syncStatus(row.row_id);
+    });
+
+    tbody.addEventListener('change', function (event) {
+        const rowId = Number(event.target.dataset.rowId || event.target.closest('tr[data-row-id]')?.dataset.rowId);
+        const row = rows[rowId];
+        if (!row) return;
+        if (event.target.classList.contains('fmeca-bulk-target-type')) {
+            row.target_type = event.target.value;
+            row.equipo_id = '';
+            row.equipo = null;
+            row.family_id = '';
+            renderRow(rowId);
+        } else if (event.target.classList.contains('fmeca-bulk-family')) {
+            row.family_id = event.target.value;
+            syncStatus(rowId);
+        }
+    });
+
+    tbody.addEventListener('click', function (event) {
+        const equipmentButton = event.target.closest('[data-equipment-open]');
+        if (equipmentButton) return openEquipment(Number(equipmentButton.dataset.equipmentOpen));
+        const fileButton = event.target.closest('[data-row-files]');
+        if (fileButton) return ensureFileInput(Number(fileButton.dataset.rowFiles)).click();
+        const duplicateButton = event.target.closest('[data-duplicate-row]');
+        if (duplicateButton) {
+            const source = rows[Number(duplicateButton.dataset.duplicateRow)];
+            if (source) addRow(JSON.parse(JSON.stringify(Object.assign({}, source, {row_id: ''}))));
+            return;
+        }
+        const removeButton = event.target.closest('[data-remove-row]');
+        if (removeButton) {
+            const rowId = Number(removeButton.dataset.removeRow);
+            delete rows[rowId];
+            tbody.querySelector(`tr[data-row-id="${rowId}"]`)?.remove();
+            fileInputs.querySelector(`[data-row-file="${rowId}"]`)?.remove();
+        }
+    });
+
+    equipmentResults.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-equipment-id]');
+        if (!button || !rows[activeEquipmentRow]) return;
+        const item = equipmentMap.get(String(button.dataset.equipmentId));
+        rows[activeEquipmentRow].equipo_id = item?.id || '';
+        rows[activeEquipmentRow].equipo = item || null;
+        renderRow(activeEquipmentRow);
+        equipmentModal.hidden = true;
+    });
+
+    equipmentSearch.addEventListener('input', function () {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => searchEquipment(equipmentSearch.value), 250);
+    });
+    document.getElementById('fmeca-equipment-close').addEventListener('click', () => {
+        equipmentModal.hidden = true;
+    });
+    equipmentModal.addEventListener('click', event => {
+        if (event.target === equipmentModal) equipmentModal.hidden = true;
+    });
+    document.getElementById('fmeca-bulk-add-row').addEventListener('click', () => addRow());
+    dateControl.addEventListener('change', () => {
+        dateValue.value = dateControl.value;
+    });
+
+    form.addEventListener('submit', function () {
+        dateValue.value = dateControl.value;
+        payloadInput.value = JSON.stringify({
+            rows: Object.values(rows).map(row => {
+                const copy = Object.assign({}, row);
+                delete copy.file_count;
+                return copy;
+            })
+        });
+    });
+
+    let initialRows = [];
+    try {
+        const parsed = JSON.parse(initialPayloadText || '{}');
+        initialRows = Array.isArray(parsed.rows) ? parsed.rows : [];
+    } catch (_error) {
+        initialRows = [];
+    }
+    if (initialRows.length) {
+        initialRows.forEach(row => addRow(row));
+    } else {
+        addRow();
+        addRow();
+    }
+})();
+</script>
+{% endblock %}

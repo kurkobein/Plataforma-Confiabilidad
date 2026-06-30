@@ -44,7 +44,6 @@
     <h3 class="card-title">Previsualización</h3>
     {% if preview %}
         <p class="muted">Selecciona las pautas que quieres crear. Por defecto se marcan todas las {{ preview|length }} pautas detectadas.</p>
-        <p class="muted">Si marcas "Crear una unica pauta con los registros seleccionados", las tareas seleccionadas de varios grupos se guardaran dentro de una sola pauta.</p>
         <div class="table-wrap">
             <table class="datatable display compact-table">
                 <thead>
@@ -81,7 +80,7 @@
                             <td>
                                 <details>
                                     <summary>{{ row.tareas_count }} tarea{{ row.tareas_count|pluralize }}</summary>
-                                    <div style="display:grid; gap:8px; margin-top:8px; min-width:320px;">
+                                    <div style="display:grid; gap:8px; margin-top:8px; min-width:50px;">
                                         {% for task in row.tasks %}
                                             <label style="display:flex; gap:8px; align-items:flex-start;">
                                                 <input
@@ -99,9 +98,6 @@
                                                     <br>
                                                     {{ task.actividad|default:'Sin actividad' }}
                                                     <br>
-                                                    <small class="muted">
-                                                        Frecuencia: {{ task.frecuencia|default:'-' }} · Especialidad: {{ task.especialidad|default:'-' }} · Estado: {{ task.estado_equipo|default:'-' }}
-                                                    </small>
                                                 </span>
                                             </label>
                                         {% endfor %}

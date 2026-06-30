@@ -1,0 +1,156 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Error {{ status_code }} | Mindco</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #f4f7fb;
+            color: #172033;
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .error-shell {
+            display: grid;
+            gap: 18px;
+            margin: 0 auto;
+            min-height: 100vh;
+            padding: 28px;
+            place-content: center;
+            width: min(680px, 100%);
+        }
+
+        .error-brand {
+            color: #5e01d0;
+            font-size: 22px;
+            font-weight: 800;
+            justify-self: center;
+            text-decoration: none;
+        }
+
+        .error-panel {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #dbe3ef;
+            border-radius: 8px;
+            box-shadow: 0 16px 42px rgba(15, 23, 42, .1);
+            display: grid;
+            gap: 18px;
+            grid-template-columns: auto minmax(0, 1fr);
+            padding: 24px;
+        }
+
+        .error-code {
+            border-right: 1px solid #dbe3ef;
+            color: #5e01d0;
+            font-size: 56px;
+            font-weight: 800;
+            line-height: 1;
+            padding: 12px 22px 12px 4px;
+        }
+
+        .error-copy {
+            min-width: 0;
+        }
+
+        .error-copy h1 {
+            font-size: 22px;
+            margin: 5px 0;
+        }
+
+        .error-copy p {
+            color: #64748b;
+            font-size: 14px;
+            line-height: 1.45;
+            margin: 0 0 14px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .btn {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            color: #172033;
+            cursor: pointer;
+            display: inline-flex;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 700;
+            min-height: 34px;
+            padding: 7px 11px;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }
+
+        .btn-primary {
+            background: #5e01d0;
+            border-color: #5e01d0;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #4d00ad;
+            border-color: #4d00ad;
+        }
+
+        @media (max-width: 560px) {
+            .error-shell {
+                padding: 16px;
+            }
+
+            .error-panel {
+                grid-template-columns: 1fr;
+                padding: 18px;
+            }
+
+            .error-code {
+                border-bottom: 1px solid #dbe3ef;
+                border-right: 0;
+                font-size: 44px;
+                padding: 0 0 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="error-shell">
+        <a class="error-brand" href="/" aria-label="Ir al inicio">
+            <img src="{% static 'img/mindco.png' %}" class="logo-mindco" alt="Mindco" style="width: 200px;">
+        </a>
+        <section class="error-panel" aria-labelledby="error-title">
+            <div class="error-code">{{ status_code }}</div>
+            <div class="error-copy">
+                <h1 id="error-title">{{ title }}</h1>
+                <p>{{ message }}</p>
+                <div class="actions">
+                    <button class="btn" type="button" onclick="history.back()">Volver
+                    </button>
+                    <a class="btn btn-primary" href="/">
+                        Ir al inicio
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

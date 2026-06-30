@@ -134,8 +134,7 @@ def _service_family_payload(servicio):
     return payload
 
 
-def _record_attachment_payload(request):
-    files = request.FILES.getlist('adjuntos')
+def _attachment_payload_from_files(files):
     if not files:
         return [], []
     allowed = set(models.RECORD_ATTACHMENT_EXTENSIONS)
@@ -151,6 +150,31 @@ def _record_attachment_payload(request):
             'content': uploaded.read(),
         })
     return payload, invalid
+
+
+def _record_attachment_payload(request):
+    return _attachment_payload_from_files(request.FILES.getlist('adjuntos'))
+
+
+def _bulk_row_key(row, index):
+    row_id = str(row.get('row_id') or index).strip() if isinstance(row, dict) else str(index)
+    return row_id if row_id.isdigit() else str(index)
+
+
+def _bulk_attachment_payloads(request, submitted_rows):
+    payloads = {}
+    errors = {}
+    for index, row in enumerate(submitted_rows, start=1):
+        row_key = _bulk_row_key(row, index)
+        payload, invalid = _attachment_payload_from_files(
+            request.FILES.getlist(f'row_attachments_{row_key}')
+        )
+        payloads[row_key] = payload
+        if invalid:
+            errors[row_key] = [
+                'archivos no permitidos: ' + ', '.join(invalid) + '.'
+            ]
+    return payloads, errors
 
 
 def _save_aca_attachments(criticidad, attachment_payload, usuario):
@@ -2600,6 +2624,16 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
             )
             matrix_cell_id = getattr(cell, 'pk', '') or ''
 
+        attachment_records = family_critics or [crit]
+        existing_attachments = []
+        seen_attachment_names = set()
+        for attachment_record in attachment_records:
+            for attachment in attachment_record.adjuntos.all():
+                name = (attachment.nombre_original or '').strip()
+                if name and name not in seen_attachment_names:
+                    seen_attachment_names.add(name)
+                    existing_attachments.append({'name': name})
+
         row = {
             'criticidad_id': crit.pk if target_type == 'equipo' else '',
             'target_type': target_type,
@@ -2609,6 +2643,7 @@ def _bulk_payload_from_criticidades(servicio, criticidades, matriz=None):
             'family_id': family.pk if family else '',
             'family': None,
             'observacion': crit.observacion or '',
+            'existing_attachments': existing_attachments,
             'dimensions': dimensions,
             'matrix_cell_id': matrix_cell_id,
         }
@@ -2702,15 +2737,28 @@ def _bulk_group_criticidades(servicio, carga_pk):
                 queryset=models.CriticidadDimension.objects.select_related(
                     'dimension', 'catalogo_fila__catalogo', 'escala_valor', 'escala_unificada'
                 ).prefetch_related('catalogo_fila__celdas__columna')
-            )
+            ),
+            'adjuntos',
         )
         .order_by('id')
     )
 
 
-def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excluded_dimension_ids, is_draft, existing_by_id=None):
+def _prepare_bulk_rows_for_save(
+    servicio,
+    strategy,
+    matriz,
+    submitted_rows,
+    excluded_dimension_ids,
+    is_draft,
+    existing_by_id=None,
+    attachment_payloads=None,
+    attachment_errors=None,
+):
     equipment_qs = get_service_equipment(servicio)
     existing_by_id = existing_by_id or {}
+    attachment_payloads = attachment_payloads or {}
+    attachment_errors = attachment_errors or {}
     existing_by_equipment_id = {
         item.equipo_id: item
         for item in existing_by_id.values()
@@ -2728,6 +2776,8 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
             continue
 
         row_errors = []
+        row_key = _bulk_row_key(row, index)
+        row_errors.extend(attachment_errors.get(row_key, []))
         target_type = row.get('target_type') if row.get('target_type') in {'equipo', 'familia'} else 'equipo'
         target_equipos = []
         row_origin = 'Manual masivo'
@@ -2805,6 +2855,7 @@ def _prepare_bulk_rows_for_save(servicio, strategy, matriz, submitted_rows, excl
                 'prepared': prepared,
                 'selected_cell': selected_cell,
                 'origin': row_origin,
+                'attachments': attachment_payloads.get(row_key, []),
             })
 
     if not prepared_rows and not errors:
@@ -2911,6 +2962,8 @@ def _save_bulk_aca_rows(servicio, strategy, profile, prepared_rows, status, orig
             _save_matrix_dimensions(evaluacion, strategy, selected_cell)
         _sync_criticidad_resumen(evaluacion, strategy)
         _sync_aca_carga_status(evaluacion, strategy, status)
+        if row.get('attachments'):
+            _save_aca_attachments(evaluacion, row['attachments'], profile)
 
     stale_ids = existing_ids - seen_existing_ids
     _delete_aca_records_by_ids(stale_ids)
@@ -2980,6 +3033,7 @@ def service_aca_bulk_new(request, pk):
         submitted_rows = payload.get('rows') if isinstance(payload, dict) else []
         if not isinstance(submitted_rows, list):
             submitted_rows = []
+        attachment_payloads, attachment_errors = _bulk_attachment_payloads(request, submitted_rows)
 
         is_draft = request.POST.get('save_as') == 'draft'
         store_separate = request.POST.get('store_separate') == '1'
@@ -2995,6 +3049,8 @@ def service_aca_bulk_new(request, pk):
                 continue
 
             row_errors = []
+            row_key = _bulk_row_key(row, index)
+            row_errors.extend(attachment_errors.get(row_key, []))
             target_type = row.get('target_type') if row.get('target_type') in {'equipo', 'familia'} else 'equipo'
             target_equipos = []
             row_origin = 'Manual masivo'
@@ -3068,6 +3124,7 @@ def service_aca_bulk_new(request, pk):
                     'prepared': prepared,
                     'selected_cell': selected_cell,
                     'origin': row_origin,
+                    'attachments': attachment_payloads.get(row_key, []),
                 })
         if not prepared_rows and not errors:
             errors.append('No hay filas válidas para guardar.')
@@ -3122,6 +3179,8 @@ def service_aca_bulk_new(request, pk):
                     _save_matrix_dimensions(evaluacion, strategy, selected_cell)
                 _sync_criticidad_resumen(evaluacion, strategy)
                 _sync_aca_carga_status(evaluacion, strategy, status)
+                if row.get('attachments'):
+                    _save_aca_attachments(evaluacion, row['attachments'], profile)
 
         messages.success(request, f'Se crearon {len(prepared_rows)} registros ACA correctamente.')
         return redirect('service_aca_list', pk=servicio.pk)
@@ -3165,6 +3224,7 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
         submitted_rows = payload.get('rows') if isinstance(payload, dict) else []
         if not isinstance(submitted_rows, list):
             submitted_rows = []
+        attachment_payloads, attachment_errors = _bulk_attachment_payloads(request, submitted_rows)
 
         is_draft = request.POST.get('save_as') == 'draft'
         status = models.Carga.STATUS_INCOMPLETO if is_draft else models.Carga.STATUS_COMPLETO
@@ -3177,6 +3237,8 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
             excluded_dimension_ids,
             is_draft,
             existing_by_id=existing_by_id,
+            attachment_payloads=attachment_payloads,
+            attachment_errors=attachment_errors,
         )
         errors.extend(row_errors)
 

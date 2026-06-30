@@ -31,7 +31,7 @@ from . import models
 from core.services.equipment_import import execute_equipment_import, preview_equipment_import
 
 MAX_LIST_COLUMNS = 6
-_RANGE_RE = re.compile(r'^\s*(-?\d+(?:[.,]\d+)?)\s*-\s*(-?\d+(?:[.,]\d+)?)\s*$')
+_RANGE_RE = re.compile(r'^\s*(-?\d+(?:[.,]\d{1,2})?)\s*-\s*(-?\d+(?:[.,]\d{1,2})?)\s*$')
 _MATRIX_DECIMAL_STEP = Decimal('0.01')
 
 
@@ -1537,11 +1537,64 @@ def model_delete(request, model_key, pk):
                 )
             return redirect('model_list', model_key=model_key)
         if model_key == 'matrizriesgo':
+            generated_axis_dimensions = []
+
+            for estrategia_dimension in [obj.dimension_probabilidad, obj.dimension_impacto]:
+                if estrategia_dimension and _is_generated_matrix_axis_dimension(estrategia_dimension):
+                    generated_axis_dimensions.append(estrategia_dimension)
+
             models.MatrizRiesgoCelda.objects.filter(matriz=obj).delete()
             models.NivelImpacto.objects.filter(matriz=obj).delete()
             models.NivelProbabilidad.objects.filter(matriz=obj).delete()
 
             obj.delete()
+
+            for estrategia_dimension in generated_axis_dimensions:
+                used_by_other_matrix = models.MatrizRiesgo.objects.filter(
+                    Q(dimension_probabilidad=estrategia_dimension) |
+                    Q(dimension_impacto=estrategia_dimension)
+                ).exists()
+
+                used_by_records = models.CriticidadDimension.objects.filter(
+                    Q(estrategia_dimension=estrategia_dimension) |
+                    Q(dimension=estrategia_dimension.dimension)
+                ).exists()
+
+                if used_by_other_matrix or used_by_records:
+                    continue
+
+                dimension = estrategia_dimension.dimension
+
+                models.EscalaValor.objects.filter(
+                    estrategia_dimension=estrategia_dimension
+                ).delete()
+
+                try:
+                    catalogo = estrategia_dimension.catalogo
+                except models.DimensionCatalogo.DoesNotExist:
+                    catalogo = None
+
+                if catalogo:
+                    fila_ids = list(catalogo.filas.values_list('id', flat=True))
+
+                    models.DimensionCatalogoCelda.objects.filter(
+                        fila_id__in=fila_ids
+                    ).delete()
+
+                    models.DimensionCatalogoColumna.objects.filter(
+                        catalogo=catalogo
+                    ).delete()
+
+                    models.DimensionCatalogoFila.objects.filter(
+                        catalogo=catalogo
+                    ).delete()
+
+                    catalogo.delete()
+
+                estrategia_dimension.delete()
+
+                if not models.EstrategiaDimension.objects.filter(dimension=dimension).exists():
+                    dimension.delete()
 
             messages.success(request, 'Matriz eliminada correctamente.')
             return redirect('model_list', model_key=model_key)
@@ -2426,12 +2479,33 @@ def _default_legend_for_bounds(min_value, max_value):
         max_value = min_value
     if max_value == min_value or max_value - min_value < Decimal('0.04'):
         return [{'name': 'Bajo', 'range': f'{_format_matrix_decimal(min_value)}-{_format_matrix_decimal(max_value)}', 'color': '#2ecc71'}]
+    integer_mode = (
+        min_value == min_value.to_integral_value()
+        and max_value == max_value.to_integral_value()
+    )
+    labels = [('Bajo', '#2ecc71'), ('Medio', '#f1c40f'), ('Alto', '#e67e22'), ('Crí­tico', '#e74c3c')]
+    items = []
+    if integer_mode:
+        current = int(min_value)
+        maximum = int(max_value)
+        integer_labels = labels[:min(len(labels), maximum - current + 1)]
+        for idx, (label, color) in enumerate(integer_labels):
+            remaining_levels = len(integer_labels) - idx
+            remaining_values = maximum - current + 1
+            width = max(1, (remaining_values + remaining_levels - 1) // remaining_levels)
+            end = maximum if idx == len(integer_labels) - 1 else min(maximum, current + width - 1)
+            items.append({
+                'name': label,
+                'range': f'{current}-{end}',
+                'color': color,
+            })
+            current = end + 1
+        return items
+
     span = max_value - min_value
     step = (span / Decimal('4')).quantize(_MATRIX_DECIMAL_STEP) if span else Decimal('1.00')
     if step <= 0:
         step = Decimal('1.00')
-    labels = [('Bajo', '#2ecc71'), ('Medio', '#f1c40f'), ('Alto', '#e67e22'), ('Crí­tico', '#e74c3c')]
-    items = []
     current = min_value
     for idx, (label, color) in enumerate(labels):
         end = min_value + (step * (idx + 1)) if idx < 3 else max_value
@@ -2453,18 +2527,40 @@ def _validate_legend_items(raw_items, min_value, max_value, result_values=None):
         return None, 'Debes definir al menos un rango en la leyenda.'
 
     parsed = []
-    for item in items:
+    decimal_mode = any(re.search(r'[.,]\d', item['range']) for item in items)
+    continuity_step = _MATRIX_DECIMAL_STEP if decimal_mode else Decimal('1')
+    for index, item in enumerate(items):
         if not item['name']:
             return None, 'Cada rango de la leyenda debe tener un nombre.'
         range_values = _parse_matrix_range(item['range'])
         if not range_values:
-            return None, f"El rango '{item['range']}' no tiene un formato valido. Usa por ejemplo 0,1-4,5."
+            return None, (
+                f"El rango '{item['range']}' no tiene un formato válido. "
+                'Usa enteros o hasta 2 decimales, por ejemplo 1-4 o 0,10-0,25.'
+            )
         start, end = range_values
         if end < start:
             return None, f"El rango '{item['range']}' no es válido porque el final es menor que el inicio."
-        parsed.append({'name': item['name'], 'range': f'{_format_matrix_decimal(start)}-{_format_matrix_decimal(end)}', 'color': item['color'], 'start': start, 'end': end})
-
-    parsed.sort(key=lambda item: item['start'])
+        if index:
+            previous = parsed[-1]
+            expected_start = previous['end'] + continuity_step
+            if start < expected_start:
+                return None, (
+                    f"El rango '{item['range']}' se superpone con el rango anterior. "
+                    f'Debe comenzar en {_format_matrix_decimal(expected_start)}.'
+                )
+            if start > expected_start:
+                return None, (
+                    f"Hay un espacio entre '{previous['range']}' y '{item['range']}'. "
+                    f'El siguiente rango debe comenzar en {_format_matrix_decimal(expected_start)}.'
+                )
+        parsed.append({
+            'name': item['name'],
+            'range': f'{_format_matrix_decimal(start)}-{_format_matrix_decimal(end)}',
+            'color': item['color'],
+            'start': start,
+            'end': end,
+        })
     min_value = _quantize_matrix_decimal(min_value) or Decimal('0.00')
     max_value = _quantize_matrix_decimal(max_value) or min_value
     values_to_cover = result_values if result_values is not None else [min_value, max_value]
