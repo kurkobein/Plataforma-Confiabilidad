@@ -1,0 +1,1036 @@
+{% extends 'base.html' %} 
+{% block title %}
+{% if is_create %}
+Nueva matriz
+{% else %}
+Editar matriz
+{% endif %}
+{% endblock %}
+{% block extra_head %}
+<style>
+  .matrix-shell {
+    display: grid;
+    grid-template-columns: minmax(430px, 0.8fr) minmax(0, 1.2fr);
+    gap: 10px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .matrix-builder-fields {
+    grid-template-columns: minmax(0, 1.2fr) 128px minmax(0, 1.15fr);
+    gap: 6px 8px;
+  }
+  .matrix-builder-fields .form-field label,
+  .axis-dimension-box .form-field label {
+    font-size: 12px;
+  }
+  .matrix-builder-fields .form-field {
+    gap: 3px;
+  }
+  .matrix-builder-fields .input-control,
+  .matrix-axis-fields .input-control {
+    min-height: 32px;
+    padding: 5px 7px;
+  }
+  .matrix-builder-fields .form-field > div[style*="color"] {
+    font-size: 12px !important;
+  }
+  .matrix-grid-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: white;
+  }
+  .matrix-grid {
+    border-collapse: collapse;
+    min-width: 700px;
+  }
+  .matrix-grid th,
+  .matrix-grid td {
+    border: 1px solid var(--line);
+    padding: 5px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .matrix-grid th input,
+  .matrix-grid td input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: center;
+    padding: 4px;
+  }
+  .matrix-grid .row-head,
+  .matrix-grid .col-head {
+    background: #f8fafc;
+    min-width: 104px;
+  }
+  .matrix-cell {
+    min-width: 104px;
+    color: #111827;
+  }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 70px 42px;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .legend-swatch {
+    width: 100%;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0;
+  }
+  .kpi-inline {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .kpi-inline .pill {
+    background: #eef2ff;
+  }
+  .axis-dimension-box {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px;
+    margin: 8px 0 10px;
+    background: #f8fafc;
+  }
+  .axis-dimension-box.is-hidden {
+    display: none;
+  }
+  .axis-dimension-box h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+  }
+  .axis-dimension-box small {
+    display: block;
+    margin-top: 4px;
+  }
+  .matrix-axis-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .matrix-axis-hint {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .matrix-axis-hint-item {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #ffffff;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .matrix-axis-hint-item strong {
+    color: var(--text);
+  }
+  .matrix-axis-hint-item.warning {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+  }
+  .criticality-rules {
+    border-top: 1px solid var(--line);
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+  .criticality-rules > summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    font-weight: 700;
+    justify-content: space-between;
+    list-style: none;
+  }
+  .criticality-rule-card {
+    background: #fafafa;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 7px;
+  }
+  .criticality-rule-head,
+  .criticality-rule-action,
+  .criticality-condition {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .criticality-rule-head [data-rule-name] { flex: 1 1 130px; }
+  .criticality-rule-head [data-rule-combinator] { flex: 0 0 70px; }
+  .criticality-rule-drag { cursor: grab; flex: 0 0 auto; }
+  .criticality-rule-card.is-drag-over { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .criticality-rule-action > * { flex: 1 1 125px; }
+  .criticality-condition [data-rule-source] { flex: 1 1 145px; }
+  .criticality-condition [data-rule-operator] { flex: 0 0 62px; }
+  .criticality-condition [data-rule-value],
+  .criticality-condition [data-rule-value-to] { flex: 1 1 68px; }
+  .criticality-rule-card input,
+  .criticality-rule-card select { min-width: 0; padding: 5px 6px; }
+  .criticality-rule-card .btn { padding: 5px 7px; }
+  @media (max-width: 1100px) {
+    .matrix-shell {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="page-header">
+  <div>
+    <h2>
+      {% if is_create %}Nueva matriz visual{% else %}Editar matriz visual{% endif %}
+    </h2>
+    <p>
+      {% if matriz %}{{ matriz.nombre }}{% else %}Constructor práctico de matriz
+      de riesgo{% endif %}. Las dimensiones del eje X y eje Y se
+      crean/asignan automáticamente al guardar.
+    </p>
+  </div>
+  <div class="actions">
+    {% if matriz %}
+    <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}"
+      >Volver a matrices</a
+    >
+    {% else %}
+    <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}"
+      >Volver a matrices</a
+    >
+    {% endif %}
+  </div>
+</div>
+
+<form method="post" id="matrix-builder-form">
+  {% csrf_token %}
+  <input type="hidden" name="action" id="matrix-action-input" value="preview" />
+  <input type="hidden" name="prob_levels_json" id="prob-levels-json" />
+  <input type="hidden" name="impact_levels_json" id="impact-levels-json" />
+  <input type="hidden" name="matrix_cells_json" id="matrix-cells-json" />
+  <input type="hidden" name="legend_items_json" id="legend-items-json" />
+  <input type="hidden" name="criticality_rules_json" id="criticality-rules-json" />
+
+  <div class="matrix-shell">
+    <div class="panel">
+      <div class="form-grid matrix-builder-fields">
+        <div class="form-field">
+          <label for="{{ builder_form.nombre.id_for_label }}">{{ builder_form.nombre.label }}</label>
+          {{ builder_form.nombre }}
+          {% if builder_form.nombre.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.nombre.errors }}</div>{% endif %}
+        </div>
+        <div class="form-field">
+          <label for="{{ builder_form.fecha_creado.id_for_label }}">{{ builder_form.fecha_creado.label }}</label>
+          {{ builder_form.fecha_creado }}
+          {% if builder_form.fecha_creado.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.fecha_creado.errors }}</div>{% endif %}
+        </div>
+        <div class="form-field">
+          <label for="{{ builder_form.estrategia.id_for_label }}">{{ builder_form.estrategia.label }}</label>
+          {{ builder_form.estrategia }}
+          {% if builder_form.estrategia.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.estrategia.errors }}</div>{% endif %}
+        </div>
+        <div class="form-field">
+          <label for="{{ builder_form.modo_resolucion.id_for_label }}">{{ builder_form.modo_resolucion.label }}</label>
+          {{ builder_form.modo_resolucion }}
+          {% if builder_form.modo_resolucion.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.modo_resolucion.errors }}</div>{% endif %}
+        </div>
+        <div class="form-field">
+          <label for="{{ builder_form.x_count.id_for_label }}">{{ builder_form.x_count.label }}</label>
+          {{ builder_form.x_count }}
+          {% if builder_form.x_count.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.x_count.errors }}</div>{% endif %}
+        </div>
+        <div class="form-field">
+          <label for="{{ builder_form.y_count.id_for_label }}">{{ builder_form.y_count.label }}</label>
+          {{ builder_form.y_count }}
+          {% if builder_form.y_count.errors %}<div style="color: #b91c1c; font-size: 13px">{{ builder_form.y_count.errors }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="axis-dimension-box{% if not builder_form.estrategia.value %} is-hidden{% endif %}" id="matrixAxisDimensionBox">
+        <h3>Dimensiones que alimentan la matriz</h3>
+        <div class="form-grid matrix-axis-fields">
+          <div class="form-field">
+            <label for="{{ builder_form.dimension_probabilidad.id_for_label }}">{{ builder_form.dimension_probabilidad.label }}</label>
+            {{ builder_form.dimension_probabilidad }}
+            {% if builder_form.dimension_probabilidad.errors %}
+              <div style="color: #b91c1c; font-size: 13px">{{ builder_form.dimension_probabilidad.errors }}</div>
+            {% endif %}
+          </div>
+          <div class="form-field">
+            <label for="{{ builder_form.dimension_impacto.id_for_label }}">{{ builder_form.dimension_impacto.label }}</label>
+            {{ builder_form.dimension_impacto }}
+            {% if builder_form.dimension_impacto.errors %}
+              <div style="color: #b91c1c; font-size: 13px">{{ builder_form.dimension_impacto.errors }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="matrix-axis-hint" id="matrixAxisHint"></div>
+      </div>
+      <div class="kpi-inline">
+        <span class="pill" id="axisXLabel">Eje X</span>
+        <span class="pill" id="axisYLabel">Eje Y</span>
+        <span class="pill" id="valueBoundsLabel">Valores</span>
+      </div>
+      <div style="margin-top: 16px">
+        <h3 class="card-title">Leyenda</h3>
+        <div id="legendList"></div>
+        <button class="btn" type="button" onclick="addLegend()">
+          + Agregar rango
+        </button>
+        <div
+          id="legendError"
+          style="display: none; color: #b91c1c; margin-top: 8px"
+        ></div>
+      </div>
+      <details class="criticality-rules" {% if criticality_rules %}open{% endif %}>
+        <summary><span>Reglas especiales de criticidad</span><span class="pill" id="criticalityRulesCount">0</span></summary>
+        <div id="criticalityRulesList"></div>
+        <button class="btn" type="button" id="addCriticalityRule"><i class="bi bi-plus-lg"></i> Agregar regla</button>
+      </details>
+      <div class="actions" style="margin-top: 16px">
+        <button class="btn" type="button" onclick="submitBuilder('preview')">
+          Actualizar grilla
+        </button>
+        <button
+          class="btn btn-primary"
+          type="button"
+          onclick="submitBuilder('save')"
+        >
+          {% if is_create %}Crear matriz{% else %}Guardar cambios{% endif %}
+        </button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 class="card-title">Grilla</h3>
+      <div class="matrix-grid-wrap">
+        <table class="matrix-grid" id="matrixGrid"></table>
+      </div>
+    </div>
+  </div>
+</form>
+
+{{ matrix_ui_state|json_script:'matrix-ui-state' }} 
+{{ matrix_axis_options|json_script:'matrix-axis-options' }}
+{{ criticality_rules|json_script:'criticality-rules-state' }}
+{{ criticality_rule_sources|json_script:'criticality-rule-sources' }}
+{% endblock %} 
+{% block extra_js %}
+<script>
+  (function () {
+    const state = JSON.parse(
+      document.getElementById("matrix-ui-state").textContent,
+    );
+    const axisOptions = JSON.parse(
+      document.getElementById("matrix-axis-options").textContent,
+    );
+    const form = document.getElementById("matrix-builder-form");
+    const actionInput = document.getElementById("matrix-action-input");
+    const xCountInput = document.getElementById("id_x_count");
+    const yCountInput = document.getElementById("id_y_count");
+    const selectedAxis = "probabilidad";
+    const probDimensionSelect = document.getElementById("id_dimension_probabilidad");
+    const impactDimensionSelect = document.getElementById("id_dimension_impacto");
+    const strategySelect = document.getElementById("id_estrategia");
+    const resolutionSelect = document.getElementById("id_modo_resolucion");
+    const axisHint = document.getElementById("matrixAxisHint");
+    const matrixGrid = document.getElementById("matrixGrid");
+    const legendList = document.getElementById("legendList");
+    const legendError = document.getElementById("legendError");
+    const probJson = document.getElementById("prob-levels-json");
+    const impactJson = document.getElementById("impact-levels-json");
+    const cellsJson = document.getElementById("matrix-cells-json");
+    const legendJson = document.getElementById("legend-items-json");
+    const rulesJson = document.getElementById("criticality-rules-json");
+    const rulesList = document.getElementById("criticalityRulesList");
+    const rulesCount = document.getElementById("criticalityRulesCount");
+    const ruleSources = JSON.parse(document.getElementById("criticality-rule-sources").textContent || "[]");
+    let criticalityRules = JSON.parse(document.getElementById("criticality-rules-state").textContent || "[]");
+
+    let rows = Number(state.rows_count || 5);
+    let cols = Number(state.cols_count || 5);
+    let probDefs = (state.prob_defs || []).map((item, i) => ({
+      idx: i + 1,
+      nombre: item.nombre || `P${i + 1}`,
+      valor: decimalValue(item.valor ?? i + 1, i + 1),
+      descripcion: item.descripcion || "",
+    }));
+    let impactDefs = (state.impact_defs || []).map((item, i) => ({
+      idx: i + 1,
+      nombre: item.nombre || `C${i + 1}`,
+      valor: decimalValue(item.valor ?? i + 1, i + 1),
+      descripcion: item.descripcion || "",
+    }));
+    let legendItems = (state.legend || []).map((item) => ({
+      name: item.name || "",
+      range: item.range || "",
+      color: item.color || "#6c63ff",
+    }));
+
+    function decimalValue(value, fallback) {
+      const parsed = Number(String(value ?? "").trim().replace(",", "."));
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    function round2(value) {
+      return Math.round((value + Number.EPSILON) * 100) / 100;
+    }
+    function formatNumber(value) {
+      const parsed = decimalValue(value, 0);
+      if (!Number.isFinite(parsed)) return "";
+      const rounded = round2(parsed);
+      return Number.isInteger(rounded)
+        ? String(rounded)
+        : String(rounded.toFixed(2)).replace(/0+$/, "").replace(/\.$/, "");
+    }
+    function htmlEscape(value) {
+      return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    function simpleSlug(value) {
+      return String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    }
+    function normalizeRuleSource(source) {
+      if (!source) return ruleSources[0]?.value || "";
+      if (ruleSources.some(item => String(item.value) === String(source))) return source;
+      const key = simpleSlug(source);
+      const match = ruleSources.find(item => {
+        const labelKey = simpleSlug(item.label);
+        return labelKey === key || labelKey.includes(key) || key.includes(labelKey);
+      });
+      return match?.value || ruleSources[0]?.value || "";
+    }
+    function ruleSourceOptions(selected) {
+      return ruleSources.map(item => `<option value="${htmlEscape(item.value)}" ${String(item.value) === String(selected) ? "selected" : ""}>${htmlEscape(item.label)}</option>`).join("");
+    }
+    function normalizeRulePriorities() {
+      criticalityRules.forEach((rule, index) => {
+        rule.prioridad = index + 1;
+        if ((rule.condiciones || []).length < 2) rule.combinador = "AND";
+        (rule.condiciones || []).forEach(condition => {
+          condition.fuente = normalizeRuleSource(condition.fuente);
+        });
+      });
+    }
+    function syncCriticalityRulesJson() {
+      normalizeRulePriorities();
+      rulesJson.value = JSON.stringify(criticalityRules);
+    }
+    function ruleActionValueOptions(rule) {
+      const type = rule.accion?.tipo || "criticidad_minima";
+      let values = [];
+      if (type === "subir_niveles") {
+        values = ["1", "2", "3", "4", "5"];
+      } else if (type === "forzar_valor") {
+        values = [...new Set(matrixValues().map(formatNumber).filter(Boolean))];
+      } else {
+        values = ["máxima", ...legendItems.map(item => item.name).filter(Boolean)];
+      }
+      return [...new Set(values)].map(value => `<option value="${htmlEscape(value)}"></option>`).join("");
+    }
+    function renderCriticalityRules() {
+      normalizeRulePriorities();
+      rulesCount.textContent = criticalityRules.length;
+      rulesList.innerHTML = criticalityRules.map((rule, ruleIndex) => {
+        const conditionCount = (rule.condiciones || []).length;
+        const conditions = (rule.condiciones || []).map((condition, conditionIndex) => `
+          <div class="criticality-condition">
+            <select data-rule-source="${ruleIndex}-${conditionIndex}">${ruleSourceOptions(condition.fuente)}</select>
+            <select data-rule-operator="${ruleIndex}-${conditionIndex}">
+              ${[">",">=","<","<=","=","!=","entre"].map(op => `<option ${op === condition.operador ? "selected" : ""}>${op}</option>`).join("")}
+            </select>
+            <input data-rule-value="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor)}" placeholder="Valor">
+            <input data-rule-value-to="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor_hasta)}" placeholder="Hasta" ${condition.operador === "entre" ? "" : "hidden"}>
+            <button class="btn btn-danger" type="button" data-remove-condition="${ruleIndex}-${conditionIndex}" title="Quitar condición"><i class="bi bi-x-lg"></i></button>
+          </div>`).join("");
+        const actionListId = `criticality-action-values-${ruleIndex}`;
+        const combinator = conditionCount > 1
+          ? `<select data-rule-combinator="${ruleIndex}"><option ${rule.combinador !== "OR" ? "selected" : ""}>AND</option><option ${rule.combinador === "OR" ? "selected" : ""}>OR</option></select>`
+          : "";
+        return `<div class="criticality-rule-card" data-rule-card="${ruleIndex}">
+          <div class="criticality-rule-head">
+            <button class="btn criticality-rule-drag" type="button" draggable="true" data-rule-drag="${ruleIndex}" title="Mover regla"><i class="bi bi-list"></i></button>
+            <input type="checkbox" data-rule-active="${ruleIndex}" ${rule.activa !== false ? "checked" : ""} title="Activa">
+            <input data-rule-name="${ruleIndex}" value="${htmlEscape(rule.nombre || `Regla ${ruleIndex + 1}`)}" placeholder="Nombre de regla">
+            <span class="pill" title="Prioridad automática">${ruleIndex + 1}</span>
+            ${combinator}
+            <button class="btn btn-danger" type="button" data-remove-rule="${ruleIndex}" title="Eliminar regla"><i class="bi bi-trash3"></i></button>
+          </div>
+          <div class="criticality-rule-action">
+            <select data-rule-action="${ruleIndex}">
+              <option value="criticidad_minima" ${rule.accion?.tipo === "criticidad_minima" ? "selected" : ""}>Criticidad mínima</option>
+              <option value="forzar_criticidad" ${rule.accion?.tipo === "forzar_criticidad" ? "selected" : ""}>Forzar criticidad</option>
+              <option value="subir_niveles" ${rule.accion?.tipo === "subir_niveles" ? "selected" : ""}>Subir niveles</option>
+              <option value="forzar_valor" ${rule.accion?.tipo === "forzar_valor" ? "selected" : ""}>Forzar valor</option>
+            </select>
+            <input data-rule-action-value="${ruleIndex}" list="${actionListId}" value="${htmlEscape(rule.accion?.valor)}" placeholder="Valor, nivel o máxima">
+            <datalist id="${actionListId}">${ruleActionValueOptions(rule)}</datalist>
+          </div>
+          <div>${conditions}</div>
+          <button class="btn" type="button" data-add-condition="${ruleIndex}"><i class="bi bi-plus"></i> Condición</button>
+        </div>`;
+      }).join("");
+      syncCriticalityRulesJson();
+    }
+    function splitRuleIndex(value) { return String(value).split("-").map(Number); }
+    function newCondition() { return { fuente: ruleSources[0]?.value || "", operador: ">=", valor: "", valor_hasta: "" }; }
+    document.getElementById("addCriticalityRule").addEventListener("click", () => {
+      criticalityRules.push({ id: `regla_${Date.now()}`, nombre: `Regla ${criticalityRules.length + 1}`, activa: true, prioridad: criticalityRules.length + 1, combinador: "AND", condiciones: [newCondition()], accion: { tipo: "criticidad_minima", valor: "máxima" } });
+      renderCriticalityRules();
+    });
+    rulesList.addEventListener("click", event => {
+      const removeRule = event.target.closest("[data-remove-rule]");
+      const addCondition = event.target.closest("[data-add-condition]");
+      const removeCondition = event.target.closest("[data-remove-condition]");
+      if (removeRule) criticalityRules.splice(Number(removeRule.dataset.removeRule), 1);
+      else if (addCondition) {
+        const rule = criticalityRules[Number(addCondition.dataset.addCondition)];
+        rule.condiciones = rule.condiciones || [];
+        rule.condiciones.push(newCondition());
+      }
+      else if (removeCondition) {
+        const [ruleIndex, conditionIndex] = splitRuleIndex(removeCondition.dataset.removeCondition);
+        criticalityRules[ruleIndex].condiciones.splice(conditionIndex, 1);
+      } else return;
+      renderCriticalityRules();
+    });
+    function updateCriticalityRuleFromElement(element) {
+      const directBindings = [
+        ["ruleName", "nombre"], ["ruleCombinator", "combinador"],
+      ];
+      directBindings.forEach(([datasetKey, property]) => {
+        if (element.dataset[datasetKey] !== undefined) criticalityRules[Number(element.dataset[datasetKey])][property] = element.value;
+      });
+      if (element.dataset.ruleActive !== undefined) criticalityRules[Number(element.dataset.ruleActive)].activa = element.checked;
+      if (element.dataset.ruleAction !== undefined) {
+        const rule = criticalityRules[Number(element.dataset.ruleAction)];
+        rule.accion = rule.accion || {};
+        rule.accion.tipo = element.value;
+        renderCriticalityRules();
+        return;
+      }
+      if (element.dataset.ruleActionValue !== undefined) {
+        const rule = criticalityRules[Number(element.dataset.ruleActionValue)];
+        rule.accion = rule.accion || {};
+        rule.accion.valor = element.value;
+      }
+      [["ruleSource","fuente"],["ruleOperator","operador"],["ruleValue","valor"],["ruleValueTo","valor_hasta"]].forEach(([datasetKey, property]) => {
+        if (element.dataset[datasetKey] === undefined) return;
+        const [ruleIndex, conditionIndex] = splitRuleIndex(element.dataset[datasetKey]);
+        criticalityRules[ruleIndex].condiciones[conditionIndex][property] = element.value;
+        if (property === "operador") renderCriticalityRules();
+      });
+      syncCriticalityRulesJson();
+    }
+    rulesList.addEventListener("input", event => {
+      updateCriticalityRuleFromElement(event.target);
+    });
+    rulesList.addEventListener("change", event => {
+      updateCriticalityRuleFromElement(event.target);
+    });
+    let draggedRuleIndex = null;
+    rulesList.addEventListener("dragstart", event => {
+      const handle = event.target.closest("[data-rule-drag]");
+      if (!handle) {
+        event.preventDefault();
+        return;
+      }
+      draggedRuleIndex = Number(handle.dataset.ruleDrag);
+      event.dataTransfer.effectAllowed = "move";
+    });
+    rulesList.addEventListener("dragover", event => {
+      const card = event.target.closest("[data-rule-card]");
+      if (card && draggedRuleIndex !== null) {
+        event.preventDefault();
+        card.classList.add("is-drag-over");
+      }
+    });
+    rulesList.addEventListener("dragleave", event => {
+      const card = event.target.closest("[data-rule-card]");
+      if (card) card.classList.remove("is-drag-over");
+    });
+    rulesList.addEventListener("drop", event => {
+      const card = event.target.closest("[data-rule-card]");
+      if (!card || draggedRuleIndex === null) return;
+      event.preventDefault();
+      const targetIndex = Number(card.dataset.ruleCard);
+      card.classList.remove("is-drag-over");
+      if (Number.isNaN(targetIndex) || targetIndex === draggedRuleIndex) {
+        draggedRuleIndex = null;
+        return;
+      }
+      const [moved] = criticalityRules.splice(draggedRuleIndex, 1);
+      criticalityRules.splice(targetIndex, 0, moved);
+      draggedRuleIndex = null;
+      renderCriticalityRules();
+    });
+    rulesList.addEventListener("dragend", () => {
+      draggedRuleIndex = null;
+      rulesList.querySelectorAll(".is-drag-over").forEach(card => card.classList.remove("is-drag-over"));
+    });
+    function cloneLevelDefs(defs, count, prefix) {
+      const source = Array.isArray(defs) ? defs : [];
+      const result = [];
+      for (let i = 0; i < count; i++) {
+        const item = source[i] || {};
+        result.push({
+          idx: i + 1,
+          nombre: item.nombre || `${prefix.toUpperCase()}${i + 1}`,
+          valor: decimalValue(item.valor ?? i + 1, i + 1),
+          descripcion: item.descripcion || "",
+        });
+      }
+      return result;
+    }
+    function axisLevelCount(axisName, option) {
+      const fallback = axisName === "probabilidad" ? probDefs.length : impactDefs.length;
+      const count = Number(option?.level_count || fallback || 5);
+      return Math.max(2, count);
+    }
+    function setAxisCount(axisName, count) {
+      if (selectedAxis === "impacto") {
+        if (axisName === "probabilidad") yCountInput.value = count;
+        else xCountInput.value = count;
+      } else {
+        if (axisName === "probabilidad") xCountInput.value = count;
+        else yCountInput.value = count;
+      }
+      rows = Math.max(2, parseInt(yCountInput.value, 10) || rows);
+      cols = Math.max(2, parseInt(xCountInput.value, 10) || cols);
+    }
+    function describeAxisOption(axisName, option) {
+      const label = axisName === "probabilidad" ? "Eje X" : "Eje Y";
+      if (!option) {
+        return `<div class="matrix-axis-hint-item"><strong>${label}:</strong> sin dimension seleccionada. Puedes editar los niveles manualmente.</div>`;
+      }
+      if (option.requires_threshold) {
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada sin tabla de niveles propia; se resolvera por umbral inferior usando el resultado calculado.</div>`;
+      }
+      if (option.has_levels) {
+        return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Niveles cargados desde ${option.source_type}.</div>`;
+      }
+      if (option.is_calculated) {
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada; define los niveles manualmente o usa umbral inferior por resultado.</div>`;
+      }
+      return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Sin escala/catalogo; los niveles quedan editables manualmente.</div>`;
+    }
+    function renderAxisDimensionHints() {
+      if (!axisHint) return;
+      const probOption = axisOptions[String(probDimensionSelect?.value || "")];
+      const impactOption = axisOptions[String(impactDimensionSelect?.value || "")];
+      axisHint.innerHTML = describeAxisOption("probabilidad", probOption) + describeAxisOption("impacto", impactOption);
+    }
+    function applyAxisDimension(axisName) {
+      const select = axisName === "probabilidad" ? probDimensionSelect : impactDimensionSelect;
+      const option = axisOptions[String(select?.value || "")];
+      const count = axisLevelCount(axisName, option);
+      setAxisCount(axisName, count);
+      if (axisName === "probabilidad") {
+        probDefs = option
+          ? cloneLevelDefs(option.prob_levels, count, "p")
+          : cloneLevelDefs([], count, "p");
+      } else {
+        impactDefs = option
+          ? cloneLevelDefs(option.impact_levels, count, "c")
+          : cloneLevelDefs([], count, "c");
+      }
+      if (option?.requires_threshold && resolutionSelect) {
+        resolutionSelect.value = "umbral_resultado";
+      }
+      renderAxisDimensionHints();
+      renderGrid();
+    }
+    function ensureDefinitions() {
+      rows = Math.max(2, parseInt(yCountInput.value, 10) || rows);
+      cols = Math.max(2, parseInt(xCountInput.value, 10) || cols);
+      const probCount = selectedAxis === "impacto" ? rows : cols;
+      const impactCount = selectedAxis === "impacto" ? cols : rows;
+      while (probDefs.length < probCount)
+        probDefs.push({
+          idx: probDefs.length + 1,
+          nombre: `P${probDefs.length + 1}`,
+          valor: probDefs.length + 1,
+          descripcion: "",
+        });
+      while (impactDefs.length < impactCount)
+        impactDefs.push({
+          idx: impactDefs.length + 1,
+          nombre: `C${impactDefs.length + 1}`,
+          valor: impactDefs.length + 1,
+          descripcion: "",
+        });
+      probDefs = probDefs
+        .slice(0, probCount)
+        .map((item, i) => ({
+          ...item,
+          idx: i + 1,
+          valor: decimalValue(item.valor, i + 1),
+        }));
+      impactDefs = impactDefs
+        .slice(0, impactCount)
+        .map((item, i) => ({
+          ...item,
+          idx: i + 1,
+          valor: decimalValue(item.valor, i + 1),
+        }));
+    }
+    function parseRange(rangeText) {
+      const m = String(rangeText || "")
+        .trim()
+        .match(/^(\-?\d+(?:[\.,]\d+)?)\s*-\s*(\-?\d+(?:[\.,]\d+)?)$/);
+      if (!m) return null;
+      const start = decimalValue(m[1], NaN);
+      const end = decimalValue(m[2], NaN);
+      return Number.isFinite(start) && Number.isFinite(end) && end >= start
+        ? { start: round2(start), end: round2(end) }
+        : null;
+    }
+    function bounds() {
+      const values = matrixValues();
+      return { min: Math.min(...values), max: Math.max(...values) };
+    }
+    function matrixValues() {
+      const values = [];
+      probDefs.forEach((p) =>
+        impactDefs.forEach((i) =>
+          values.push(round2(decimalValue(p.valor, 1) * decimalValue(i.valor, 1))),
+        ),
+      );
+      return values;
+    }
+    function defaultLegend() {
+      const b = bounds();
+      if (b.min === b.max || round2(b.max - b.min) < 0.04) {
+        return [{ name: "Bajo", range: `${formatNumber(b.min)}-${formatNumber(b.max)}`, color: "#2ecc71" }];
+      }
+      const span = Math.max(b.max - b.min, 0);
+      const step = span > 0 ? round2(span / 4) : 1;
+      const labels = [
+        ["Bajo", "#2ecc71"],
+        ["Medio", "#f1c40f"],
+        ["Alto", "#e67e22"],
+        ["Crítico", "#e74c3c"],
+      ];
+      let current = b.min;
+      return labels.map((item, idx) => {
+        let end = idx < 3 ? round2(b.min + step * (idx + 1)) : b.max;
+        end = Math.min(b.max, Math.max(current, end));
+        const payload = {
+          name: item[0],
+          range: `${formatNumber(current)}-${formatNumber(end)}`,
+          color: item[1],
+        };
+        current = round2(end + 0.01);
+        return payload;
+      });
+    }
+    function validateLegend(showMessage = true) {
+      const clean = legendItems.filter((item) => item.name && item.range);
+      if (!clean.length) {
+        if (showMessage)
+          showLegendError("Debes definir al menos un rango en la leyenda.");
+        return false;
+      }
+      const parsed = clean.map((item) => ({
+        ...item,
+        parsed: parseRange(item.range),
+      }));
+      const invalid = parsed.find((item) => !item.parsed);
+      if (invalid) {
+        if (showMessage)
+          showLegendError(
+            `El rango "${invalid.range}" no es valido. Usa el formato 0,1-4,5.`,
+          );
+        return false;
+      }
+      parsed.sort((a, b) => a.parsed.start - b.parsed.start);
+      const uncovered = matrixValues().filter(
+        (value) =>
+          !parsed.some(
+            (item) => value >= item.parsed.start && value <= item.parsed.end,
+          ),
+      );
+      if (uncovered.length) {
+        const samples = [...new Set(uncovered.map(formatNumber))].slice(0, 5).join(", ");
+        if (showMessage)
+          showLegendError(`La leyenda no cubre los valores calculados: ${samples}. Ajusta los rangos para incluirlos.`);
+        return false;
+      }
+      hideLegendError();
+      legendItems = parsed.map((item) => ({
+        name: item.name,
+        range: `${formatNumber(item.parsed.start)}-${formatNumber(item.parsed.end)}`,
+        color: item.color,
+      }));
+      return true;
+    }
+    function showLegendError(text) {
+      legendError.style.display = "block";
+      legendError.textContent = text;
+    }
+    function hideLegendError() {
+      legendError.style.display = "none";
+      legendError.textContent = "";
+    }
+    function addLegend() {
+      legendItems.push({ name: "Nuevo", range: "", color: "#6c63ff" });
+      renderLegend();
+    }
+    function removeLegend(idx) {
+      legendItems.splice(idx, 1);
+      renderLegend();
+      renderGrid();
+    }
+    function matchLegend(value) {
+      for (const item of legendItems) {
+        const parsed = parseRange(item.range);
+        if (parsed && value >= parsed.start && value <= parsed.end)
+          return { clasificacion: item.name, color: item.color };
+      }
+      return { clasificacion: "", color: "#ffffff" };
+    }
+    function axisNames() {
+      return { x: "Eje X", y: "Eje Y" };
+    }
+    function syncAxisLabels() {
+      const a = axisNames();
+      const b = bounds();
+      document.getElementById("axisXLabel").textContent = a.x;
+      document.getElementById("axisYLabel").textContent = a.y;
+      document.getElementById("valueBoundsLabel").textContent =
+        `Valores: ${formatNumber(b.min)} a ${formatNumber(b.max)}`;
+    }
+    function levelForColumn(idx) {
+      return selectedAxis === "impacto" ? impactDefs[idx] : probDefs[idx];
+    }
+    function levelForRow(idx) {
+      return selectedAxis === "impacto" ? probDefs[idx] : impactDefs[idx];
+    }
+    function setLevelForColumn(idx, key, value) {
+      if (selectedAxis === "impacto") impactDefs[idx][key] = value;
+      else probDefs[idx][key] = value;
+    }
+    function setLevelForRow(idx, key, value) {
+      if (selectedAxis === "impacto") probDefs[idx][key] = value;
+      else impactDefs[idx][key] = value;
+    }
+    function renderLegend() {
+      legendList.innerHTML = "";
+      legendItems.forEach((item, idx) => {
+        const row = document.createElement("div");
+        row.className = "legend-row";
+        row.innerHTML = `<input class="input-control" value="${item.name}" placeholder="Nombre" data-legend-name="${idx}">
+      <input class="input-control" value="${item.range}" placeholder="1-4" data-legend-range="${idx}">
+      <input class="legend-swatch" type="color" value="${item.color}" data-legend-color="${idx}">
+      <button class="btn btn-danger" type="button" data-legend-remove="${idx}">X</button>`;
+        legendList.appendChild(row);
+      });
+      legendList.querySelectorAll("[data-legend-name]").forEach(
+        (el) =>
+          (el.oninput = (e) => {
+            legendItems[Number(e.target.dataset.legendName)].name =
+              e.target.value;
+            renderGrid();
+          }),
+      );
+      legendList.querySelectorAll("[data-legend-range]").forEach(
+        (el) =>
+          (el.oninput = (e) => {
+            legendItems[Number(e.target.dataset.legendRange)].range =
+              e.target.value;
+            renderGrid();
+          }),
+      );
+      legendList.querySelectorAll("[data-legend-color]").forEach(
+        (el) =>
+          (el.oninput = (e) => {
+            legendItems[Number(e.target.dataset.legendColor)].color =
+              e.target.value;
+            renderGrid();
+          }),
+      );
+      legendList
+        .querySelectorAll("[data-legend-remove]")
+        .forEach(
+          (el) =>
+            (el.onclick = (e) =>
+              removeLegend(Number(e.target.dataset.legendRemove))),
+        );
+    }
+    function buildCells() {
+      const data = [];
+      for (let r = 0; r < rows; r++) {
+        const row = [];
+        for (let c = 0; c < cols; c++) {
+          const probIdx = selectedAxis === "impacto" ? r + 1 : c + 1;
+          const impactIdx = selectedAxis === "impacto" ? c + 1 : r + 1;
+          const result = round2(
+            decimalValue(probDefs[probIdx - 1]?.valor, probIdx) *
+              decimalValue(impactDefs[impactIdx - 1]?.valor, impactIdx),
+          );
+          const legend = matchLegend(result);
+          row.push({
+            prob_idx: probIdx,
+            impact_idx: impactIdx,
+            resultado_num: result,
+            clasificacion: legend.clasificacion,
+            color: legend.color,
+            calcular: true,
+          });
+        }
+        data.push(row);
+      }
+      return data;
+    }
+    function renderGrid() {
+      ensureDefinitions();
+      syncAxisLabels();
+      const cells = buildCells();
+      let html = "<thead><tr><th></th>";
+      for (let c = 0; c < cols; c++) {
+        const def = levelForColumn(c);
+        html += `
+          <th class="col-head">
+            <input 
+              value="${def.nombre || ""}" 
+              oninput="window.__mb.setColumnName(${c}, this.value)"
+            >
+            <div>
+              <input 
+                type="text"
+                inputmode="decimal"
+                value="${formatNumber(def.valor)}"
+                oninput="window.__mb.setColumnValue(${c}, this.value)"
+              >
+            </div>
+          </th>`;
+      }
+      html += "</tr></thead><tbody>";
+      for (let r = 0; r < rows; r++) {
+        const rowDef = levelForRow(r);
+        html += `
+        <tr>
+          <th class="row-head">
+            <input value="${rowDef.nombre || ""}" oninput="window.__mb.setRowName(${r}, this.value)">
+            <div>
+              <input 
+              type="text"
+              inputmode="decimal"
+              value="${formatNumber(rowDef.valor)}"
+              oninput="window.__mb.setRowValue(${r}, this.value)"
+              >
+            </div>
+          </th>`;
+        for (let c = 0; c < cols; c++) {
+          const cell = cells[r][c];
+          html += `
+            <td 
+              class="matrix-cell" 
+              data-cell="${r}-${c}" 
+              style="background:${cell.color};"
+            >
+              <strong>${formatNumber(cell.resultado_num)}</strong>
+              <div>${cell.clasificacion || ""}</div>
+            </td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      matrixGrid.innerHTML = html;
+      probJson.value = JSON.stringify(probDefs);
+      impactJson.value = JSON.stringify(impactDefs);
+      cellsJson.value = JSON.stringify(cells);
+      legendJson.value = JSON.stringify(legendItems);
+    }
+    function submitBuilder(action) {
+      ensureDefinitions();
+      if (action === "save" && !validateLegend(true)) return;
+      syncCriticalityRulesJson();
+      actionInput.value = action;
+      probJson.value = JSON.stringify(probDefs);
+      impactJson.value = JSON.stringify(impactDefs);
+      cellsJson.value = JSON.stringify(buildCells());
+      legendJson.value = JSON.stringify(legendItems);
+      form.submit();
+    }
+    function syncJsonOnly() {
+      const cells = buildCells();
+      probJson.value = JSON.stringify(probDefs);
+      impactJson.value = JSON.stringify(impactDefs);
+      cellsJson.value = JSON.stringify(cells);
+      legendJson.value = JSON.stringify(legendItems);
+      syncCriticalityRulesJson();
+    }
+
+    function refreshMatrixCellsOnly() {
+      const cells = buildCells();
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const td = matrixGrid.querySelector(`[data-cell="${r}-${c}"]`);
+          if (!td) continue;
+
+          const cell = cells[r][c];
+          td.style.background = cell.color;
+          td.querySelector("strong").textContent = formatNumber(cell.resultado_num);
+          td.querySelector("div").textContent = cell.clasificacion || "";
+        }
+      }
+
+      syncAxisLabels();
+      syncJsonOnly();
+    }
+
+    window.__mb = {
+      setColumnName: (idx, val) => {
+        setLevelForColumn(idx, "nombre", val);
+        syncJsonOnly();
+      },
+      setColumnValue: (idx, val) => {
+        setLevelForColumn(idx, "valor", val);
+        refreshMatrixCellsOnly();
+      },
+      setRowName: (idx, val) => {
+        setLevelForRow(idx, "nombre", val);
+        syncJsonOnly();
+      },
+      setRowValue: (idx, val) => {
+        setLevelForRow(idx, "valor", val);
+        refreshMatrixCellsOnly();
+      },
+    };
+    xCountInput.addEventListener("change", () => renderGrid());
+    yCountInput.addEventListener("change", () => renderGrid());
+    if (probDimensionSelect) {
+      probDimensionSelect.addEventListener("change", () => applyAxisDimension("probabilidad"));
+    }
+    if (impactDimensionSelect) {
+      impactDimensionSelect.addEventListener("change", () => applyAxisDimension("impacto"));
+    }
+    if (strategySelect) {
+      strategySelect.addEventListener("change", () => {
+        const value = strategySelect.value || "";
+        const url = new URL(window.location.href);
+        if (value) url.searchParams.set("estrategia", value);
+        else url.searchParams.delete("estrategia");
+        window.location.href = url.toString();
+      });
+    }
+    if (!legendItems.length) {
+      legendItems = defaultLegend();
+    }
+    renderAxisDimensionHints();
+    renderCriticalityRules();
+    renderLegend();
+    renderGrid();
+    window.submitBuilder = submitBuilder;
+    window.addLegend = addLegend;
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar escala unificada{% else %}Nueva escala unificada{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar escala unificada{% else %}Nueva escala unificada{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'escalaunificada' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nivel.label }}</strong></div>
+            <div>
+                {{ form.nivel }}
+                {% if form.nivel.help_text %}<small>{{ form.nivel.help_text }}</small>{% endif %}
+                {{ form.nivel.errors }}
+            </div>
+            <div><strong>{{ form.significado.label }}</strong></div>
+            <div>
+                {{ form.significado }}
+                {% if form.significado.help_text %}<small>{{ form.significado.help_text }}</small>{% endif %}
+                {{ form.significado.errors }}
+            </div>
+            <div><strong>{{ form.interpretacion.label }}</strong></div>
+            <div>
+                {{ form.interpretacion }}
+                {% if form.interpretacion.help_text %}<small>{{ form.interpretacion.help_text }}</small>{% endif %}
+                {{ form.interpretacion.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

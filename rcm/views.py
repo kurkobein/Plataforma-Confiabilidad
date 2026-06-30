@@ -76,7 +76,7 @@ def _fmeca_service_rows(request):
 @login_required
 def fmeca_development(request):
     _services, rows = _fmeca_service_rows(request)
-    return render(request, 'core/rcm/fmeca_development.html', {
+    return render(request, 'fmeca_development.html', {
         'service_rows': rows,
     })
 
@@ -211,7 +211,7 @@ def fmeca_panel(request):
             'selected_avance_max': selected_avance_max,
             'table_rows': table_rows,
         })
-    return render(request, 'core/rcm/fmeca_panel.html', context)
+    return render(request, 'fmeca_panel.html', context)
 
 
 def _safe_task_slug(value, fallback='campo'):
@@ -433,7 +433,7 @@ def service_rcm_task_config(request, pk):
         messages.success(request, 'La configuración de tareas RCM/FMECA se guardó correctamente.')
         return redirect('service_fmeca_task_config', pk=servicio.pk)
 
-    return render(request, 'core/rcm/service_rcm_task_config.html', {
+    return render(request, 'service_rcm_task_config.html', {
         'service': servicio,
         'permission': permission,
         'task_payload_json': json.dumps(_json_safe(_task_config_payload(servicio.estrategia)), ensure_ascii=False),
@@ -687,7 +687,7 @@ def service_rcm_excel_upload(request, pk):
         form = RCMExcelBulkUploadForm()
     stored_upload = request.session.get(upload_session_key)
 
-    return render(request, 'core/rcm/service_rcm_excel_upload.html', {
+    return render(request, 'service_rcm_excel_upload.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
@@ -877,7 +877,7 @@ def service_rcm_list(request, pk):
             .order_by('orden', 'id')
         )
 
-    return render(request, 'core/rcm/service_rcm_list.html', {
+    return render(request, 'service_rcm_list.html', {
         'service': servicio,
         'permission': permission,
         'rows': rows,
@@ -1530,7 +1530,7 @@ def service_rcm_new(request, pk):
                     messages.success(request, 'Registro RCM/FMECA creado correctamente.')
             return redirect('service_fmeca_list', pk=servicio.pk)
 
-    return render(request, 'core/rcm/service_rcm_form.html', {
+    return render(request, 'service_rcm_form.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
@@ -1587,7 +1587,7 @@ def service_rcm_edit(request, service_pk, rcm_pk):
             messages.success(request, 'Registro RCM/FMECA actualizado correctamente.')
             return redirect('service_fmeca_list', pk=servicio.pk)
 
-    return render(request, 'core/rcm/service_rcm_form.html', {
+    return render(request, 'service_rcm_form.html', {
         'service': servicio,
         'permission': permission,
         'form': form,

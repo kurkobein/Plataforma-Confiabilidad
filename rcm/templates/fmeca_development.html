@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block title %}Desarrollo FMECA | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Desarrollo FMECA</h2>
+        <p>Selecciona un servicio para entrar al desarrollo de registros RCM/FMECA.</p>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="datatable display compact-table" data-column-filters="true">
+        <thead>
+            <tr>
+                <th>Servicio</th>
+                <th>Descripción</th>
+                <th>Registros</th>
+                <th>Avance</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in service_rows %}
+                <tr>
+                    <td><strong>{{ row.service.codigo_servicio }}</strong></td>
+                    <td>{{ row.service.descripcion|default:'-' }}</td>
+                    <td>{{ row.summary.total_records }}</td>
+                    <td data-order="{{ row.progress_order }}">
+                        <span class="aca-progress-pill"
+                              style="--progress-width: {{ row.progress_width }}%; --progress-color: {{ row.progress_color }};">
+                            <span class="aca-progress-pill-fill" aria-hidden="true"></span>
+                            <span class="aca-progress-pill-label">{{ row.progress_label }}</span>
+                        </span>
+                    </td>
+                    <td>
+                        <div class="actions">
+                            <a class="btn" href="{% url 'service_fmeca_list' row.service.pk %}">Ver desarrollo</a>
+                        </div>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5" class="muted">No hay servicios accesibles.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

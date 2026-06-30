@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar componente{% else %}Nuevo componente{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar componente{% else %}Nuevo componente{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'componente' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nombre.label }}</strong></div>
+            <div>
+                {{ form.nombre }}
+                {% if form.nombre.help_text %}<small>{{ form.nombre.help_text }}</small>{% endif %}
+                {{ form.nombre.errors }}
+            </div>
+            <div><strong>{{ form.descripcion.label }}</strong></div>
+            <div>
+                {{ form.descripcion }}
+                {% if form.descripcion.help_text %}<small>{{ form.descripcion.help_text }}</small>{% endif %}
+                {{ form.descripcion.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

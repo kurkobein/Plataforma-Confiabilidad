@@ -1,0 +1,1498 @@
+{% extends 'base.html' %}
+{% block title %}Nuevo ACA | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>{% if editing_crit %}Editar registro ACA{% else %}Desarrollar ACA individual{% endif %}</h2>
+        <p>{{ service.codigo_servicio }}</p>
+    </div>
+    </div>
+    <div class="page-header-actions" style="display: flex;">
+        <div class="inline-note muted header-note">
+        Fecha de análisis: {{ auto_fecha_analisis }} | Versión: {{ auto_version }} | Origen: Manual
+        </div>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ base_form.fecha_analisis }}
+    {{ base_form.version_carga }}
+    {{ base_form.origen }}
+    {{ base_form.frecuencia_normalizada }}
+    {{ base_form.matrix_celda }}
+    {% if editing_crit %}<input type="hidden" name="crit_id" value="{{ editing_crit.pk }}">{% endif %}
+
+    <div class="card">
+        <h3 class="card-title">Equipo o familia</h3>
+        <div class="form-grid">
+            {% if not editing_crit %}
+            <div class="form-field full">
+                <label>Tipo de registro</label>
+                <div class="segmented-control">
+                    <label><input type="radio" name="aca_scope" value="equipo" checked> Equipo individual</label>
+                    <label><input type="radio" name="aca_scope" value="familia"> Familia de equipos</label>
+                </div>
+            </div>
+            <div class="form-field full" id="aca-family-field" hidden>
+                <label for="{{ base_form.familia_equipo.id_for_label }}">{{ base_form.familia_equipo.label }}</label>
+                <div class="family-inline-select">
+                    {{ base_form.familia_equipo }}
+                    <a class="btn" id="aca-family-edit-link" href="{% url 'service_equipment_family_new' service.pk %}" data-new-url="{% url 'service_equipment_family_new' service.pk %}" data-edit-template="{% url 'service_equipment_family_edit' service.pk 0 %}">Crear/editar familias</a>
+                </div>
+                {% if base_form.familia_equipo.help_text %}<small class="muted">{{ base_form.familia_equipo.help_text }}</small>{% endif %}
+                {% if base_form.familia_equipo.errors %}<div class="form-error">{{ base_form.familia_equipo.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full" id="aca-family-equipment-summary" hidden>
+                <details class="family-analysis-details" open>
+                    <summary><span id="aca-family-summary-title">Equipos de la familia</span></summary>
+                    <div id="aca-family-equipment-list" class="family-analysis-list"></div>
+                </details>
+            </div>
+            {% endif %}
+            <div class="form-field full" id="aca-equipment-picker-field">
+                <div class="service-equipment-intro" style="margin-top:0;">
+                    <p class="muted">Selecciona el equipo del registro o crea uno nuevo si todav&iacute;a no existe.</p>
+                    {% if request.user.is_superuser %}
+                    <a class="btn" href="{% url 'model_create' 'equipo' %}">
+                        Añadir equipo
+                    </a>
+                    {% endif %}
+                </div>
+                <div class="form-grid" style="margin-top:12px;">
+                    <div class="form-field">
+                        <label for="aca-equipment-search">Buscar</label>
+                        <input id="aca-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+                    </div>
+                    <div class="form-field">
+                        <label for="aca-equipment-results">Equipo</label>
+                        <select id="aca-equipment-results" class="input-control">
+                            <option value="">Selecciona un equipo</option>
+                        </select>
+                        <small class="muted" id="aca-equipment-count"></small>
+                    </div>
+                </div>
+                <input type="hidden" name="{{ base_form.equipo.html_name }}" id="{{ base_form.equipo.id_for_label }}" value="{{ base_form.equipo.value|default:'' }}">
+                <div class="form-grid" id="aca-equipment-level-filters"></div>
+                <div class="form-error" id="aca-equipment-existing-warning" hidden></div>
+                {% if base_form.equipo.errors %}<div class="form-error">{{ base_form.equipo.errors }}</div>{% endif %}
+            </div>
+            <div class="form-field full aca-equipment-detail-box" id="aca-equipment-detail-box" hidden>
+                <div class="aca-equipment-detail-title">Detalles del equipo seleccionado</div>
+                <div class="form-grid">
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Ubicaci&oacute;n T&eacute;cnica</label>
+                        <input id="aca-equipment-ut" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Descripci&oacute;n U.T&eacute;cnica</label>
+                        <input id="aca-equipment-description" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>Equipo</label>
+                        <input id="aca-equipment-name" class="input-control" type="text" readonly>
+                    </div>
+                    <div class="form-field aca-equipment-detail-field">
+                        <label>TAG</label>
+                        <input id="aca-equipment-tag" class="input-control" type="text" readonly>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        {% if base_form.non_field_errors %}
+            <div class="form-error form-error-block">{{ base_form.non_field_errors }}</div>
+        {% endif %}
+    </div>
+
+    
+
+    <div class="card">
+        <div style="Display: Flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 class="card-title">Indicadores y tablas de evaluación</h3>
+            <a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}">
+                Gestionar tabllas de evaluación
+            </a>
+        </div>
+        {{ dimension_formset.management_form }}
+        <div class="dimension-grid">
+        {% for form in dimension_formset %}
+            <div class="dimension-card" data-dimension-id="{{ form.dimension_obj.id }}" data-estrategia-dimension-id="{{ form.estrategia_dimension_obj.id }}" data-dimension-name="{{ form.dimension_obj.nombre }}" data-dimension-campo="{{ form.dimension_campo }}">
+                {{ form.dimension }}
+                <div class="dimension-card-header">
+                    <div>
+                        <strong>{{ form.dimension_obj.nombre }}</strong>
+                        <div class="muted dimension-meta">{{ form.dimension_obj.tipo_funcional }} · {{ form.dimension_obj.tipo_dato }}</div>
+                    </div>
+                    {% if form.input_mode == 'calculado' %}<span class="pill-soft">Calculado</span>{% elif form.input_mode == 'escala' %}<span class="pill">Escala</span>{% elif form.input_mode == 'catalogo' %}<span class="pill">Tabla</span>{% else %}<span class="pill-soft">Valor manual</span>{% endif %}
+                </div>
+
+                {% if form.input_mode == 'calculado' %}
+                    {{ form.valor_numerico }}
+                    <div class="form-field" data-calc-config='{{ form.config_calculo_json|safe }}' data-calc-type="{{ form.tipo_calculo }}" data-target="{{ form.valor_numerico.id_for_label }}">
+                        <label>Resultado calculado</label>
+                        <input class="input-control calc-output" type="text" readonly placeholder="Se calculará automáticamente">
+                    </div>
+
+                {% elif form.input_mode == 'escala' %}
+                    <div class="option-compact-row">
+                        <div class="form-field catalog-picker-field">
+                            <label>{{ form.escala_valor.label }}</label>
+                            <div class="hidden-picker-select">{{ form.escala_valor }}</div>
+                            <input class="input-control picker-display"
+                                   type="text"
+                                   value=""
+                                   readonly
+                                   data-picker-display-for="{{ form.escala_valor.id_for_label }}"
+                                   data-option-toggle
+                                   data-panel-id="option-panel-{{ forloop.counter0 }}"
+                                   data-option-target="{{ form.escala_valor.id_for_label }}"
+                                   placeholder="Selecciona desde la tabla">
+                        </div>
+                    </div>
+                    <div id="option-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr>{% for header in form.option_headers %}<th>{{ header }}</th>{% endfor %}<th>Seleccionar</th></tr></thead>
+                                <tbody>
+                                    {% for row in form.option_rows %}
+                                        <tr data-target="{{ form.escala_valor.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}" class="picker-row">
+                                            {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+                                            <td><button type="button" class="btn btn-pick-option" data-target="{{ form.escala_valor.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}">Usar</button></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                {% elif form.input_mode == 'catalogo' %}
+                    <div class="option-compact-row" {% if form.is_dependent_catalog %}data-dependent-catalog data-dependent-source="{{ form.catalog_dependency }}" data-dependent-source-ed-id="{{ form.catalog_dependency_estrategia_dimension_id }}" data-dependent-source-dim-id="{{ form.catalog_dependency_dimension_id }}" data-dependent-source-campo="{{ form.catalog_dependency_campo }}" data-dependent-catalog-type="{{ form.catalog_type }}" data-option-target="{{ form.catalogo_fila.id_for_label }}"{% endif %}>
+                        <div class="form-field catalog-picker-field">
+                            <label>{{ form.catalogo_fila.label }}</label>
+                            <div class="hidden-picker-select">{{ form.catalogo_fila }}</div>
+                            <input class="input-control picker-display"
+                                   type="text"
+                                   value=""
+                                   readonly
+                                   data-picker-display-for="{{ form.catalogo_fila.id_for_label }}"
+                                   data-option-toggle
+                                   data-panel-id="option-panel-{{ forloop.counter0 }}"
+                                   data-option-target="{{ form.catalogo_fila.id_for_label }}"
+                                   placeholder="{% if form.is_dependent_catalog %}Se calculará automáticamente{% else %}Selecciona desde la tabla{% endif %}">
+                            {% if form.is_dependent_catalog %}
+                                <small class="muted">Depende de {{ form.catalog_dependency }}.</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div id="option-panel-{{ forloop.counter0 }}" class="option-table-panel" hidden>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr>{% for header in form.option_headers %}<th>{{ header }}</th>{% endfor %}{% if not form.is_dependent_catalog %}<th>Seleccionar</th>{% endif %}</tr></thead>
+                                <tbody>
+                                    {% for row in form.option_rows %}
+                                        <tr data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}" data-match-value="{{ row.match_value|default:'' }}" data-range-min="{{ row.range_min }}" data-range-max="{{ row.range_max }}" class="{% if form.is_dependent_catalog %}dependent-catalog-row{% else %}picker-row{% endif %}">
+                                            {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+                                            {% if not form.is_dependent_catalog %}
+                                                <td><button type="button" class="btn btn-pick-option" data-target="{{ form.catalogo_fila.id_for_label }}" data-value="{{ row.pk }}" data-value-numeric="{{ row.value_numeric }}">Usar</button></td>
+                                            {% endif %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                {% elif form.input_mode == 'booleano' %}
+                    <div class="form-field">
+                        <label>{{ form.valor_booleano.label }}</label>
+                        {{ form.valor_booleano }}
+                    </div>
+
+                {% elif form.input_mode == 'numerico' %}
+                    <div class="form-field">
+                        <label>{{ form.valor_numerico.label }}</label>
+                        {{ form.valor_numerico }}
+                    </div>
+
+                {% else %}
+                    <div class="form-field">
+                        <label>{{ form.valor_texto.label }}</label>
+                        {{ form.valor_texto }}
+                    </div>
+                {% endif %}
+
+                {% if form.allows_empty_comment %}
+                    <div class="form-field dimension-empty-comment">
+                        <label>{{ form.comentario.label|default:"Comentario" }}</label>
+                        {{ form.comentario }}
+                        <small class="muted">Opcional. Úsalo para justificar por qué esta evaluación quedó vacía.</small>
+                    </div>
+                {% else %}
+                    {{ form.comentario.as_hidden }}
+                {% endif %}
+
+                {% if form.errors %}
+                    <div class="form-error form-error-block">{{ form.errors }}</div>
+                {% endif %}
+            </div>
+        {% empty %}
+            <p class="muted dimension-empty">La estrategia del servicio no tiene dimensiones configuradas.</p>
+        {% endfor %}
+        </div>
+    </div>
+    <div class="card">
+        <h3 class="card-title">Matriz de criticidad</h3>
+        {% if matrix_selector.matriz %}
+        <div class="matrix-criticality-layout">
+            <div class="matrix-summary-panel">
+                <div class="matrix-hidden-controls">
+                    <div class="form-grid">
+                        <div class="form-field">
+                            <label for="matrix-prob-select">{{ matrix_selector.prob_axis_label|default:"Probabilidad" }}</label>
+                            <select id="matrix-prob-select" class="input-control">
+                                <option value="">Selecciona probabilidad</option>
+                                {% for col in matrix_selector.columns %}
+                                    <option value="{{ col.id }}" data-level-value="{{ col.value }}">{{ col.label }} ({{ col.value }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label for="matrix-impact-select">{{ matrix_selector.impact_axis_label|default:"Consecuencia" }}</label>
+                            <select id="matrix-impact-select" class="input-control">
+                                <option value="">Selecciona consecuencia</option>
+                                {% for row in matrix_selector.rows %}
+                                    <option value="{{ row.id }}" data-level-value="{{ row.value }}">{{ row.label }} ({{ row.value }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-field">
+                        <label>Criticidad calculada</label>
+                        <input id="matrix-crit-source" class="input-control" type="text" value="" readonly placeholder="Sin seleccion">
+                    </div>
+                </div>
+                <div class="matrix-axis-card">
+                    <span>{{ matrix_selector.prob_axis_label|default:"Probabilidad" }}</span>
+                    <input id="matrix-prob-display" class="matrix-readonly-value" type="text" value="" readonly placeholder="Se resuelve desde dimensiones">
+                </div>
+                <div class="matrix-axis-card">
+                    <span>{{ matrix_selector.impact_axis_label|default:"Consecuencia" }}</span>
+                    <input id="matrix-impact-display" class="matrix-readonly-value" type="text" value="" readonly placeholder="Se resuelve desde dimensiones">
+                </div>
+                <div class="matrix-axis-card matrix-result-card">
+                    <span>Criticidad calculada</span>
+                    <input id="matrix-crit-display" class="matrix-readonly-value" type="text" value="" readonly placeholder="Sin seleccion">
+                </div>
+            </div>
+            <div class="matrix-live-panel">
+                <div class="matrix-title">{{ matrix_selector.matriz.nombre }}</div>
+                <div class="matriz-wrap matrix-compact-wrap">
+                    <table class="matrix-compact">
+                        <thead>
+                            <tr>
+                                <th>Consecuencia \ Probabilidad</th>
+                                {% for col in matrix_selector.columns %}
+                                    <th>{{ col.label }}<br><span class="muted">{{ col.value }}</span></th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in matrix_selector.rows %}
+                                <tr>
+                                    <th>{{ row.label }}<br><span class="muted">{{ row.value }}</span></th>
+                                    {% for cell in row.cells %}
+                                        <td>
+                                            <button type="button"
+                                                    class="matrix-cell-btn btn-pick-matrix"
+                                                    data-cell-id="{{ cell.id }}"
+                                                    data-prob-id="{{ cell.prob_id }}"
+                                                    data-prob-label="{{ cell.prob_label }}"
+                                                    data-prob-value="{{ cell.prob_value }}"
+                                                    data-impact-id="{{ cell.impact_id }}"
+                                                    data-impact-label="{{ cell.impact_label }}"
+                                                    data-impact-value="{{ cell.impact_value }}"
+                                                    data-result="{{ cell.result }}"
+                                                    data-classification="{{ cell.classification }}"
+                                                    style="--cell-color: {{ cell.color }};"
+                                                    {% if not cell.id %}disabled{% endif %}>
+                                                <strong>{{ cell.classification|default:"-" }}</strong>
+                                                <span>{{ cell.result|default:"-" }}</span>
+                                            </button>
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            </div>
+                {% else %}
+                    <div class="inline-note muted">No hay una matriz configurada para la estrategia del servicio. Se usarán solo los indicadores manuales configurados.</div>
+                {% endif %}
+            </div>
+            <div class="card record-notes-card">
+                <h3 class="card-title">Observación y documentos</h3>
+                <div class="form-grid">
+                    <div class="form-field full">
+                        <label for="{{ base_form.observacion.id_for_label }}">{{ base_form.observacion.label }}</label>
+                        {{ base_form.observacion }}
+                        {% if base_form.observacion.errors %}<div class="form-error">{{ base_form.observacion.errors }}</div>{% endif %}
+                    </div>
+                    <div class="form-field full">
+                        <label for="aca-adjuntos">Documentos relacionados</label>
+                        <label class="attachment-dropzone" for="aca-adjuntos">
+                            <i class="bi bi-paperclip"></i>
+                            <span>Selecciona o arrastra archivos</span>
+                            <small class="muted">PDF, Word, Excel, PowerPoint, CSV, TXT, imágenes o ZIP.</small>
+                        </label>
+                        <input id="aca-adjuntos" class="record-file-input" type="file" name="adjuntos" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip">
+                        <div id="aca-adjuntos-preview" class="attachment-list attachment-preview-list" hidden></div>
+                    </div>
+                </div>
+                {% if existing_attachments %}
+                    <div class="attachment-list">
+                        {% for adjunto in existing_attachments %}
+                            <a class="attachment-item" href="{{ adjunto.archivo.url }}" target="_blank" rel="noopener">
+                                <i class="bi bi-file-earmark-text"></i>
+                                <span>{{ adjunto.nombre_original }}</span>
+                                <small class="muted">{{ adjunto.creado_en|date:"d/m/Y" }}</small>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" type="submit" name="save_as" value="complete">{% if editing_crit %}Actualizar registro ACA{% else %}Guardar registro ACA{% endif %}</button>
+                <button class="btn" type="submit" name="save_as" value="draft" formnovalidate>{% if editing_crit %}Guardar como borrador{% else %}Guardar borrador{% endif %}</button>
+            </div>
+        </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+{{ service_equipment_payload|json_script:"service-equipment-data" }}
+{{ service_equipment_endpoints|json_script:"service-equipment-endpoints" }}
+{{ service_family_payload|json_script:"service-family-data" }}
+{{ existing_aca_equipment_ids_json|json_script:"aca-existing-equipment-data" }}
+<script>
+(function () {
+    const matrixHidden = document.getElementById('{{ base_form.matrix_celda.id_for_label }}');
+    const probSelect = document.getElementById('matrix-prob-select');
+    const impactSelect = document.getElementById('matrix-impact-select');
+    const probDisplay = document.getElementById('matrix-prob-display');
+    const impactDisplay = document.getElementById('matrix-impact-display');
+    const critDisplay = document.getElementById('matrix-crit-display');
+    const matrixProbDimensionId = '{{ matrix_selector.prob_dimension_id|default:"" }}';
+    const matrixImpactDimensionId = '{{ matrix_selector.impact_dimension_id|default:"" }}';
+    const matrixProbEstrategiaDimensionId = '{{ matrix_selector.prob_estrategia_dimension_id|default:"" }}';
+    const matrixImpactEstrategiaDimensionId = '{{ matrix_selector.impact_estrategia_dimension_id|default:"" }}';
+    const matrixResolutionMode = '{{ matrix_selector.modo_resolucion|default:"exacta" }}';
+    const matrixProbAxisGenerated = '{{ matrix_selector.prob_axis_generated|yesno:"1,0" }}' === '1';
+    const matrixImpactAxisGenerated = '{{ matrix_selector.impact_axis_generated|yesno:"1,0" }}' === '1';
+    const equipmentInput = document.getElementById('{{ base_form.equipo.id_for_label }}');
+    const equipmentDataNode = document.getElementById('service-equipment-data');
+    const equipmentEndpointsNode = document.getElementById('service-equipment-endpoints');
+    const familyDataNode = document.getElementById('service-family-data');
+    const existingEquipmentDataNode = document.getElementById('aca-existing-equipment-data');
+
+    function initCollapsibleDimensionComments() {
+        document.querySelectorAll('.dimension-empty-comment').forEach(function (box) {
+            if (box.tagName && box.tagName.toLowerCase() === 'details') return;
+            const input = box.querySelector('input, textarea');
+            const details = document.createElement('details');
+            details.className = 'dimension-empty-comment dimension-empty-comment-collapsible';
+            if (input && input.value.trim()) details.open = true;
+            const summary = document.createElement('summary');
+            summary.title = 'Comentario';
+            summary.innerHTML = '<i class="bi bi-chat-left-text"></i><span>Comentario</span>';
+            const content = document.createElement('div');
+            content.className = 'form-field';
+            Array.from(box.childNodes).forEach(function (node) {
+                if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'label') return;
+                content.appendChild(node);
+            });
+            details.appendChild(summary);
+            details.appendChild(content);
+            box.replaceWith(details);
+        });
+    }
+
+    initCollapsibleDimensionComments();
+    const equipmentPayload = equipmentDataNode ? JSON.parse(equipmentDataNode.textContent || '{}') : {};
+    const equipmentEndpoints = equipmentEndpointsNode ? JSON.parse(equipmentEndpointsNode.textContent || '{}') : {};
+    const familyPayload = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
+    const existingAcaEquipmentIds = new Set((existingEquipmentDataNode ? JSON.parse(existingEquipmentDataNode.textContent || '[]') : []).map(String));
+    const familyById = Object.fromEntries(familyPayload.map(item => [String(item.id), item]));
+    const equipmentLevels = equipmentPayload.levels || [];
+    const equipmentNodes = equipmentPayload.nodes || [];
+    const equipmentItems = equipmentPayload.equipment || [];
+    const equipmentById = Object.fromEntries(equipmentItems.map(item => [String(item.id), item]));
+    const nodesById = Object.fromEntries(equipmentNodes.map(item => [String(item.id), item]));
+    const equipmentFilterBox = document.getElementById('aca-equipment-level-filters');
+    const equipmentSearch = document.getElementById('aca-equipment-search');
+    const equipmentResults = document.getElementById('aca-equipment-results');
+    const equipmentCount = document.getElementById('aca-equipment-count');
+    const familySelect = document.getElementById('{{ base_form.familia_equipo.id_for_label }}');
+    const familyField = document.getElementById('aca-family-field');
+    const familyEditLink = document.getElementById('aca-family-edit-link');
+    const familySummary = document.getElementById('aca-family-equipment-summary');
+    const familySummaryTitle = document.getElementById('aca-family-summary-title');
+    const familyEquipmentList = document.getElementById('aca-family-equipment-list');
+    const equipmentPickerField = document.getElementById('aca-equipment-picker-field');
+    const equipmentDetailBox = document.getElementById('aca-equipment-detail-box');
+    const equipmentExistingWarning = document.getElementById('aca-equipment-existing-warning');
+    const equipmentDetailFields = Array.from(document.querySelectorAll('.aca-equipment-detail-field'));
+    const scopeRadios = Array.from(document.querySelectorAll('input[name="aca_scope"]'));
+    const attachmentInput = document.getElementById('aca-adjuntos');
+    const attachmentPreview = document.getElementById('aca-adjuntos-preview');
+    const equipmentFields = {
+        ut: document.getElementById('aca-equipment-ut'),
+        description: document.getElementById('aca-equipment-description'),
+        name: document.getElementById('aca-equipment-name'),
+        tag: document.getElementById('aca-equipment-tag')
+    };
+
+    function setScope(scope) {
+        const familyMode = scope === 'familia';
+        if (familyField) familyField.hidden = !familyMode;
+        if (familySummary) familySummary.hidden = !familyMode;
+        if (equipmentPickerField) equipmentPickerField.hidden = familyMode;
+        equipmentDetailFields.forEach(function (field) {
+            field.hidden = familyMode;
+        });
+        scopeRadios.forEach(function (radio) {
+            radio.checked = radio.value === scope;
+        });
+        if (familyMode) {
+            if (equipmentInput) equipmentInput.value = '';
+            if (equipmentResults) equipmentResults.value = '';
+            syncEquipmentInfo();
+        } else if (familySelect) {
+            familySelect.value = '';
+        }
+        updateFamilyEditLink();
+        renderSelectedFamily();
+    }
+
+    function updateFamilyEditLink() {
+        if (!familyEditLink || !familySelect) return;
+        if (familySelect.value) {
+            familyEditLink.href = familyEditLink.dataset.editTemplate.replace('/0/', `/${familySelect.value}/`);
+            familyEditLink.textContent = 'Añadir equipos a esta familia';
+        } else {
+            familyEditLink.href = familyEditLink.dataset.newUrl;
+            familyEditLink.textContent = 'Crear/editar familias';
+        }
+    }
+
+    function renderSelectedFamily() {
+        if (!familyEquipmentList || !familySelect) return;
+        const family = familyById[String(familySelect.value || '')];
+        if (!family) {
+            if (familySummaryTitle) familySummaryTitle.textContent = 'Equipos de la familia';
+            familyEquipmentList.innerHTML = '<div class="muted">Selecciona una familia para ver sus equipos.</div>';
+            return;
+        }
+        const equipos = family.equipos || [];
+        if (familySummaryTitle) {
+            familySummaryTitle.textContent = `${family.nombre} · ${equipos.length} equipo${equipos.length === 1 ? '' : 's'}`;
+        }
+        if (!equipos.length) {
+            familyEquipmentList.innerHTML = '<div class="muted">Esta familia no tiene equipos.</div>';
+            return;
+        }
+        familyEquipmentList.innerHTML = equipos.map(function (item) {
+            return `
+                <div class="family-analysis-item">
+                    <strong>${escapeHtml(item.tag || '')}</strong>
+                    <span>${escapeHtml(item.equipo || '')}</span>
+                    <small class="muted">${escapeHtml(item.ut || '')}</small>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function initAttachmentPicker() {
+        if (!attachmentInput || !attachmentPreview || typeof DataTransfer === 'undefined') return;
+        const selectedFiles = new DataTransfer();
+
+        function fileKey(file) {
+            return [file.name, file.size, file.lastModified].join('|');
+        }
+
+        function formatFileSize(size) {
+            if (!size && size !== 0) return '';
+            if (size < 1024) return `${size} B`;
+            if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+            return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        function syncInputFiles() {
+            attachmentInput.files = selectedFiles.files;
+            renderAttachmentPreview();
+        }
+
+        function renderAttachmentPreview() {
+            attachmentPreview.hidden = selectedFiles.files.length === 0;
+            attachmentPreview.innerHTML = Array.from(selectedFiles.files).map(function (file, index) {
+                return `
+                    <div class="attachment-item attachment-preview-item">
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
+                        <small class="muted">${escapeHtml(formatFileSize(file.size))}</small>
+                        <button class="btn btn-icon" type="button" data-remove-attachment="${index}" aria-label="Quitar archivo" title="Quitar archivo">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        attachmentInput.addEventListener('change', function () {
+            const existing = new Set(Array.from(selectedFiles.files).map(fileKey));
+            Array.from(attachmentInput.files || []).forEach(function (file) {
+                const key = fileKey(file);
+                if (existing.has(key)) return;
+                selectedFiles.items.add(file);
+                existing.add(key);
+            });
+            syncInputFiles();
+        });
+
+        attachmentPreview.addEventListener('click', function (event) {
+            const button = event.target.closest('[data-remove-attachment]');
+            if (!button) return;
+            const index = Number(button.dataset.removeAttachment);
+            if (Number.isNaN(index)) return;
+            selectedFiles.items.remove(index);
+            syncInputFiles();
+        });
+    }
+
+    function initScopeSelector() {
+        if (!scopeRadios.length) return;
+        scopeRadios.forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                if (radio.checked) setScope(radio.value);
+            });
+        });
+        if (familySelect) {
+            familySelect.addEventListener('change', function () {
+                updateFamilyEditLink();
+                renderSelectedFamily();
+            });
+        }
+        setScope(familySelect && familySelect.value ? 'familia' : 'equipo');
+    }
+
+    function setEquipmentField(field, value) {
+        if (!field) return;
+        field.value = value || '';
+    }
+
+    function syncEquipmentDetailVisibility(equipo) {
+        const hasEquipment = Boolean(equipo);
+        if (equipmentDetailBox) equipmentDetailBox.hidden = !hasEquipment;
+        equipmentDetailFields.forEach(function (field) {
+            field.hidden = !hasEquipment;
+        });
+        if (equipmentExistingWarning) {
+            const equipmentId = equipmentInput ? String(equipmentInput.value || '') : '';
+            const duplicated = equipmentId && existingAcaEquipmentIds.has(equipmentId);
+            equipmentExistingWarning.hidden = !duplicated;
+            equipmentExistingWarning.textContent = duplicated
+                ? 'Este equipo ya tiene un registro ACA realizado con anterioridad en este servicio.'
+                : '';
+        }
+    }
+
+    function syncEquipmentInfo() {
+        const equipo = equipmentInput ? equipmentById[String(equipmentInput.value || '')] : null;
+        setEquipmentField(equipmentFields.ut, equipo ? equipo.ut : '');
+        setEquipmentField(equipmentFields.description, equipo ? equipo.descripcion_ut : '');
+        setEquipmentField(equipmentFields.name, equipo ? equipo.equipo : '');
+        setEquipmentField(equipmentFields.tag, equipo ? equipo.tag : '');
+        syncEquipmentDetailVisibility(equipo);
+    }
+
+    function normalizeSearch(value) {
+        return (value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function selectedLevelNodeIds() {
+        if (!equipmentFilterBox) return [];
+        return Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'))
+            .map(select => select.value)
+            .filter(Boolean)
+            .map(String);
+    }
+
+    function equipmentMatchesFilters(item) {
+        const selectedNodes = selectedLevelNodeIds();
+        const pathIds = (item.path_node_ids || []).map(String);
+        const levelOk = selectedNodes.every(nodeId => pathIds.includes(nodeId));
+        if (!levelOk) return false;
+        const query = normalizeSearch(equipmentSearch ? equipmentSearch.value : '');
+        if (!query) return true;
+        return normalizeSearch([
+            item.ut,
+            item.descripcion_ut,
+            item.equipo,
+            item.tag,
+            item.path_text,
+        ].join(' ')).includes(query);
+    }
+
+    function optionLabelForEquipment(item) {
+        const tag = item.tag ? item.tag + ' · ' : '';
+        const name = item.equipo || 'Sin nombre';
+        const ut = item.ut ? ' · ' + item.ut : '';
+        return tag + name + ut;
+    }
+
+    function refreshEquipmentResults(keepSelection) {
+        if (!equipmentResults) return;
+        const currentValue = keepSelection && equipmentInput ? String(equipmentInput.value || '') : '';
+        const matches = equipmentItems.filter(equipmentMatchesFilters);
+        const limited = matches.slice(0, 200);
+        equipmentResults.innerHTML = '<option value="">Selecciona un equipo</option>' + limited
+            .map(item => `<option value="${item.id}">${escapeHtml(optionLabelForEquipment(item))}</option>`)
+            .join('');
+        if (currentValue && limited.some(item => String(item.id) === currentValue)) {
+            equipmentResults.value = currentValue;
+        } else {
+            equipmentResults.value = '';
+            if (!currentValue && equipmentInput) {
+                equipmentInput.value = '';
+                syncEquipmentInfo();
+            }
+        }
+        if (equipmentCount) {
+            equipmentCount.textContent = matches.length > 200
+                ? `${matches.length} equipos encontrados. Mostrando los primeros 200.`
+                : `${matches.length} equipos encontrados.`;
+        }
+    }
+
+    function repopulateEquipmentFilters(changedIndex) {
+        if (!equipmentFilterBox) return;
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = changedIndex + 1; index < selects.length; index += 1) {
+            selects[index].value = '';
+            const wrapper = selects[index].closest('.form-field');
+            if (wrapper) wrapper.hidden = true;
+        }
+        selects.forEach(function (select, index) {
+            const previous = index > 0 ? selects[index - 1].value : '';
+            const level = equipmentLevels[index];
+            if (!level) return;
+            const options = equipmentNodes
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .filter(node => index === 0 ? !node.parent_id : String(node.parent_id || '') === String(previous || ''))
+                .sort((a, b) => a.label.localeCompare(b.label));
+            const selected = select.value;
+            select.disabled = index > 0 && !previous;
+            select.innerHTML = `<option value="">${index > 0 && !previous ? 'Selecciona nivel superior' : 'Todos'}</option>` + options
+                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
+                .join('');
+            if (options.some(node => String(node.id) === String(selected))) {
+                select.value = selected;
+            }
+        });
+    }
+
+    function selectEquipmentFromResult() {
+        if (!equipmentInput || !equipmentResults) return;
+        equipmentInput.value = equipmentResults.value || '';
+        syncEquipmentInfo();
+    }
+
+    function applySelectedEquipmentPath() {
+        if (!equipmentInput || !equipmentInput.value || !equipmentFilterBox) return;
+        const item = equipmentById[String(equipmentInput.value)];
+        if (!item) return;
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        selects.forEach(function (select, index) {
+            repopulateEquipmentFilters(index - 1);
+            const level = equipmentLevels[index];
+            const nodeId = (item.path_node_ids || []).find(pathId => {
+                const node = nodesById[String(pathId)];
+                return node && Number(node.level_id) === Number(level.id);
+            });
+            if (nodeId) select.value = String(nodeId);
+        });
+        repopulateEquipmentFilters(selects.length - 1);
+    }
+
+    function initEquipmentBrowser() {
+        if (!equipmentFilterBox || !equipmentResults) return;
+        equipmentFilterBox.innerHTML = equipmentLevels.map((level, index) => `
+            <div class="form-field">
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" data-equipment-level-filter data-level-index="${index}">
+                    <option value="">Todos</option>
+                </select>
+            </div>
+        `).join('');
+        equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]').forEach(function (select) {
+            select.addEventListener('change', function () {
+                repopulateEquipmentFilters(Number(select.dataset.levelIndex || 0));
+                refreshEquipmentResults(false);
+            });
+        });
+        if (equipmentSearch) equipmentSearch.addEventListener('input', function () {
+            refreshEquipmentResults(true);
+        });
+        equipmentResults.addEventListener('change', selectEquipmentFromResult);
+        repopulateEquipmentFilters(-1);
+        applySelectedEquipmentPath();
+        refreshEquipmentResults(true);
+        if (equipmentInput && equipmentInput.value) equipmentResults.value = equipmentInput.value;
+        syncEquipmentInfo();
+    }
+
+    const lazyEquipmentNodeCache = new Map();
+    const lazyEquipmentById = new Map();
+    let lazyEquipmentSearchTimer = null;
+    let lazyEquipmentRequestId = 0;
+    let lazyEquipmentAutoNodeId = '';
+
+    async function lazyFetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function lazyLoadEquipmentNodes(parentId) {
+        if (!equipmentEndpoints.nodes) return [];
+        const key = parentId || 'root';
+        if (lazyEquipmentNodeCache.has(key)) return lazyEquipmentNodeCache.get(key);
+        const url = parentId
+            ? `${equipmentEndpoints.nodes}?parent_id=${encodeURIComponent(parentId)}`
+            : equipmentEndpoints.nodes;
+        const data = await lazyFetchJson(url);
+        const nodes = data.nodes || [];
+        lazyEquipmentNodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    function lazySelectedEquipmentNodeId() {
+        if (!equipmentFilterBox) return '';
+        const selects = Array.from(equipmentFilterBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
+        }
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return lazyEquipmentAutoNodeId || '';
+    }
+
+    function lazyOptionLabelForEquipment(item) {
+        const tag = item.tag ? item.tag + ' - ' : '';
+        const name = item.equipo || 'Sin nombre';
+        const ut = item.ut ? ' - ' + item.ut : '';
+        return tag + name + ut;
+    }
+
+    function lazySyncEquipmentInfo(item) {
+        setEquipmentField(equipmentFields.ut, item ? item.ut : '');
+        setEquipmentField(equipmentFields.description, item ? item.descripcion_ut : '');
+        setEquipmentField(equipmentFields.name, item ? item.equipo : '');
+        setEquipmentField(equipmentFields.tag, item ? item.tag : '');
+        syncEquipmentDetailVisibility(item);
+    }
+
+    async function lazyRefreshEquipmentResults(keepSelection) {
+        if (!equipmentResults || !equipmentEndpoints.search) return;
+        const currentValue = keepSelection && equipmentInput ? String(equipmentInput.value || '') : '';
+        const query = equipmentSearch ? equipmentSearch.value.trim() : '';
+        const nodeId = lazySelectedEquipmentNodeId();
+        const defaultListing = !nodeId && query.length < 2;
+
+        const requestId = ++lazyEquipmentRequestId;
+        if (equipmentCount) equipmentCount.textContent = 'Buscando equipos...';
+        const params = new URLSearchParams({ limit: defaultListing ? '50' : '200' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+
+        let data;
+        try {
+            data = await lazyFetchJson(`${equipmentEndpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== lazyEquipmentRequestId) return;
+            equipmentResults.innerHTML = '<option value="">No se pudieron cargar equipos</option>';
+            if (equipmentCount) equipmentCount.textContent = 'No se pudieron cargar los equipos.';
+            return;
+        }
+        if (requestId !== lazyEquipmentRequestId) return;
+
+        const items = data.items || [];
+        items.forEach(item => lazyEquipmentById.set(String(item.id), item));
+        equipmentResults.innerHTML = '<option value="">Selecciona un equipo</option>' + items
+            .map(item => `<option value="${item.id}">${escapeHtml(lazyOptionLabelForEquipment(item))}</option>`)
+            .join('');
+        if (currentValue && items.some(item => String(item.id) === currentValue)) {
+            equipmentResults.value = currentValue;
+            lazySyncEquipmentInfo(lazyEquipmentById.get(currentValue) || null);
+        } else {
+            equipmentResults.value = '';
+            if (!currentValue && equipmentInput) {
+                equipmentInput.value = '';
+                lazySyncEquipmentInfo(null);
+            }
+        }
+        if (equipmentCount) {
+            equipmentCount.textContent = data.truncated
+                ? `${data.count} equipos encontrados. Mostrando los primeros ${items.length}.`
+                : defaultListing
+                    ? `${data.count || 0} equipos disponibles. Mostrando hasta 50.`
+                    : `${data.count || 0} equipos encontrados.`;
+        }
+    }
+
+    function lazyScheduleEquipmentSearch() {
+        clearTimeout(lazyEquipmentSearchTimer);
+        lazyEquipmentSearchTimer = setTimeout(function () {
+            lazyRefreshEquipmentResults(true);
+        }, 250);
+    }
+
+    async function lazyRenderEquipmentFilterLevel(parentId, levelIndex, skipLeadingSingles, preferredPathIds) {
+        if (!equipmentFilterBox) return;
+        if (levelIndex >= equipmentLevels.length) return;
+        equipmentFilterBox.querySelectorAll('[data-equipment-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = equipmentLevels[levelIndex];
+        let options = [];
+        try {
+            options = (await lazyLoadEquipmentNodes(parentId || ''))
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.equipmentLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>No se pudieron cargar datos</option></select>
+            `;
+            equipmentFilterBox.appendChild(field);
+            return;
+        }
+
+        if (!options.length) {
+            lazyEquipmentAutoNodeId = parentId || lazyEquipmentAutoNodeId || '';
+            return;
+        }
+
+        if (options.length === 1 && skipLeadingSingles) {
+            lazyEquipmentAutoNodeId = String(options[0].id || '');
+            await lazyRenderEquipmentFilterLevel(lazyEquipmentAutoNodeId, levelIndex + 1, true, preferredPathIds || []);
+            return;
+        }
+
+        lazyEquipmentAutoNodeId = parentId || '';
+        const preferred = (preferredPathIds || []).map(String).find(nodeId => (
+            options.some(option => String(option.id) === String(nodeId))
+        ));
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.equipmentLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-equipment-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${options.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        equipmentFilterBox.appendChild(field);
+
+        const select = field.querySelector('[data-equipment-level-filter]');
+        if (preferred) {
+            select.value = String(preferred);
+        } else if (options.length === 1) {
+            select.value = String(options[0].id || '');
+        }
+        if (select.value) {
+            lazyEquipmentAutoNodeId = select.value;
+            await lazyRenderEquipmentFilterLevel(select.value, levelIndex + 1, false, preferredPathIds || []);
+        }
+        select.addEventListener('change', function () {
+            const value = select.value;
+            if (!value) {
+                lazyEquipmentAutoNodeId = select.dataset.parentId || '';
+                equipmentFilterBox.querySelectorAll('[data-equipment-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                lazyRefreshEquipmentResults(false);
+                return;
+            }
+            lazyRenderEquipmentFilterLevel(value, levelIndex + 1, false, []).then(function () {
+                lazyRefreshEquipmentResults(false);
+            });
+        });
+    }
+
+    function lazySelectEquipmentFromResult() {
+        if (!equipmentInput || !equipmentResults) return;
+        equipmentInput.value = equipmentResults.value || '';
+        lazySyncEquipmentInfo(lazyEquipmentById.get(String(equipmentInput.value || '')) || null);
+    }
+
+    async function lazyLoadSelectedEquipment() {
+        if (!equipmentInput || !equipmentInput.value || !equipmentEndpoints.detail_template) {
+            lazySyncEquipmentInfo(null);
+            return null;
+        }
+        const url = equipmentEndpoints.detail_template.replace('__id__', encodeURIComponent(equipmentInput.value));
+        try {
+            const data = await lazyFetchJson(url);
+            const item = data.item || null;
+            if (item) {
+                lazyEquipmentById.set(String(item.id), item);
+                lazySyncEquipmentInfo(item);
+            }
+            return item;
+        } catch (error) {
+            lazySyncEquipmentInfo(null);
+            return null;
+        }
+    }
+
+    async function initEquipmentBrowser() {
+        if (!equipmentFilterBox || !equipmentResults) return;
+        equipmentFilterBox.innerHTML = '';
+        if (equipmentSearch) equipmentSearch.addEventListener('input', lazyScheduleEquipmentSearch);
+        equipmentResults.addEventListener('change', lazySelectEquipmentFromResult);
+        const selected = await lazyLoadSelectedEquipment();
+        if (selected) {
+            await lazyRenderEquipmentFilterLevel('', 0, true, selected.path_node_ids || []);
+            equipmentResults.innerHTML = `<option value="${selected.id}">${escapeHtml(lazyOptionLabelForEquipment(selected))}</option>`;
+            equipmentResults.value = String(selected.id);
+            if (equipmentCount) equipmentCount.textContent = 'Equipo seleccionado.';
+        } else {
+            await lazyRenderEquipmentFilterLevel('', 0, true, []);
+            await lazyRefreshEquipmentResults(true);
+        }
+    }
+
+    function setPanelOpen(button, open) {
+        const panel = document.getElementById(button.dataset.panelId);
+        if (!panel) return;
+        panel.hidden = !open;
+        button.setAttribute('aria-expanded', String(open));
+        button.classList.toggle('is-open', open);
+        if (button.tagName.toLowerCase() === 'button') {
+            button.textContent = open ? 'Ocultar tabla' : 'Ver tabla';
+        }
+    }
+
+    function openOptionPanelForSelect(select) {
+        const button = document.querySelector('[data-option-target="' + select.id + '"]');
+        if (button) setPanelOpen(button, true);
+    }
+
+    function closeOptionPanelForTarget(targetId) {
+        const button = document.querySelector('[data-option-target="' + targetId + '"]');
+        if (button) setPanelOpen(button, false);
+    }
+
+    function syncOptionSelection(select) {
+        if (!select) return;
+        let numericValue = '';
+        document.querySelectorAll('tr[data-target="' + select.id + '"]').forEach(function (row) {
+            const selected = row.dataset.value === select.value;
+            row.classList.toggle('selected-row', selected);
+            if (selected) numericValue = row.dataset.valueNumeric || '';
+        });
+        select.dataset.numericValue = numericValue;
+        syncPickerDisplay(select);
+    }
+
+    function syncPickerDisplay(select) {
+        const display = document.querySelector('[data-picker-display-for="' + select.id + '"]');
+        if (!display) return;
+        const selected = select.options[select.selectedIndex];
+        const label = selected && select.value ? selected.textContent.trim() : '';
+        display.value = label;
+        display.classList.toggle('has-value', Boolean(label));
+    }
+
+    function pickValue(targetId, value, numericValue) {
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        input.value = value;
+        input.dataset.numericValue = numericValue || '';
+        syncOptionSelection(input);
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        closeOptionPanelForTarget(targetId);
+        recalcCalculatedDimensions();
+    }
+
+    function clearMatrixSelection() {
+        if (matrixHidden) matrixHidden.value = '';
+        document.querySelectorAll('.btn-pick-matrix').forEach(function (btn) {
+            btn.classList.remove('is-selected');
+        });
+        if (probDisplay) probDisplay.value = '';
+        if (impactDisplay) impactDisplay.value = '';
+        if (critDisplay) critDisplay.value = '';
+    }
+
+    function selectMatrixCell(button) {
+        if (!button || button.disabled || !button.dataset.cellId) {
+            clearMatrixSelection();
+            return;
+        }
+
+        if (matrixHidden) matrixHidden.value = button.dataset.cellId;
+
+        document.querySelectorAll('.btn-pick-matrix').forEach(function (btn) {
+            btn.classList.remove('is-selected');
+        });
+        button.classList.add('is-selected');
+
+        if (probSelect) probSelect.value = button.dataset.probId || '';
+        if (impactSelect) impactSelect.value = button.dataset.impactId || '';
+
+        if (probDisplay) {
+            probDisplay.value = button.dataset.probLabel + ' (' + button.dataset.probValue + ')';
+        }
+        if (impactDisplay) {
+            impactDisplay.value = button.dataset.impactLabel + ' (' + button.dataset.impactValue + ')';
+        }
+        if (critDisplay) {
+            critDisplay.value = button.dataset.classification || '-';
+        }
+    }
+
+    function updateMatrixFromInputs() {
+        if (!probSelect || !impactSelect) return;
+        const probId = probSelect.value;
+        const impactId = impactSelect.value;
+        if (!probId || !impactId) {
+            clearMatrixSelection();
+            return;
+        }
+        const button = document.querySelector(
+            '.btn-pick-matrix[data-prob-id="' + probId + '"][data-impact-id="' + impactId + '"]'
+        );
+        selectMatrixCell(button);
+    }
+
+    function numericEquals(a, b) {
+        const left = toNumber(a);
+        const right = toNumber(b);
+        return left !== null && right !== null && Math.abs(left - right) < 0.000001;
+    }
+
+    function selectLevelByNumericValue(select, numericValue) {
+        if (!select || numericValue === null) return false;
+        const option = Array.from(select.options).find(function (item) {
+            return item.value && numericEquals(item.dataset.levelValue, numericValue);
+        });
+        if (!option) return false;
+        select.value = option.value;
+        return true;
+    }
+
+    function sourceNumericValue(sourceValues, keys) {
+        for (const key of keys) {
+            if (!key) continue;
+            const value = toNumber(sourceValues[key] ?? sourceValues[calcSlug(key)]);
+            if (value !== null) return value;
+        }
+        return null;
+    }
+
+    function resultFromAxisValues(probValue, impactValue) {
+        if (matrixResolutionMode === 'umbral_resultado') {
+            if (matrixProbAxisGenerated && !matrixImpactAxisGenerated) probValue = null;
+            if (matrixImpactAxisGenerated && !matrixProbAxisGenerated) impactValue = null;
+        }
+        if (probValue !== null && impactValue !== null) return probValue * impactValue;
+        if (impactValue !== null) return impactValue;
+        if (probValue !== null) return probValue;
+        return null;
+    }
+
+    function findFloorMatrixButton(resultValue) {
+        if (resultValue === null) return null;
+        let bestButton = null;
+        let bestValue = null;
+        document.querySelectorAll('.btn-pick-matrix').forEach(function (button) {
+            if (button.disabled || !button.dataset.cellId) return;
+            const cellValue = toNumber(button.dataset.result);
+            if (cellValue === null || cellValue > resultValue) return;
+            if (bestValue === null || cellValue > bestValue) {
+                bestValue = cellValue;
+                bestButton = button;
+            }
+        });
+        return bestButton;
+    }
+
+    function updateMatrixFromDimensionValues(sourceValues) {
+        if (!probSelect || !impactSelect) return;
+        const probValue = sourceNumericValue(sourceValues, [
+            matrixProbDimensionId,
+            matrixProbDimensionId ? 'dim:' + matrixProbDimensionId : '',
+            matrixProbEstrategiaDimensionId ? 'ed:' + matrixProbEstrategiaDimensionId : '',
+            matrixProbEstrategiaDimensionId ? 'estrategia_dimension:' + matrixProbEstrategiaDimensionId : '',
+            matrixProbEstrategiaDimensionId,
+        ]);
+        const impactValue = sourceNumericValue(sourceValues, [
+            matrixImpactDimensionId,
+            matrixImpactDimensionId ? 'dim:' + matrixImpactDimensionId : '',
+            matrixImpactEstrategiaDimensionId ? 'ed:' + matrixImpactEstrategiaDimensionId : '',
+            matrixImpactEstrategiaDimensionId ? 'estrategia_dimension:' + matrixImpactEstrategiaDimensionId : '',
+            matrixImpactEstrategiaDimensionId,
+        ]);
+
+        if (matrixResolutionMode === 'umbral_resultado') {
+            const resultValue = resultFromAxisValues(probValue, impactValue);
+            if (resultValue === null || probValue === null || impactValue === null) {
+                clearMatrixSelection();
+                return;
+            }
+            const button = findFloorMatrixButton(resultValue);
+            if (!button) {
+                clearMatrixSelection();
+                return;
+            }
+            selectMatrixCell(button);
+            return;
+        }
+
+        if (probValue === null || impactValue === null) {
+            clearMatrixSelection();
+            return;
+        }
+
+        const matchedProb = selectLevelByNumericValue(probSelect, probValue);
+        const matchedImpact = selectLevelByNumericValue(impactSelect, impactValue);
+        if (!matchedProb || !matchedImpact) {
+            clearMatrixSelection();
+            return;
+        }
+        updateMatrixFromInputs();
+    }
+
+    function toNumber(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const n = Number(String(value).replace(',', '.'));
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function calcSlug(value) {
+        return (value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_|_$/g, '');
+    }
+
+    function rememberDimensionValue(sourceValues, card, value) {
+        if (!card || value === null || value === undefined) return;
+        if (card.dataset.dimensionId) {
+            sourceValues[card.dataset.dimensionId] = value;
+            sourceValues['dim:' + card.dataset.dimensionId] = value;
+        }
+        if (card.dataset.estrategiaDimensionId) {
+            sourceValues['ed:' + card.dataset.estrategiaDimensionId] = value;
+            sourceValues['estrategia_dimension:' + card.dataset.estrategiaDimensionId] = value;
+            sourceValues[card.dataset.estrategiaDimensionId] = value;
+        }
+        if (card.dataset.dimensionName) {
+            sourceValues[card.dataset.dimensionName] = value;
+            sourceValues[calcSlug(card.dataset.dimensionName)] = value;
+        }
+        if (card.dataset.dimensionCampo) {
+            sourceValues[card.dataset.dimensionCampo] = value;
+            sourceValues[calcSlug(card.dataset.dimensionCampo)] = value;
+        }
+    }
+
+    function matchesRange(value, row) {
+        const min = toNumber(row.dataset.rangeMin);
+        const max = toNumber(row.dataset.rangeMax);
+        if (min !== null && value < min) return false;
+        if (max !== null && value >= max) return false;
+        return true;
+    }
+
+    function matchesOption(value, row) {
+        let matchValue = toNumber(row.dataset.matchValue);
+        if (matchValue === null) matchValue = toNumber(row.dataset.valueNumeric);
+        return matchValue !== null && Math.abs(matchValue - value) < 0.000001;
+    }
+
+    function updateDependentCatalogs(sourceValues) {
+        document.querySelectorAll('[data-dependent-catalog]').forEach(function (box) {
+            const catalogType = box.dataset.dependentCatalogType || '';
+            const value = sourceNumericValue(sourceValues, [
+                box.dataset.dependentSourceEdId ? 'ed:' + box.dataset.dependentSourceEdId : '',
+                box.dataset.dependentSourceDimId || '',
+                box.dataset.dependentSourceDimId ? 'dim:' + box.dataset.dependentSourceDimId : '',
+                box.dataset.dependentSourceCampo || '',
+                box.dataset.dependentSource || '',
+            ]);
+            const select = document.getElementById(box.dataset.optionTarget);
+            if (!select) return;
+
+            let matchedRow = null;
+            if (value !== null) {
+                document.querySelectorAll('tr[data-target="' + select.id + '"]').forEach(function (row) {
+                    const matches = catalogType === 'rangos'
+                        ? matchesRange(value, row)
+                        : matchesOption(value, row);
+                    if (!matchedRow && matches) matchedRow = row;
+                });
+            }
+
+            select.value = matchedRow ? matchedRow.dataset.value : '';
+            select.dataset.numericValue = matchedRow ? (matchedRow.dataset.valueNumeric || '') : '';
+            syncOptionSelection(select);
+
+            const numericValue = toNumber(select.dataset.numericValue);
+            if (numericValue !== null) {
+                rememberDimensionValue(sourceValues, box.closest('.dimension-card'), numericValue);
+            }
+        });
+    }
+
+    function readDimensionValue(card) {
+        if (card.querySelector('[data-dependent-catalog]')) return null;
+
+        const select = card.querySelector('select[id$="escala_valor"], select[id$="catalogo_fila"]');
+        if (select) {
+            syncOptionSelection(select);
+            if (select.dataset.numericValue) return toNumber(select.dataset.numericValue);
+        }
+
+        const numeric = card.querySelector('input[name$="valor_numerico"]');
+        if (numeric && numeric.value !== '') return toNumber(numeric.value);
+
+        return null;
+    }
+
+    function applyOperation(type, values) {
+        if (!values.length) return null;
+        if (type === 'suma') return values.reduce((a, b) => a + b, 0);
+        if (type === 'resta') return values.slice(1).reduce((a, b) => a - b, values[0]);
+        if (type === 'multiplicacion') return values.reduce((a, b) => a * b, 1);
+        if (type === 'maximo') return Math.max(...values);
+        if (type === 'minimo') return Math.min(...values);
+        if (type === 'division') {
+            let result = values[0];
+            for (const value of values.slice(1)) {
+                if (value === 0 || result === null) return null;
+                result = result / value;
+            }
+            return result;
+        }
+        return null;
+    }
+
+    function operandValue(op, sourceValues, previousResult) {
+        if (typeof op === 'object' && op !== null && (op.resultado === true || op.tipo === 'resultado')) {
+            return previousResult;
+        }
+
+        if (typeof op !== 'object' && ['$resultado', '__resultado__', 'resultado_anterior'].includes(String(op))) {
+            return previousResult;
+        }
+
+        const candidates = typeof op === 'object' && op !== null
+            ? [
+                op.estrategia_dimension_id ? 'ed:' + op.estrategia_dimension_id : '',
+                op.estrategia_dimension_id ? 'estrategia_dimension:' + op.estrategia_dimension_id : '',
+                op.dimension_id,
+                op.dimension_id ? 'dim:' + op.dimension_id : '',
+                op.campo,
+                op.nombre,
+                op.source
+            ]
+            : [op];
+
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            const key = String(candidate);
+            const value = sourceValues[key] ?? sourceValues[calcSlug(key)];
+            if (value !== undefined && value !== null) {
+                return Number(value);
+            }
+        }
+
+        return null;
+    }
+
+    function calculationSteps(type, config) {
+        const configured = Array.isArray(config.pasos) ? config.pasos : (Array.isArray(config.steps) ? config.steps : []);
+        if (configured.length) {
+            return configured
+                .map(step => ({
+                    operation: step.operacion || step.tipo_calculo || step.operation || type,
+                    operands: step.operandos || step.campos || step.sources || [],
+                    mode: step.modo || (step.ponderado === true ? 'ponderado' : '')
+                }))
+                .filter(step => step.operation && Array.isArray(step.operands));
+        }
+        return [{
+            operation: type,
+            operands: config.operandos || config.campos || config.sources || []
+        }];
+    }
+
+    function calculationOperandWeight(operand) {
+        if (!operand || typeof operand !== 'object') return null;
+        return toNumber(operand.peso ?? operand.ponderador ?? operand.weight);
+    }
+
+    function weightedCalculationValues(operands, values) {
+        if (!operands.length || operands.length !== values.length) return null;
+        let weights = operands.map(calculationOperandWeight);
+        if (weights.every(weight => weight === null)) {
+            weights = weights.map(() => 1 / weights.length);
+        } else if (weights.some(weight => weight === null)) {
+            const assigned = weights.reduce((total, weight) => total + (weight ?? 0), 0);
+            const missing = weights.filter(weight => weight === null).length;
+            const remaining = 1 - assigned;
+            if (remaining < 0) return null;
+            weights = weights.map(weight => weight === null ? remaining / missing : weight);
+        }
+        const total = weights.reduce((sum, weight) => sum + weight, 0);
+        if (weights.some(weight => weight < 0 || weight > 1) || Math.abs(total - 1) > 0.0001) return null;
+        return values.map((value, index) => value * weights[index]);
+    }
+
+    function evaluateCalculation(type, config, sourceValues) {
+        let result = null;
+        for (const step of calculationSteps(type, config)) {
+            const values = [];
+            step.operands.forEach(function (op) {
+                const value = operandValue(op, sourceValues, result);
+                if (value !== null && value !== undefined && !Number.isNaN(value)) {
+                    values.push(value);
+                }
+            });
+            if (step.mode === 'ponderado' && step.operation === 'suma') {
+                if (values.length !== step.operands.length) return null;
+                const weightedValues = weightedCalculationValues(step.operands, values);
+                if (!weightedValues) return null;
+                values.splice(0, values.length, ...weightedValues);
+            }
+            result = applyOperation(step.operation || type, values);
+            if (result === null) return null;
+        }
+        return result;
+    }
+
+    function recalcCalculatedDimensions() {
+        const sourceValues = {};
+
+        document.querySelectorAll('.dimension-card').forEach(function (card) {
+            const value = readDimensionValue(card);
+            if (value === null) return;
+            rememberDimensionValue(sourceValues, card, value);
+        });
+
+        document.querySelectorAll('[data-calc-config]').forEach(function (box) {
+            let config = {};
+            try {
+                config = JSON.parse(box.dataset.calcConfig || '{}');
+            } catch (e) {
+                config = {};
+            }
+
+            const result = evaluateCalculation(box.dataset.calcType || '', config, sourceValues);
+            const target = document.getElementById(box.dataset.target);
+            const output = box.querySelector('.calc-output');
+            const display = result === null ? '' : String(Number(result.toFixed(6))).replace('.', ',');
+
+            if (target) target.value = result === null ? '' : Number(result.toFixed(6));
+            if (output) output.value = display;
+            if (result !== null) rememberDimensionValue(sourceValues, box.closest('.dimension-card'), result);
+        });
+
+        updateDependentCatalogs(sourceValues);
+        updateMatrixFromDimensionValues(sourceValues);
+    }
+
+    document.querySelectorAll('[data-option-toggle]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            setPanelOpen(button, button.getAttribute('aria-expanded') !== 'true');
+        });
+    });
+
+    document.querySelectorAll('.option-compact-row select').forEach(function (select) {
+        select.addEventListener('focus', function () {
+            openOptionPanelForSelect(select);
+        });
+        select.addEventListener('change', function () {
+            syncOptionSelection(select);
+            recalcCalculatedDimensions();
+        });
+        syncOptionSelection(select);
+    });
+
+    document.querySelectorAll('.btn-pick-option').forEach(function (button) {
+        button.addEventListener('click', function () {
+            pickValue(button.dataset.target, button.dataset.value, button.dataset.valueNumeric || '');
+        });
+    });
+
+    document.querySelectorAll('.picker-row').forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target.tagName.toLowerCase() === 'button') return;
+            pickValue(row.dataset.target, row.dataset.value, row.dataset.valueNumeric || '');
+        });
+    });
+
+    document.querySelectorAll('.btn-pick-matrix').forEach(function (button) {
+        button.addEventListener('click', function () {
+            selectMatrixCell(button);
+        });
+    });
+
+    if (probSelect) probSelect.addEventListener('change', updateMatrixFromInputs);
+    if (impactSelect) impactSelect.addEventListener('change', updateMatrixFromInputs);
+
+    document.querySelectorAll('.dimension-card input, .dimension-card select').forEach(function (input) {
+        input.addEventListener('input', recalcCalculatedDimensions);
+        input.addEventListener('change', recalcCalculatedDimensions);
+    });
+
+    if (matrixHidden && matrixHidden.value) {
+        const button = document.querySelector('.btn-pick-matrix[data-cell-id="' + matrixHidden.value + '"]');
+        if (button) selectMatrixCell(button);
+    }
+
+    initScopeSelector();
+    initAttachmentPicker();
+    initEquipmentBrowser();
+    recalcCalculatedDimensions();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}Pautas {{ service.codigo_servicio }} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>Pautas</h2>
+        <p>{{ service.codigo_servicio }} · pautas generadas desde RCM/FMEA.</p>
+    </div>
+    </div>
+    <div class="actions">
+        {% if permission.can_edit %}
+            <a class="btn" href="{% url 'service_pauta_templates' service.pk %}">Plantillas</a>
+            <a class="btn btn-primary" href="{% url 'service_pautas_generate' service.pk %}">Generar desde RCM/FMEA</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table class="datatable display compact-table">
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Nombre</th>
+                    <th>Frecuencia</th>
+                    <th>Especialidad</th>
+                    <th>Estado equipo</th>
+                    <th>Tareas</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pauta in pautas %}
+                    <tr>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.codigo }}" data-copy="{{ pauta.codigo }}">{{ pauta.codigo }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.nombre }}" data-copy="{{ pauta.nombre }}">{{ pauta.nombre }}</span></td>
+                        <td>{{ pauta.frecuencia|default:'-' }}</td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.especialidad|default:'-' }}" data-copy="{{ pauta.especialidad|default:'-' }}">{{ pauta.especialidad|default:'-' }}</span></td>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ pauta.estado_equipo|default:'-' }}" data-copy="{{ pauta.estado_equipo|default:'-' }}">{{ pauta.estado_equipo|default:'-' }}</span></td>
+                        <td>{{ pauta.tareas.count }}</td>
+                        <td>{{ pauta.get_estado_display }}</td>
+                        <td>
+                            <div class="actions">
+                                <a class="btn" href="{% url 'service_pauta_detail' service.pk pauta.pk %}">Ver</a>
+                                <a class="btn" href="{% url 'service_pauta_export_excel' service.pk pauta.pk %}">Excel</a>
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="muted">Todavía no hay pautas generadas para este servicio.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

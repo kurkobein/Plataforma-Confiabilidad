@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar acceso de usuario{% else %}Nuevo acceso de usuario{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar acceso de usuario{% else %}Nuevo acceso de usuario{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'accesousuario' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.puede_ver.label }}</strong></div>
+            <div>
+                {{ form.puede_ver }}
+                {% if form.puede_ver.help_text %}<small>{{ form.puede_ver.help_text }}</small>{% endif %}
+                {{ form.puede_ver.errors }}
+            </div>
+            <div><strong>{{ form.puede_editar.label }}</strong></div>
+            <div>
+                {{ form.puede_editar }}
+                {% if form.puede_editar.help_text %}<small>{{ form.puede_editar.help_text }}</small>{% endif %}
+                {{ form.puede_editar.errors }}
+            </div>
+            <div><strong>{{ form.puede_ver_todo.label }}</strong></div>
+            <div>
+                {{ form.puede_ver_todo }}
+                {% if form.puede_ver_todo.help_text %}<small>{{ form.puede_ver_todo.help_text }}</small>{% endif %}
+                {{ form.puede_ver_todo.errors }}
+            </div>
+            <div><strong>{{ form.creado_en.label }}</strong></div>
+            <div>
+                {{ form.creado_en }}
+                {% if form.creado_en.help_text %}<small>{{ form.creado_en.help_text }}</small>{% endif %}
+                {{ form.creado_en.errors }}
+            </div>
+            <div><strong>{{ form.empresa.label }}</strong></div>
+            <div>
+                {{ form.empresa }}
+                {% if form.empresa.help_text %}<small>{{ form.empresa.help_text }}</small>{% endif %}
+                {{ form.empresa.errors }}
+            </div>
+            <div><strong>{{ form.estrategia.label }}</strong></div>
+            <div>
+                {{ form.estrategia }}
+                {% if form.estrategia.help_text %}<small>{{ form.estrategia.help_text }}</small>{% endif %}
+                {{ form.estrategia.errors }}
+            </div>
+            <div><strong>{{ form.servicio.label }}</strong></div>
+            <div>
+                {{ form.servicio }}
+                {% if form.servicio.help_text %}<small>{{ form.servicio.help_text }}</small>{% endif %}
+                {{ form.servicio.errors }}
+            </div>
+            <div><strong>{{ form.usuario.label }}</strong></div>
+            <div>
+                {{ form.usuario }}
+                {% if form.usuario.help_text %}<small>{{ form.usuario.help_text }}</small>{% endif %}
+                {{ form.usuario.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

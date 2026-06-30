@@ -579,7 +579,7 @@ def technical_location_index(request):
             'nodos_count': models.NodoJerarquia.objects.filter(empresa=empresa, activo=True).count(),
             'equipos_count': models.Equipo.objects.filter(nodo__empresa=empresa).count(),
         })
-    return render(request, 'core/technical_locations/technical_location_index.html', {
+    return render(request, 'technical_location_index.html', {
         'rows': rows,
     })
 
@@ -589,7 +589,7 @@ def hierarchy_tree(request, empresa_id):
     _ensure_admin_access(request)
     empresa = get_object_or_404(models.Empresa, pk=empresa_id)
     levels = list(models.NivelJerarquia.objects.filter(empresa=empresa, activo=True).order_by('orden'))
-    return render(request, 'core/technical_locations/hierarchy_tree.html', {
+    return render(request, 'hierarchy_tree.html', {
         'empresa': empresa,
         'levels': levels,
         'nodes_url': reverse('hierarchy_values_nodes', kwargs={'empresa_id': empresa.pk}),
@@ -628,7 +628,7 @@ def hierarchy_structure(request, empresa_id):
         }
         for index, form in enumerate(formset.forms)
     ]
-    return render(request, 'core/technical_locations/hierarchy_structure_form.html', {
+    return render(request, 'hierarchy_structure_form.html', {
         'empresa': empresa,
         'formset': formset,
         'form_rows': form_rows,
@@ -674,7 +674,7 @@ def hierarchy_values(request, empresa_id):
         form = HierarchyValueForm(empresa=empresa)
         bulk_form = HierarchyBulkValueForm(empresa=empresa, prefix='bulk')
 
-    return render(request, 'core/technical_locations/hierarchy_values.html', {
+    return render(request, 'hierarchy_values.html', {
         'empresa': empresa,
         'form': form,
         'bulk_form': bulk_form,
@@ -928,7 +928,7 @@ def hierarchy_create_route(request, empresa_id):
         }
         for index, form in enumerate(formset.forms)
     ]
-    return render(request, 'core/technical_locations/hierarchy_route_form.html', {
+    return render(request, 'hierarchy_route_form.html', {
         'empresa': empresa,
         'formset': formset,
         'form_rows': form_rows,
@@ -957,7 +957,7 @@ def hierarchy_move_node(request, pk):
             return redirect('hierarchy_tree', empresa_id=node.empresa_id)
     else:
         form = HierarchyMoveNodeForm(node=node, initial={'parent': node.parent_id})
-    return render(request, 'core/technical_locations/hierarchy_move_node.html', {
+    return render(request, 'hierarchy_move_node.html', {
         'node': node,
         'form': form,
     })
@@ -1003,7 +1003,7 @@ def hierarchy_insert_between(request, pk):
             return redirect('hierarchy_tree', empresa_id=child.empresa_id)
     else:
         form = HierarchyInsertLevelForm()
-    return render(request, 'core/technical_locations/hierarchy_insert_between.html', {
+    return render(request, 'hierarchy_insert_between.html', {
         'child': child,
         'parent': parent,
         'form': form,

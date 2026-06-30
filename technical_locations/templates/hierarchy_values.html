@@ -1,0 +1,593 @@
+{% extends 'base.html' %}
+{% block title %}Valores UT | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Valores UT - {{ empresa }}</h2>
+        <p>Jerarquía técnica</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'hierarchy_tree' empresa.pk %}">Volver</a>
+        <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
+    </div>
+</div>
+
+<div class="hierarchy-layout">
+    <div class="hierarchy-main-stack">
+        <form method="post" class="card hierarchy-builder-card">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+            {% if not levels %}
+                <div class="message warning" style="margin-bottom: 16px;">
+                    Primero define la estructura base de la ubicacion tecnica para esta empresa.
+                </div>
+                <div class="actions">
+                    <a class="btn btn-primary" href="{% url 'hierarchy_structure' empresa.pk %}">Definir estructura</a>
+                </div>
+            {% else %}
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>{{ form.nivel.label }}</label>
+                    {{ form.nivel }}
+                    {{ form.nivel.errors }}
+                </div>
+                <div class="form-field" id="parent-field">
+                    <label>{{ form.parent.label }}</label>
+                    <div id="value-parent-picker" class="form-grid"></div>
+                    <div style="display:none;">{{ form.parent }}</div>
+                    <small class="muted">Selecciona la ruta superior paso a paso.</small>
+                    {{ form.parent.errors }}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.codigo.label }}</label>
+                    {{ form.codigo }}
+                    {{ form.codigo.errors }}
+                </div>
+                <div class="form-field">
+                    <label>{{ form.nombre.label }}</label>
+                    {{ form.nombre }}
+                    {{ form.nombre.errors }}
+                </div>
+            </div>
+            <div class="actions" style="margin-top: 1rem;">
+                <button class="btn btn-primary" type="submit">Guardar valor</button>
+            </div>
+            {% endif %}
+        </form>
+
+        {% if levels %}
+        <form method="post" class="card hierarchy-builder-card hierarchy-bulk-card" id="hierarchy-bulk-form" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="bulk_create">
+            <h3 class="card-title">Carga rapida</h3>
+            <p class="muted" style="margin-top:-4px;">Elige el nivel y su nodo superior una vez. Luego pega varias filas desde Excel.</p>
+            {% if bulk_form.non_field_errors %}<div class="form-errors">{{ bulk_form.non_field_errors }}</div>{% endif %}
+            {{ bulk_form.sin_nodo_superior }}
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>{{ bulk_form.nivel.label }}</label>
+                    {{ bulk_form.nivel }}
+                    {{ bulk_form.nivel.errors }}
+                </div>
+                <div class="form-field" id="bulk-parent-field">
+                    <label>{{ bulk_form.parent.label }}</label>
+                    <div id="bulk-value-parent-picker" class="form-grid"></div>
+                    <div style="display:none;">{{ bulk_form.parent }}</div>
+                    <small class="muted">Selecciona el nodo superior donde se guardar&aacute;n todos los valores del lote.</small>
+                    {{ bulk_form.parent.errors }}
+                </div>
+            </div>
+            <div class="form-field" style="margin-top:12px;">
+                <label>{{ bulk_form.bulk_values.label }}</label>
+                <div class="bulk-values-field">{{ bulk_form.bulk_values }}</div>
+                <div class="bulk-value-grid" id="bulk-value-grid">
+                    <table class="no-datatable" aria-label="Carga rapida de valores UT">
+                        <colgroup>
+                            <col style="width:46px;">
+                            <col style="width:32%;">
+                            <col>
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Codigo</th>
+                                <th>Nombre</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bulk-value-grid-body"></tbody>
+                    </table>
+                </div>
+                <div class="actions" style="margin-top:10px;">
+                    <button class="btn" type="button" id="bulk-add-rows">Agregar filas</button>
+                    <button class="btn" type="button" id="bulk-clear-rows">Limpiar</button>
+                </div>
+                <small class="muted">Puedes pegar una columna de codigos, una columna de nombres o dos columnas desde Excel. Cada linea horizontal representa un valor.</small>
+                {{ bulk_form.bulk_values.errors }}
+            </div>
+            <div class="actions" style="margin-top: 1rem;">
+                <button class="btn btn-primary" type="submit">Cargar valores</button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="card hierarchy-side-card">
+        <h3 class="card-title">Filtro rapido</h3>
+        <div class="form-field">
+            <label>Buscar</label>
+            <input class="input-control" id="value-search" type="search" placeholder="Codigo o nombre">
+        </div>
+        <div class="form-field" style="margin-top:12px;">
+            <label>Ruta U.T.</label>
+            <div id="value-filter-picker"></div>
+            <small class="muted" id="value-results-count">Selecciona un nivel superior o busca por texto.</small>
+        </div>
+    </div>
+</div>
+
+<div class="table-wrap" style="margin-top:16px;">
+    <table class="data-table" id="hierarchy-values-table">
+        <thead>
+            <tr>
+                <th>Nivel</th>
+                <th>Nodo superior</th>
+                <th>Codigo</th>
+                <th>Nombre</th>
+                <th>UT</th>
+                <th>Ruta</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="hierarchy-values-body">
+            <tr><td colspan="7" class="muted">Selecciona un nodo superior o escribe al menos 2 caracteres para buscar.</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script type="application/json" id="hierarchy-levels-data">{{ hierarchy_levels_json|safe }}</script>
+
+<script>
+(function () {
+    const levels = JSON.parse(document.getElementById('hierarchy-levels-data').textContent || '[]');
+    const endpoints = {
+        nodes: "{% url 'hierarchy_values_nodes' empresa.pk %}",
+        search: "{% url 'hierarchy_values_search' empresa.pk %}"
+    };
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+    const levelSelect = document.getElementById('id_nivel');
+    const parentSelect = document.getElementById('id_parent');
+    const initialParentId = parentSelect ? String(parentSelect.value || '') : '';
+    const initialParentLabel = parentSelect && parentSelect.selectedOptions.length
+        ? parentSelect.selectedOptions[0].textContent
+        : '';
+    const parentField = document.getElementById('parent-field');
+    const parentPicker = document.getElementById('value-parent-picker');
+    const codigoInput = document.getElementById('id_codigo');
+    const bulkLevelSelect = document.getElementById('id_bulk-nivel');
+    const bulkParentSelect = document.getElementById('id_bulk-parent');
+    const bulkWithoutParent = document.getElementById('id_bulk-sin_nodo_superior');
+    const initialBulkParentId = bulkParentSelect ? String(bulkParentSelect.value || '') : '';
+    const initialBulkParentLabel = bulkParentSelect && bulkParentSelect.selectedOptions.length
+        ? bulkParentSelect.selectedOptions[0].textContent
+        : '';
+    const bulkParentField = document.getElementById('bulk-parent-field');
+    const bulkParentPicker = document.getElementById('bulk-value-parent-picker');
+    const bulkForm = document.getElementById('hierarchy-bulk-form');
+    const bulkValuesField = document.getElementById('id_bulk-bulk_values');
+    const bulkGridBody = document.getElementById('bulk-value-grid-body');
+    const bulkAddRowsButton = document.getElementById('bulk-add-rows');
+    const bulkClearRowsButton = document.getElementById('bulk-clear-rows');
+    const filterPicker = document.getElementById('value-filter-picker');
+    const searchInput = document.getElementById('value-search');
+    const countLabel = document.getElementById('value-results-count');
+    const tableBody = document.getElementById('hierarchy-values-body');
+    const nodeCache = new Map();
+    const nodeById = new Map();
+    let filterNodeId = '';
+    let searchTimer = null;
+    let activeRequest = 0;
+    let parentPickerInitialized = false;
+    let bulkParentPickerInitialized = false;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    async function fetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function loadChildren(parentId) {
+        const key = parentId || 'root';
+        if (nodeCache.has(key)) return nodeCache.get(key);
+        const params = new URLSearchParams({ parent_id: key, limit: '1000' });
+        const data = await fetchJson(`${endpoints.nodes}?${params.toString()}`);
+        const nodes = data.nodes || [];
+        nodes.forEach(node => nodeById.set(String(node.id), node));
+        nodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    function selectedLevelOrder() {
+        const selectedId = levelSelect ? levelSelect.value : '';
+        const level = levels.find(item => String(item.id) === String(selectedId));
+        return level ? Number(level.order) : null;
+    }
+
+    function setHiddenParent(node) {
+        if (!parentSelect) return;
+        if (!node) {
+            parentSelect.innerHTML = '<option value="">Sin nodo superior</option>';
+            parentSelect.value = '';
+            return;
+        }
+        parentSelect.innerHTML = `<option value="${node.id}" selected>${escapeHtml(node.ut)} - ${escapeHtml(node.name)}</option>`;
+        parentSelect.value = String(node.id);
+    }
+
+    function pickerSelectMarkup(level, index, disabled) {
+        return `
+            <div class="form-field">
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" data-path-select data-index="${index}" ${disabled ? 'disabled' : ''}>
+                    <option value="">${disabled ? 'Selecciona nivel superior' : 'Todos'}</option>
+                </select>
+            </div>
+        `;
+    }
+
+    function buildPathPicker(container, maxOrder, options) {
+        if (!container) return;
+        const visibleLevels = levels.filter(level => Number(level.order) <= Number(maxOrder));
+        container.innerHTML = visibleLevels.map((level, index) => pickerSelectMarkup(level, index, index > 0)).join('');
+        const selects = Array.from(container.querySelectorAll('[data-path-select]'));
+
+        async function populate(index) {
+            const select = selects[index];
+            const level = visibleLevels[index];
+            if (!select || !level) return;
+            const parentId = index === 0 ? 'root' : selects[index - 1].value;
+            select.disabled = index > 0 && !parentId;
+            if (select.disabled) {
+                select.innerHTML = '<option value="">Selecciona nivel superior</option>';
+                return;
+            }
+            select.innerHTML = '<option value="">Cargando...</option>';
+            let nodes = [];
+            try {
+                nodes = await loadChildren(parentId);
+            } catch (error) {
+                select.innerHTML = '<option value="">No se pudieron cargar datos</option>';
+                return;
+            }
+            nodes = nodes.filter(node => Number(node.level_id) === Number(level.id));
+            select.innerHTML = '<option value="">Todos</option>' + nodes
+                .map(node => `<option value="${node.id}">${escapeHtml(node.label)}</option>`)
+                .join('');
+        }
+
+        function deepestSelected() {
+            let node = null;
+            let index = -1;
+            selects.forEach((select, selectIndex) => {
+                if (select.value) {
+                    node = nodeById.get(String(select.value)) || null;
+                    index = selectIndex;
+                }
+            });
+            return { node, index };
+        }
+
+        selects.forEach((select, index) => {
+            select.addEventListener('change', async function () {
+                for (let cursor = index + 1; cursor < selects.length; cursor += 1) {
+                    selects[cursor].innerHTML = '<option value="">Selecciona nivel superior</option>';
+                    selects[cursor].value = '';
+                    selects[cursor].disabled = true;
+                }
+                if (index + 1 < selects.length) {
+                    await populate(index + 1);
+                }
+                const selected = deepestSelected();
+                if (options && typeof options.onChange === 'function') {
+                    options.onChange(selected.node, selected.index, selects.length);
+                }
+            });
+        });
+
+        populate(0);
+    }
+
+    function refreshParentPicker() {
+        const order = selectedLevelOrder();
+        if (!parentSelect || !parentField) return;
+        if (!order) {
+            parentField.style.display = 'none';
+            setHiddenParent(null);
+            return;
+        }
+        if (order === 1) {
+            parentField.style.display = 'none';
+            setHiddenParent(null);
+            return;
+        }
+        parentField.style.display = '';
+        const preserveInitialParent = !parentPickerInitialized && initialParentId;
+        if (!preserveInitialParent) {
+            setHiddenParent(null);
+        }
+        buildPathPicker(parentPicker, order - 1, {
+            onChange: function (node, index, total) {
+                setHiddenParent(index === total - 1 ? node : null);
+            }
+        });
+        if (preserveInitialParent) {
+            parentSelect.innerHTML = `<option value="${escapeHtml(initialParentId)}" selected>${escapeHtml(initialParentLabel)}</option>`;
+            parentSelect.value = initialParentId;
+        }
+        parentPickerInitialized = true;
+    }
+
+    function selectedBulkLevelOrder() {
+        const selectedId = bulkLevelSelect ? bulkLevelSelect.value : '';
+        const level = levels.find(item => String(item.id) === String(selectedId));
+        return level ? Number(level.order) : null;
+    }
+
+    function setBulkHiddenParent(node) {
+        if (!bulkParentSelect) return;
+        if (!node) {
+            bulkParentSelect.innerHTML = '<option value="">Sin nodo superior</option>';
+            bulkParentSelect.value = '';
+            return;
+        }
+        bulkParentSelect.innerHTML = `<option value="${node.id}" selected>${escapeHtml(node.ut)} - ${escapeHtml(node.name)}</option>`;
+        bulkParentSelect.value = String(node.id);
+    }
+
+    function refreshBulkParentPicker() {
+        const order = selectedBulkLevelOrder();
+        if (!bulkParentSelect || !bulkParentField) return;
+        if (bulkWithoutParent && bulkWithoutParent.checked) {
+            bulkParentField.style.display = 'none';
+            setBulkHiddenParent(null);
+            return;
+        }
+        if (!order) {
+            bulkParentField.style.display = 'none';
+            setBulkHiddenParent(null);
+            return;
+        }
+        if (order === 1) {
+            bulkParentField.style.display = 'none';
+            setBulkHiddenParent(null);
+            return;
+        }
+        bulkParentField.style.display = '';
+        const preserveInitialParent = !bulkParentPickerInitialized && initialBulkParentId;
+        if (!preserveInitialParent) {
+            setBulkHiddenParent(null);
+        }
+        buildPathPicker(bulkParentPicker, order - 1, {
+            onChange: function (node, index, total) {
+                setBulkHiddenParent(index === total - 1 ? node : null);
+            }
+        });
+        if (preserveInitialParent) {
+            bulkParentSelect.innerHTML = `<option value="${escapeHtml(initialBulkParentId)}" selected>${escapeHtml(initialBulkParentLabel)}</option>`;
+            bulkParentSelect.value = initialBulkParentId;
+        }
+        bulkParentPickerInitialized = true;
+    }
+
+    function parseBulkValuesPayload(value) {
+        return String(value || '')
+            .replace(/\r/g, '')
+            .split('\n')
+            .filter(line => line.trim())
+            .map(line => {
+                const parts = line.split('\t');
+                return {
+                    code: (parts.shift() || '').trim(),
+                    name: parts.join('\t').trim()
+                };
+            });
+    }
+
+    function createBulkGridRow(index, values) {
+        const row = document.createElement('tr');
+        row.dataset.bulkRow = 'true';
+        row.innerHTML = `
+            <td class="bulk-row-number">${index + 1}</td>
+            <td><input class="bulk-grid-input" type="text" data-bulk-code autocomplete="off" value="${escapeHtml(values?.code || '')}"></td>
+            <td><input class="bulk-grid-input" type="text" data-bulk-name autocomplete="off" value="${escapeHtml(values?.name || '')}"></td>
+        `;
+        return row;
+    }
+
+    function ensureBulkRows(count) {
+        if (!bulkGridBody) return;
+        while (bulkGridBody.rows.length < count) {
+            bulkGridBody.appendChild(createBulkGridRow(bulkGridBody.rows.length, {}));
+        }
+    }
+
+    function refreshBulkRowNumbers() {
+        if (!bulkGridBody) return;
+        Array.from(bulkGridBody.rows).forEach((row, index) => {
+            const cell = row.querySelector('.bulk-row-number');
+            if (cell) cell.textContent = String(index + 1);
+        });
+    }
+
+    function fillBulkGridFromPayload() {
+        if (!bulkGridBody) return;
+        const rows = parseBulkValuesPayload(bulkValuesField ? bulkValuesField.value : '');
+        const initialCount = Math.max(rows.length + 3, 8);
+        bulkGridBody.innerHTML = '';
+        for (let index = 0; index < initialCount; index += 1) {
+            bulkGridBody.appendChild(createBulkGridRow(index, rows[index] || {}));
+        }
+    }
+
+    function collectBulkGridPayload() {
+        if (!bulkGridBody || !bulkValuesField) return;
+        const lines = Array.from(bulkGridBody.rows)
+            .map(row => {
+                const code = row.querySelector('[data-bulk-code]')?.value.trim() || '';
+                const name = row.querySelector('[data-bulk-name]')?.value.trim() || '';
+                return { code, name };
+            })
+            .filter(item => item.code || item.name)
+            .map(item => `${item.code}\t${item.name}`);
+        bulkValuesField.value = lines.join('\n');
+    }
+
+    function handleBulkGridPaste(event) {
+        const input = event.target.closest?.('[data-bulk-code], [data-bulk-name]');
+        if (!input || !bulkGridBody) return;
+        const pasted = event.clipboardData?.getData('text') || '';
+        if (!pasted || (!pasted.includes('\n') && !pasted.includes('\t'))) return;
+        event.preventDefault();
+
+        const targetIsCode = input.hasAttribute('data-bulk-code');
+        const startRow = input.closest('tr');
+        const startIndex = Array.from(bulkGridBody.rows).indexOf(startRow);
+        const rows = pasted.replace(/\r/g, '').split('\n').filter(line => line.length);
+        ensureBulkRows(startIndex + rows.length + 3);
+
+        rows.forEach((line, offset) => {
+            const targetRow = bulkGridBody.rows[startIndex + offset];
+            if (!targetRow) return;
+            const columns = line.split('\t');
+            const codeInput = targetRow.querySelector('[data-bulk-code]');
+            const nameInput = targetRow.querySelector('[data-bulk-name]');
+            if (targetIsCode && columns.length > 1) {
+                codeInput.value = (columns.shift() || '').trim();
+                nameInput.value = columns.join(' ').trim();
+                return;
+            }
+            if (targetIsCode) {
+                codeInput.value = (columns[0] || '').trim();
+            } else {
+                nameInput.value = (columns[0] || '').trim();
+            }
+        });
+        collectBulkGridPayload();
+        refreshBulkRowNumbers();
+    }
+
+    function clearBulkGrid() {
+        if (!bulkGridBody || !bulkValuesField) return;
+        bulkValuesField.value = '';
+        fillBulkGridFromPayload();
+    }
+
+    function setTableMessage(message) {
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="7" class="muted">${escapeHtml(message)}</td></tr>`;
+    }
+
+    function renderRows(items) {
+        if (!items.length) {
+            setTableMessage('No hay valores para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => `
+            <tr>
+                <td>${escapeHtml(item.level_order)}. ${escapeHtml(item.level_name)}</td>
+                <td>${escapeHtml(item.parent_label || 'Raiz')}</td>
+                <td><strong>${escapeHtml(item.code)}</strong></td>
+                <td>${escapeHtml(item.name)}</td>
+                <td>${escapeHtml(item.ut)}</td>
+                <td>${escapeHtml(item.route)}</td>
+                <td>${item.is_simple ? '<span class="muted">Valor simple</span>' : `
+                    <div class="actions">
+                        <a class="btn" href="${escapeHtml(item.edit_url)}">Editar</a>
+                        <form method="post" action="${escapeHtml(item.delete_url)}" style="display:inline;" onsubmit="return confirm('Esto desactivara este valor y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. Continuar?');">
+                            <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
+                            <button class="btn btn-danger" type="submit">Eliminar</button>
+                        </form>
+                    </div>
+                `}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function refreshTable() {
+        const query = searchInput ? searchInput.value.trim() : '';
+        if (!filterNodeId && query.length < 2) {
+            if (countLabel) countLabel.textContent = 'Selecciona un nodo superior o escribe al menos 2 caracteres.';
+            setTableMessage('Selecciona un nodo superior o escribe al menos 2 caracteres para buscar.');
+            return;
+        }
+        const requestId = ++activeRequest;
+        if (countLabel) countLabel.textContent = 'Buscando valores...';
+        setTableMessage('Buscando valores...');
+        const params = new URLSearchParams({ limit: '200' });
+        if (filterNodeId) params.set('parent_id', filterNodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countLabel) countLabel.textContent = 'No se pudieron cargar los valores.';
+            setTableMessage('No se pudieron cargar los valores.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        if (countLabel) {
+            countLabel.textContent = data.truncated
+                ? `${data.count} valores encontrados. Mostrando ${items.length}.`
+                : `${data.count || 0} valores encontrados.`;
+        }
+        renderRows(items);
+    }
+
+    function scheduleRefreshTable() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(refreshTable, 250);
+    }
+
+    if (codigoInput) {
+        codigoInput.addEventListener('input', function () {
+            this.value = this.value.toUpperCase();
+        });
+    }
+    if (levelSelect) levelSelect.addEventListener('change', refreshParentPicker);
+    if (bulkLevelSelect) bulkLevelSelect.addEventListener('change', refreshBulkParentPicker);
+    if (bulkWithoutParent) bulkWithoutParent.addEventListener('change', refreshBulkParentPicker);
+    if (bulkGridBody) {
+        bulkGridBody.addEventListener('paste', handleBulkGridPaste);
+        bulkGridBody.addEventListener('input', collectBulkGridPayload);
+    }
+    if (bulkAddRowsButton) {
+        bulkAddRowsButton.addEventListener('click', function () {
+            ensureBulkRows((bulkGridBody?.rows.length || 0) + 5);
+            refreshBulkRowNumbers();
+        });
+    }
+    if (bulkClearRowsButton) bulkClearRowsButton.addEventListener('click', clearBulkGrid);
+    if (bulkForm) bulkForm.addEventListener('submit', collectBulkGridPayload);
+    if (searchInput) searchInput.addEventListener('input', scheduleRefreshTable);
+
+    refreshParentPicker();
+    refreshBulkParentPicker();
+    fillBulkGridFromPayload();
+    buildPathPicker(filterPicker, levels.length, {
+        onChange: function (node) {
+            filterNodeId = node ? String(node.id) : '';
+            refreshTable();
+        }
+    });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}Tablas de evaluación | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+        <h2>Tablas de evaluación</h2>
+    </div>
+    </div>
+    <div class="actions">
+        {% if request.user.is_superuser and service.estrategia_id %}<a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}">Editar tablas</a>{% endif %}
+    </div>
+</div>
+
+{% for card in dim_cards %}
+<div class="card">
+    <h3 class="card-title">{{ card.estrategia_dimension.orden }}. {{ card.dimension.nombre }}</h3>
+    <p class="muted">{{ card.estrategia_dimension.get_proceso_uso_display }} · {{ card.dimension.tipo_funcional }} · {{ card.dimension.tipo_dato }}</p>
+
+    {% if card.scales %}
+        <div class="table-wrap" style="margin-bottom:12px;">
+            <table class="datatable display">
+                <thead><tr><th>Nivel</th><th>Código</th><th>Descripción</th><th>Valor</th><th>Escala unificada</th></tr></thead>
+                <tbody>
+                    {% for scale in card.scales %}
+                        <tr>
+                            <td>{{ scale.nivel_ordinal }}</td>
+                            <td>{{ scale.codigo }}</td>
+                            <td>{{ scale.descripcion }}</td>
+                            <td>{{ scale.valor_numerico }}</td>
+                            <td>{{ scale.escala_unificada|default:'—' }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    {% if card.catalog %}
+        <div class="table-wrap">
+            <table class="datatable display">
+                <thead>
+                    <tr>
+                        {% for col in card.catalog.columnas %}<th>{{ col.nombre_columna }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in card.catalog.filas %}
+                        <tr>
+                            {% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif not card.scales %}
+        <p class="muted">Esta dimensión no tiene tabla ni escala asociada.</p>
+    {% endif %}
+</div>
+{% empty %}
+<div class="card"><p class="muted">No hay dimensiones configuradas para este servicio.</p></div>
+{% endfor %}
+{% endblock %}

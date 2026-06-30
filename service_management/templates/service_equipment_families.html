@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Familias de equipos | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_detail' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Familias de equipos</h2>
+            <p>{{ service.codigo_servicio }} · grupos reutilizables para ACA y RCM/FMEA.</p>
+        </div>
+    </div>
+    <div class="actions">
+        {% if permission.can_edit %}
+            <a class="btn btn-primary" href="{% url 'service_equipment_family_new' service.pk %}">Nueva familia</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table class="datatable display compact-table">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Equipos</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for familia in familias %}
+                    <tr>
+                        <td><span class="cell-ellipsis copy-cell" title="{{ familia.nombre }}" data-copy="{{ familia.nombre }}">{{ familia.nombre }}</span></td>
+                        <td>{{ familia.items.count }}</td>
+                        <td>{% if familia.activa %}<span class="pill-success">Activa</span>{% else %}<span class="pill-soft">Inactiva</span>{% endif %}</td>
+                        <td>
+                            <details>
+                                <summary>Ver equipos</summary>
+                                <div class="family-equipment-list">
+                                    {% for item in familia.items.all %}
+                                        <span class="cell-ellipsis copy-cell" title="{{ item.equipo.ut_display }}" data-copy="{{ item.equipo.ut_display }}">
+                                            {{ item.equipo.tag_display }} · {{ item.equipo.nombre_equipo }}
+                                        </span>
+                                    {% empty %}
+                                        <span class="muted">Sin equipos.</span>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                        </td>
+                        <td>
+                            {% if permission.can_edit %}
+                                <div class="actions">
+                                    <a class="btn" href="{% url 'service_equipment_family_edit' service.pk familia.pk %}"><i class="bi bi-pencil"></i></a>
+                                    <a class="btn btn-danger" href="{% url 'service_equipment_family_delete' service.pk familia.pk %}"><i class="bi bi-trash3"></i></a>
+                                </div>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" class="muted">Todavía no hay familias de equipos para este servicio.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

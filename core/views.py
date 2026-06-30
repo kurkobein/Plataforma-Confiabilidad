@@ -570,24 +570,24 @@ def _ensure_direct_crud_allowed(config):
 
 
 FORM_TEMPLATE_BY_MODEL = {
-    'empresa': 'core/forms/empresa_form.html',
-    'cargo': 'core/forms/cargo_form.html',
-    'usuario': 'core/forms/usuario_form.html',
-    'componente': 'core/forms/componente_form.html',
-    'equipo': 'core/forms/equipo_form.html',
-    'dimension': 'core/forms/dimension_form.html',
-    'escalaunificada': 'core/forms/escalaunificada_form.html',
-    'estrategia': 'core/forms/estrategia_form.html',
-    'servicio': 'core/forms/servicio_form.html',
-    'accesousuario': 'core/forms/accesousuario_form.html',
-    'carga': 'core/forms/acacarga_form.html',
-    'criticidad': 'core/forms/criticidad_form.html',
-    'matrizriesgo': 'core/forms/matrizriesgo_form.html',
+    'empresa': 'forms/empresa_form.html',
+    'cargo': 'forms/cargo_form.html',
+    'usuario': 'forms/usuario_form.html',
+    'componente': 'forms/componente_form.html',
+    'equipo': 'forms/equipo_form.html',
+    'dimension': 'forms/dimension_form.html',
+    'escalaunificada': 'forms/escalaunificada_form.html',
+    'estrategia': 'forms/estrategia_form.html',
+    'servicio': 'forms/servicio_form.html',
+    'accesousuario': 'forms/accesousuario_form.html',
+    'carga': 'forms/acacarga_form.html',
+    'criticidad': 'forms/criticidad_form.html',
+    'matrizriesgo': 'forms/matrizriesgo_form.html',
 }
 
 
 def _form_template_for(model_key):
-    return FORM_TEMPLATE_BY_MODEL.get(model_key, 'core/model_form.html')
+    return FORM_TEMPLATE_BY_MODEL.get(model_key, 'model_form.html')
 
 
 def _visible_fields(model_class):
@@ -950,7 +950,7 @@ def dashboard(request):
         if accessible_service_ids else 0
     )
     editable_services = [s for s in accessible_services_qs if get_service_permission(request.user, s)['can_edit']]
-    return render(request, 'core/dashboard.html', {
+    return render(request, 'dashboard.html', {
         'service_cards': servicios,
         'quick_stats': [
             {'label': 'Servicios accesibles', 'count': len(accessible_service_ids)},
@@ -1219,7 +1219,7 @@ def model_list(request, model_key):
         'model_list_stats': model_list_stats,
     }
     context.update(equipment_filter_context)
-    return render(request, 'core/model_list.html', context)
+    return render(request, 'model_list.html', context)
 
 
 @login_required
@@ -1406,7 +1406,7 @@ def equipment_bulk_upload(request):
         form = EquipoBulkUploadForm()
     stored_upload = request.session.get(upload_session_key)
 
-    return render(request, 'core/equipment_bulk_upload.html', {
+    return render(request, 'equipment_bulk_upload.html', {
         'form': form,
         'report': report,
         'preview_only': preview_only,
@@ -1596,7 +1596,7 @@ def model_delete(request, model_key, pk):
             'pautas': models.Pauta.objects.filter(equipo=obj).count(),
         }
 
-    return render(request, 'core/model_delete.html', {
+    return render(request, 'model_delete.html', {
         'config': config,
         'model_key': model_key,
         'object': obj,
@@ -1746,7 +1746,7 @@ def login_view(request):
             _record_login_location(request, form.cleaned_data.get('perfil_usuario'))
             messages.success(request, 'Sesión iniciada correctamente.')
             return redirect(request.GET.get('next') or 'dashboard')
-    return render(request, 'core/login.html', {'form': form})
+    return render(request, 'login.html', {'form': form})
 
 
 def logout_view(request):

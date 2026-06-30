@@ -1983,7 +1983,7 @@ def service_matrix_view(request, service_pk, matrix_pk):
     mindco_viewer = is_mindco_user(request.user)
     homologation = _build_homologated_matrix_preview(matriz) if mindco_viewer else None
 
-    return render(request, 'core/evaluation_tables/matrix_view.html', {
+    return render(request, 'matrix_view.html', {
         'service': servicio,
         'permission': permission,
         'matriz': matriz,
@@ -2028,14 +2028,14 @@ def dimension_tables_editor(request, pk):
                 messages.error(request, error)
             if len(validation_errors) > 10:
                 messages.error(request, f'Hay {len(validation_errors) - 10} errores adicionales. Corrige la tabla antes de guardar.')
-            return render(request, 'core/evaluation_tables/dimension_table_editor.html', _dimension_editor_context(estrategia, payload))
+            return render(request, 'dimension_table_editor.html', _dimension_editor_context(estrategia, payload))
         try:
             _save_strategy_catalogs(estrategia, payload)
             backfill_result = _backfill_calculated_dimension_records(estrategia)
         except DataError as exc:
             transaction.set_rollback(True)
             messages.error(request, f'No se pudo guardar porque una celda numerica excede el formato permitido: {exc}')
-            return render(request, 'core/evaluation_tables/dimension_table_editor.html', _dimension_editor_context(estrategia, payload))
+            return render(request, 'dimension_table_editor.html', _dimension_editor_context(estrategia, payload))
         for warning in validation_warnings[:5]:
             messages.warning(request, warning)
         calculated_total = sum(backfill_result.values())
@@ -2053,7 +2053,7 @@ def dimension_tables_editor(request, pk):
         messages.success(request, 'Las dimensiones y catálogos se guardaron correctamente.')
         return redirect('dimension_tables_editor', pk=estrategia.pk)
 
-    return render(request, 'core/evaluation_tables/dimension_table_editor.html', _dimension_editor_context(estrategia))
+    return render(request, 'dimension_table_editor.html', _dimension_editor_context(estrategia))
 
 
 def _axis_dimension_level_count(estrategia_dimension):
@@ -2303,7 +2303,7 @@ def matriz_auto_generate(request):
         for error in errors:
             messages.error(request, error)
 
-    return render(request, 'core/evaluation_tables/matrix_auto_generate.html', {
+    return render(request, 'matrix_auto_generate.html', {
         'strategies': strategies,
         'selected_strategy': selected_strategy,
         'source_options': source_options,
@@ -2408,7 +2408,7 @@ def matriz_builder_new(request):
 
     return render(
         request,
-        'core/evaluation_tables/matrix_builder.html',
+        'matrix_builder.html',
         _matrix_builder_context(True, None, builder_form, matrix_preview, display_legend, display_rules),
     )
 
@@ -2524,6 +2524,6 @@ def matriz_builder_edit(request, pk):
 
     return render(
         request,
-        'core/evaluation_tables/matrix_builder.html',
+        'matrix_builder.html',
         _matrix_builder_context(False, matriz, builder_form, matrix_preview, display_legend, display_rules),
     )

@@ -1,0 +1,233 @@
+{% extends 'base.html' %}
+{% block title %}Carga masiva ACA | {{ service.codigo_servicio }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_aca_list' service.pk %}" aria-label="Volver" title="Volver"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Carga masiva ACA</h2>
+            <p>{{ service.codigo_servicio }} - carga por Excel con previsualizaci&oacute;n antes de guardar.</p>
+        </div>
+    </div>
+</div>
+
+<div class="aca-upload-layout">
+    <div class="card">
+        <h3 class="card-title">Archivo</h3>
+        <form method="post" enctype="multipart/form-data" class="aca-upload-form">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+            <div class="bulk-upload-main">
+                <label>{{ form.archivo.label }}</label>
+                <div class="bulk-file-dropzone{% if stored_upload %} has-file{% endif %}" data-bulk-file-dropzone data-stored-file-name="{{ stored_upload.name|default:'' }}">
+                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                    <strong>Selecciona o arrastra el Excel</strong>
+                    <span data-bulk-file-name>{% if stored_upload %}{{ stored_upload.name }} cargado y listo para revisar{% else %}Sin archivo seleccionado{% endif %}</span>
+                    {{ form.archivo }}
+                </div>
+                {% if form.archivo.help_text %}<small class="muted">{{ form.archivo.help_text }}</small>{% endif %}
+                {{ form.archivo.errors }}
+            </div>
+            <div class="bulk-upload-config">
+                <h3 class="card-title">Configuracion</h3>
+                <div class="form-grid">
+                <div class="form-field">
+                    <label>{{ form.hoja.label }}</label>
+                    {{ form.hoja }}
+                    {% if form.hoja.help_text %}<small class="muted">{{ form.hoja.help_text }}</small>{% endif %}
+                    {{ form.hoja.errors }}
+                </div>
+                </div>
+            </div>
+            <div class="aca-upload-options">
+                <label class="check-option">
+                    {{ form.create_missing_equipment }}
+                    <span>{{ form.create_missing_equipment.label }}</span>
+                </label>
+                <label class="check-option">
+                    {{ form.replace }}
+                    <span>{{ form.replace.label }}</span>
+                </label>
+            </div>
+            <div class="actions">
+                <button class="btn" type="submit" name="action" value="preview" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Previsualizar</button>
+                <button class="btn btn-primary" type="submit" name="action" value="confirm" data-bulk-submit {% if not stored_upload %}disabled{% endif %}>Confirmar carga</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card hierarchy-side-card bulk-format-card">
+        <h3 class="card-title">Formatos soportados</h3>
+        <p class="muted">El sistema reconoce encabezados flexibles. Usa TAG o UT para encontrar el equipo y nombres de dimensiones iguales o similares a las tablas configuradas.</p>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Formato</th>
+                        <th>Encabezados de ejemplo</th>
+                        <th>Plantilla</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>ACA</td>
+                        <td>TAG, UT, Equipo / Componente, dimensiones de la estrategia y Criticidad final.</td>
+                        <td>
+                            <a class="btn" href="{% url 'service_aca_excel_template' service.pk %}">
+                                <i class="bi bi-download"></i> Descargar Excel
+                            </a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="muted">La plantilla se genera para este servicio e incluye las dimensiones ACA configuradas en su estrategia.</p>
+    </div>
+</div>
+
+{% if report %}
+<div class="card">
+    <h3 class="card-title">{% if preview_only %}Previsualizaci&oacute;n{% else %}Resultado de la carga{% endif %}</h3>
+    <div class="aca-upload-result-grid">
+        <div>
+            <div class="import-preview-summary aca-upload-summary">
+                <div class="preview-group">
+                    <div class="preview-group-title">Archivo</div>
+                    <div class="preview-metric"><span>Hoja</span><strong>{{ report.sheet_name }}</strong></div>
+                    <div class="preview-metric"><span>Filas le&iacute;das</span><strong>{{ report.rows_read }}</strong></div>
+                    <div class="preview-metric"><span>Origen</span><strong>{{ report.origin }}</strong></div>
+                </div>
+                <div class="preview-group">
+                    <div class="preview-group-title">Registros</div>
+                    <div class="preview-metric"><span>ACA a crear</span><strong>{{ report.aca }}</strong></div>
+                    <div class="preview-metric"><span>Cargas</span><strong>{{ report.cargas }}</strong></div>
+                    <div class="preview-metric"><span>Filas omitidas</span><strong>{{ report.omitidas }}</strong></div>
+                </div>
+                <div class="preview-group">
+                    <div class="preview-group-title">Evaluaciones</div>
+                    <div class="preview-metric"><span>Dimensiones</span><strong>{{ report.dimensiones }}</strong></div>
+                    <div class="preview-metric"><span>Con cat&aacute;logo</span><strong>{{ report.catalogo_fila_asignadas }}</strong></div>
+                    <div class="preview-metric"><span>Equipos creados</span><strong>{{ report.equipos_creados }}</strong></div>
+                </div>
+            </div>
+        </div>
+        <div>
+            {% if report.warnings %}
+                <div class="aca-upload-warning-list">
+                    {% for warning in report.warnings|slice:":40" %}
+                        <div>{{ warning }}</div>
+                    {% endfor %}
+                    {% if report.warnings|length > 40 %}
+                        <small class="muted">Hay {{ report.warnings|length|add:"-40" }} observaciones adicionales.</small>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="aca-upload-warning-list aca-upload-warning-list-empty">
+                    <div>Sin observaciones.</div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if report.preview_rows %}
+        <hr>
+        <h3 class="card-title">Registros que se cargar&aacute;n</h3>
+        <p class="muted">Vista interpretada de las filas del Excel antes de guardar. Incluye equipo, evaluaciones detectadas, criticidad y estado de carga.</p>
+        <div class="table-wrap">
+            <table class="compact-table aca-upload-preview-table">
+                <thead>
+                    <tr>
+                        <th>Fila</th>
+                        <th>TAG</th>
+                        <th>UT</th>
+                        <th>Equipo Excel</th>
+                        <th>Equipo sistema</th>
+                        {% for column in report.preview_dimension_columns %}
+                            <th>{{ column.name }}</th>
+                        {% endfor %}
+                        <th>Criticidad final</th>
+                        <th>Estado</th>
+                        <th>Detalle</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.preview_rows %}
+                        <tr>
+                            <td>{{ row.excel_row }}</td>
+                            <td>{{ row.tag|default:'-' }}</td>
+                            <td><span class="cell-ellipsis" title="{{ row.ut }}">{{ row.ut|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.equipo_excel }}">{{ row.equipo_excel|default:'-' }}</span></td>
+                            <td><span class="cell-ellipsis" title="{{ row.equipo_sistema }}">{{ row.equipo_sistema|default:'-' }}</span></td>
+                            {% for value in row.dimension_values %}
+                                <td><span class="cell-ellipsis" title="{{ value }}">{{ value|default:'-' }}</span></td>
+                            {% endfor %}
+                            <td>{{ row.criticidad_final|default:'-' }}</td>
+                            <td>
+                                {% if row.status == 'Se cargará' %}
+                                    <span class="pill">{{ row.status }}</span>
+                                {% else %}
+                                    <span class="pill-soft">{{ row.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="cell-ellipsis" title="{{ row.status_detail }}">{{ row.status_detail|default:'-' }}</span></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if report.preview_rows_limited %}
+            <p class="muted">La vista muestra los primeros {{ report.preview_rows|length }} registros. La carga considerar&aacute; todas las filas v&aacute;lidas del archivo.</p>
+        {% endif %}
+    {% endif %}
+
+</div>
+{% endif %}
+<script>
+(function () {
+    const form = document.querySelector('form[method="post"][enctype="multipart/form-data"]');
+    if (!form) return;
+    const dropzone = form.querySelector('[data-bulk-file-dropzone]');
+    const fileInput = dropzone ? dropzone.querySelector('input[type="file"]') : null;
+    const fileName = dropzone ? dropzone.querySelector('[data-bulk-file-name]') : null;
+    const submitButtons = Array.from(form.querySelectorAll('[data-bulk-submit]'));
+
+    function syncFileState() {
+        const storedName = dropzone?.dataset.storedFileName || '';
+        const file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+        const hasFile = Boolean(file || storedName);
+        dropzone?.classList.toggle('has-file', hasFile);
+        if (fileName) {
+            fileName.textContent = file
+                ? `${file.name} cargado y listo para revisar`
+                : (storedName ? `${storedName} cargado y listo para revisar` : 'Sin archivo seleccionado');
+        }
+        submitButtons.forEach(button => {
+            button.disabled = !hasFile;
+        });
+    }
+
+    if (!dropzone || !fileInput) return;
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, function (event) {
+            event.preventDefault();
+            dropzone.classList.add('is-dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, function () {
+            dropzone.classList.remove('is-dragover');
+        });
+    });
+    dropzone.addEventListener('drop', function (event) {
+        event.preventDefault();
+        if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length) {
+            fileInput.files = event.dataTransfer.files;
+            syncFileState();
+        }
+    });
+    fileInput.addEventListener('change', syncFileState);
+    syncFileState();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar usuario{% else %}Nuevo usuario{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar usuario{% else %}Nuevo usuario{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'usuario' %}">Volver</a>
+        {% if mode == 'update' and object %}
+            
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="detail-grid">
+            <div><strong>{{ form.nombre_completo.label }}</strong></div>
+            <div>
+                {{ form.nombre_completo }}
+                {% if form.nombre_completo.help_text %}<small>{{ form.nombre_completo.help_text }}</small>{% endif %}
+                {{ form.nombre_completo.errors }}
+            </div>
+            <div><strong>{{ form.correo_corporativo.label }}</strong></div>
+            <div>
+                {{ form.correo_corporativo }}
+                {% if form.correo_corporativo.help_text %}<small>{{ form.correo_corporativo.help_text }}</small>{% endif %}
+                {{ form.correo_corporativo.errors }}
+            </div>
+            <div><strong>{{ form.cargo.label }}</strong></div>
+            <div>
+                {{ form.cargo }}
+                {% if form.cargo.help_text %}<small>{{ form.cargo.help_text }}</small>{% endif %}
+                {{ form.cargo.errors }}
+            </div>
+            <div><strong>{{ form.empresa.label }}</strong></div>
+            <div>
+                {{ form.empresa }}
+                {% if form.empresa.help_text %}<small>{{ form.empresa.help_text }}</small>{% endif %}
+                {{ form.empresa.errors }}
+            </div>
+            <div><strong>{{ form.password.label }}</strong></div>
+            <div>
+                {{ form.password }}
+                {% if form.password.help_text %}<small>{{ form.password.help_text }}</small>{% endif %}
+                {{ form.password.errors }}
+            </div>
+            <div><strong>{{ form.password_confirm.label }}</strong></div>
+            <div>
+                {{ form.password_confirm }}
+                {% if form.password_confirm.help_text %}<small>{{ form.password_confirm.help_text }}</small>{% endif %}
+                {{ form.password_confirm.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

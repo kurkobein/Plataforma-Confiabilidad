@@ -1,0 +1,422 @@
+{% extends 'base.html' %}
+{% load core_extras %}
+
+{% block title %}{% if mode == 'update' %}Editar equipo{% else %}Nuevo equipo{% endif %} | Mindco{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>{% if mode == 'update' %}Editar equipo{% else %}Nuevo equipo{% endif %}</h2>
+        {% if object %}<p>{{ object }}</p>{% endif %}
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'model_list' 'equipo' %}">Volver</a>
+        {% if mode == 'update' and object %}
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.nodo }}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        {% if form.nodo.errors %}<div class="form-errors">{{ form.nodo.errors }}</div>{% endif %}
+
+        <div class="detail-grid">
+            <div><strong>{{ form.tag_equipo.label }}</strong></div>
+            <div>
+                {{ form.tag_equipo }}
+                {% if form.tag_equipo.help_text %}<small>{{ form.tag_equipo.help_text }}</small>{% endif %}
+                {{ form.tag_equipo.errors }}
+            </div>
+
+            <div><strong>{{ form.nombre_equipo.label }}</strong></div>
+            <div>
+                {{ form.nombre_equipo }}
+                {% if form.nombre_equipo.help_text %}<small>{{ form.nombre_equipo.help_text }}</small>{% endif %}
+                {{ form.nombre_equipo.errors }}
+            </div>
+
+            <div><strong>{{ form.empresa.label }}</strong></div>
+            <div>
+                {{ form.empresa }}
+                {% if form.empresa.help_text %}<small>{{ form.empresa.help_text }}</small>{% endif %}
+                {{ form.empresa.errors }}
+            </div>
+
+            <div><strong>{{ form.servicio.label }}</strong></div>
+            <div>
+                {{ form.servicio }}
+                {% if form.servicio.help_text %}<small>{{ form.servicio.help_text }}</small>{% endif %}
+                {{ form.servicio.errors }}
+            </div>
+
+            <div><strong>Ubicacion tecnica</strong></div>
+            <div>
+                <div id="technical-location-picker" class="technical-location-picker">
+                    <div id="technical-location-fields" class="technical-location-fields"></div>
+                    <p id="technical-location-empty" class="muted" style="display:none; margin:8px 0 0;">
+                        Selecciona una empresa con jerarquia configurada o crea la jerarquia de la empresa.
+                    </p>
+                </div>
+            </div>
+
+            <div><strong>{{ form.ut.label }}</strong></div>
+            <div>
+                {{ form.ut }}
+                {% if form.ut.help_text %}<small>{{ form.ut.help_text }}</small>{% endif %}
+                {{ form.ut.errors }}
+                <div class="actions" style="margin-top:8px;">
+                    <button class="btn" type="button" id="resolve-ut-button">Resolver UT</button>
+                </div>
+                <div id="ut-resolve-feedback" class="message warning" style="display:none; margin-top:8px;"></div>
+            </div>
+
+            <div><strong>{{ form.descripcion_ut.label }}</strong></div>
+            <div>
+                {{ form.descripcion_ut }}
+                {% if form.descripcion_ut.help_text %}<small>{{ form.descripcion_ut.help_text }}</small>{% endif %}
+                {{ form.descripcion_ut.errors }}
+            </div>
+        </div>
+        <div class="actions" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+    </form>
+</div>
+
+<script type="application/json" id="tech-location-levels-data">{{ tech_location_levels_json|safe }}</script>
+<script type="application/json" id="tech-location-nodes-data">{{ tech_location_nodes_json|safe }}</script>
+<script type="application/json" id="tech-location-nodes-url-template">{{ tech_location_nodes_url_template|safe }}</script>
+<script type="application/json" id="equipment-services-data">{{ equipment_services_json|safe }}</script>
+
+<script>
+(function () {
+    const levels = JSON.parse(document.getElementById('tech-location-levels-data').textContent || '[]');
+    const nodes = JSON.parse(document.getElementById('tech-location-nodes-data').textContent || '[]');
+    const serviceOptions = JSON.parse(document.getElementById('equipment-services-data').textContent || '[]');
+    const nodesUrlTemplate = (document.getElementById('tech-location-nodes-url-template').textContent || '').trim();
+    const selectedInitial = '{{ tech_location_selected_id|default:"" }}';
+    const selectedEmpresaInitial = '{{ tech_location_empresa_id|default:"" }}';
+
+    const empresaSelect = document.getElementById('id_empresa');
+    const serviceSelect = document.getElementById('id_servicio');
+    const nodeInput = document.getElementById('id_nodo');
+    const utInput = document.getElementById('id_ut');
+    const tagInput = document.getElementById('id_tag_equipo');
+    const fieldsWrap = document.getElementById('technical-location-fields');
+    const emptyState = document.getElementById('technical-location-empty');
+    const resolveButton = document.getElementById('resolve-ut-button');
+    const utFeedback = document.getElementById('ut-resolve-feedback');
+
+    if (!empresaSelect || !nodeInput || !fieldsWrap) return;
+
+    const nodeById = new Map(nodes.map(node => [String(node.id), node]));
+    const loadedKeys = new Set();
+    let renderToken = 0;
+
+    if (!nodeInput.value && selectedInitial) {
+        nodeInput.value = selectedInitial;
+    }
+    if (!empresaSelect.value && selectedEmpresaInitial) {
+        empresaSelect.value = selectedEmpresaInitial;
+    }
+
+    function selectedEmpresaId() {
+        if (empresaSelect.value) return empresaSelect.value;
+        const selectedNode = nodeById.get(String(nodeInput.value));
+        return selectedNode ? selectedNode.empresa_id : null;
+    }
+
+    function pathForNode(nodeId) {
+        const path = [];
+        let current = nodeById.get(String(nodeId));
+        const seen = new Set();
+        while (current && !seen.has(String(current.id))) {
+            seen.add(String(current.id));
+            path.push(current);
+            current = current.parent_id ? nodeById.get(String(current.parent_id)) : null;
+        }
+        return path.reverse();
+    }
+
+    function updateUnifiedFields(node) {
+        if (!node) return;
+        const tag = segment(tagInput ? tagInput.value : '');
+        if (utInput) utInput.value = [node.ut, tag].filter(Boolean).join('-');
+        setFeedback('', '');
+    }
+
+    function segment(value) {
+        return (value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function filterServiceOptions() {
+        if (!serviceSelect) return;
+        const empresaId = selectedEmpresaId();
+        const selected = serviceSelect.value;
+        const options = serviceOptions
+            .filter(item => !empresaId || Number(item.empresa_id) === Number(empresaId))
+            .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+        serviceSelect.innerHTML = '<option value="">Sin servicio</option>' + options
+            .map(item => `<option value="${item.id}">${escapeHtml(item.label)}</option>`)
+            .join('');
+        if (options.some(item => String(item.id) === String(selected))) {
+            serviceSelect.value = selected;
+        }
+    }
+
+    function normalizeNode(node) {
+        return {
+            id: node.id,
+            empresa_id: node.empresa_id || selectedEmpresaId(),
+            parent_id: node.parent_id || null,
+            level_id: node.level_id,
+            level_order: node.level_order,
+            code: node.code,
+            name: node.name,
+            label: node.label || `${node.code} - ${node.name}`,
+            ut: node.ut || '',
+        };
+    }
+
+    async function fetchNodes(parentId, levelId) {
+        const empresaId = selectedEmpresaId();
+        if (!empresaId || !nodesUrlTemplate) return [];
+
+        const normalizedParent = parentId || 'root';
+        const cacheKey = `${empresaId}:${normalizedParent}:${levelId || ''}`;
+        if (!loadedKeys.has(cacheKey)) {
+            const url = nodesUrlTemplate.replace('__empresa__', empresaId);
+            const params = new URLSearchParams({
+                parent_id: normalizedParent,
+                limit: '1000',
+            });
+            if (levelId) params.set('level_id', levelId);
+
+            const response = await fetch(`${url}?${params.toString()}`, {
+                headers: {'X-Requested-With': 'XMLHttpRequest'},
+            });
+            if (!response.ok) throw new Error('No se pudieron cargar las ubicaciones.');
+            const data = await response.json();
+            (data.nodes || []).forEach(rawNode => {
+                const node = normalizeNode(rawNode);
+                nodeById.set(String(node.id), node);
+            });
+            loadedKeys.add(cacheKey);
+        }
+
+        return Array.from(nodeById.values())
+            .filter(node =>
+                Number(node.empresa_id) === Number(empresaId) &&
+                Number(node.level_id) === Number(levelId) &&
+                String(node.parent_id || '') === String(parentId || '')
+            )
+            .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+    }
+
+    function setFeedback(message, kind) {
+        if (!utFeedback) return;
+        if (!message) {
+            utFeedback.style.display = 'none';
+            utFeedback.textContent = '';
+            utFeedback.className = 'message warning';
+            return;
+        }
+        utFeedback.textContent = message;
+        utFeedback.style.display = '';
+        utFeedback.className = `message ${kind || 'warning'}`;
+    }
+
+    async function resolveUtString() {
+        if (!utInput || !utInput.value.trim()) return false;
+        const empresaId = selectedEmpresaId();
+        if (!empresaId) {
+            setFeedback('Selecciona una empresa para resolver la UT.', 'warning');
+            return false;
+        }
+
+        const companyLevels = levels
+            .filter(level => Number(level.empresa_id) === Number(empresaId))
+            .sort((a, b) => a.order - b.order);
+
+        const codes = utInput.value
+            .split('-')
+            .map(segment)
+            .filter(Boolean);
+
+        if (!companyLevels.length) {
+            setFeedback('La empresa no tiene estructura de ubicacion tecnica configurada.', 'warning');
+            return false;
+        }
+        let utTag = '';
+        let nodeCodes = codes;
+        if (codes.length === companyLevels.length + 1) {
+            utTag = codes[codes.length - 1];
+            nodeCodes = codes.slice(0, -1);
+        } else if (codes.length !== companyLevels.length) {
+            setFeedback(`La UT tiene ${codes.length} componentes y la estructura requiere ${companyLevels.length} niveles.`, 'warning');
+            return false;
+        }
+
+        let parentId = null;
+        let finalNode = null;
+        for (let index = 0; index < companyLevels.length; index += 1) {
+            const level = companyLevels[index];
+            const code = nodeCodes[index];
+            let options = [];
+            try {
+                options = await fetchNodes(parentId, level.id);
+            } catch (error) {
+                setFeedback(error.message || 'No se pudieron cargar las ubicaciones.', 'warning');
+                return false;
+            }
+            const node = options.find(item => segment(item.code) === code);
+            if (!node) {
+                const parent = parentId ? nodeById.get(String(parentId)) : null;
+                const parentText = parent ? ` bajo ${parent.code} - ${parent.name}` : '';
+                setFeedback(`No existe el codigo "${code}" para el nivel ${index + 1} (${level.name})${parentText}.`, 'warning');
+                return false;
+            }
+            parentId = node.id;
+            finalNode = node;
+        }
+
+        if (finalNode) {
+            nodeInput.value = finalNode.id;
+            if (utTag && tagInput && !segment(tagInput.value)) {
+                tagInput.value = utTag;
+            }
+            updateUnifiedFields(finalNode);
+            renderPicker();
+            setFeedback(`UT resuelta: ${utInput ? utInput.value : finalNode.ut}`, 'success');
+            return true;
+        }
+        return false;
+    }
+
+    async function renderPicker() {
+        const token = renderToken + 1;
+        renderToken = token;
+        const empresaId = selectedEmpresaId();
+        fieldsWrap.innerHTML = '';
+
+        if (!empresaId) {
+            emptyState.style.display = '';
+            return;
+        }
+
+        const companyLevels = levels
+            .filter(level => Number(level.empresa_id) === Number(empresaId))
+            .sort((a, b) => a.order - b.order);
+
+        if (!companyLevels.length) {
+            emptyState.style.display = '';
+            return;
+        }
+
+        emptyState.style.display = 'none';
+        const currentPath = pathForNode(nodeInput.value);
+        let parentId = null;
+        let deepestSelected = null;
+
+        for (let index = 0; index < companyLevels.length; index += 1) {
+            const level = companyLevels[index];
+            const currentPathNode = currentPath[index];
+            let options = [];
+            if (index === 0 || parentId) {
+                try {
+                    options = await fetchNodes(parentId, level.id);
+                } catch (error) {
+                    setFeedback(error.message || 'No se pudieron cargar las ubicaciones.', 'warning');
+                }
+            }
+            if (token !== renderToken) return;
+
+            const group = document.createElement('div');
+            group.className = 'form-field';
+
+            const label = document.createElement('label');
+            label.textContent = `${level.order}. ${level.name}`;
+
+            const select = document.createElement('select');
+            select.className = 'input-control';
+            select.dataset.levelId = level.id;
+            select.innerHTML = '<option value="">Selecciona</option>' + options
+                .map(node => `<option value="${node.id}">${node.code} - ${node.name}</option>`)
+                .join('');
+
+            if (currentPathNode && options.some(node => String(node.id) === String(currentPathNode.id))) {
+                select.value = currentPathNode.id;
+                parentId = currentPathNode.id;
+                deepestSelected = currentPathNode;
+            } else {
+                parentId = null;
+            }
+
+            select.addEventListener('change', function () {
+                nodeInput.value = this.value;
+                const selected = nodeById.get(String(this.value));
+                updateUnifiedFields(selected);
+                renderPicker();
+            });
+
+            group.appendChild(label);
+            group.appendChild(select);
+            fieldsWrap.appendChild(group);
+        }
+
+        if (deepestSelected) {
+            nodeInput.value = deepestSelected.id;
+            updateUnifiedFields(deepestSelected);
+        }
+    }
+
+    empresaSelect.addEventListener('change', function () {
+        nodeInput.value = '';
+        if (utInput) utInput.value = '';
+        setFeedback('', '');
+        filterServiceOptions();
+        renderPicker();
+    });
+
+    if (resolveButton) {
+        resolveButton.addEventListener('click', function () {
+            resolveUtString();
+        });
+    }
+    if (utInput) {
+        utInput.addEventListener('change', function () {
+            resolveUtString();
+        });
+        utInput.addEventListener('input', function () {
+            this.value = this.value.toUpperCase();
+        });
+    }
+    if (tagInput) {
+        tagInput.addEventListener('input', function () {
+            this.value = segment(this.value);
+            const selected = nodeById.get(String(nodeInput.value));
+            if (selected) updateUnifiedFields(selected);
+        });
+        tagInput.addEventListener('change', function () {
+            const selected = nodeById.get(String(nodeInput.value));
+            if (selected) updateUnifiedFields(selected);
+        });
+    }
+
+    filterServiceOptions();
+    renderPicker();
+})();
+</script>
+{% endblock %}

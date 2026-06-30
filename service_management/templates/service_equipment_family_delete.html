@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Eliminar familia | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_equipment_families' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>Eliminar familia</h2>
+            <p>{{ service.codigo_servicio }} · {{ familia.nombre }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <p>Se eliminará la familia <strong>{{ familia.nombre }}</strong> y su relación con equipos. No se eliminarán equipos ni registros ACA/RCM existentes.</p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="actions">
+            <a class="btn" href="{% url 'service_equipment_families' service.pk %}">Cancelar</a>
+            <button class="btn btn-danger" type="submit">Eliminar familia</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

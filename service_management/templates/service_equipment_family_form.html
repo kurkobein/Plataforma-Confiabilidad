@@ -1,0 +1,319 @@
+{% extends 'base.html' %}
+{% block title %}{% if familia %}Editar familia{% else %}Nueva familia{% endif %} | {{ service.codigo_servicio }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'service_equipment_families' service.pk %}"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>{% if familia %}Editar familia{% else %}Nueva familia de equipos{% endif %}</h2>
+            <p>{{ service.codigo_servicio }} · selecciona los equipos que se registrarán juntos.</p>
+        </div>
+    </div>
+</div>
+
+<form method="post">
+    {% csrf_token %}
+    <div class="card">
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="{{ form.nombre.id_for_label }}">{{ form.nombre.label }}</label>
+                {{ form.nombre }}
+                {{ form.nombre.errors }}
+            </div>
+            <div class="form-field">
+                <label>{{ form.activa }} {{ form.activa.label }}</label>
+                {{ form.activa.errors }}
+            </div>
+            <div class="form-field full">
+                <label for="{{ form.descripcion.id_for_label }}">{{ form.descripcion.label }}</label>
+                {{ form.descripcion }}
+                {{ form.descripcion.errors }}
+            </div>
+            <div class="form-field full">
+                <label>Equipos de la familia</label>
+                {{ form.equipos_ids }}
+                <div class="family-picker">
+                    <div class="family-picker-tools">
+                        <div class="form-grid" id="family-equipment-level-filters"></div>
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label for="family-equipment-search">Buscar</label>
+                                <input id="family-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+                            </div>
+                            <div class="form-field">
+                                <label>Selección</label>
+                                <input id="family-equipment-count" class="input-control" type="text" readonly value="">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="family-picker-grid">
+                        <div class="family-picker-results">
+                            <div class="family-picker-head">
+                                <strong>Equipos encontrados</strong>
+                                <button class="btn" type="button" id="family-select-visible">Agregar visibles</button>
+                            </div>
+                            <div id="family-equipment-results" class="family-equipment-results">
+                                <div class="muted">Selecciona un nivel de la U.T. o busca por texto.</div>
+                            </div>
+                        </div>
+                        <div class="family-picker-selected">
+                            <div class="family-picker-head">
+                                <strong>Seleccionados</strong>
+                                <button class="btn" type="button" id="family-clear-selected">Limpiar</button>
+                            </div>
+                            <div id="family-equipment-selected" class="family-equipment-selected"></div>
+                        </div>
+                    </div>
+                </div>
+                {% if form.equipos_ids.errors %}<div class="form-error">{{ form.equipos_ids.errors }}</div>{% endif %}
+            </div>
+        </div>
+        {% if form.non_field_errors %}<div class="form-error form-error-block">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="actions" style="margin-top:12px;">
+            <button class="btn btn-primary" type="submit">Guardar familia</button>
+        </div>
+    </div>
+</form>
+{{ service_equipment_payload|json_script:"family-equipment-data" }}
+{{ service_equipment_endpoints|json_script:"family-equipment-endpoints" }}
+{{ selected_equipment_payload|json_script:"family-selected-equipment" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const dataNode = document.getElementById('family-equipment-data');
+    const endpointsNode = document.getElementById('family-equipment-endpoints');
+    const selectedNode = document.getElementById('family-selected-equipment');
+    const hiddenInput = document.getElementById('family-equipment-selected-ids');
+    const levelWrap = document.getElementById('family-equipment-level-filters');
+    const searchInput = document.getElementById('family-equipment-search');
+    const countInput = document.getElementById('family-equipment-count');
+    const resultBox = document.getElementById('family-equipment-results');
+    const selectedBox = document.getElementById('family-equipment-selected');
+    const selectVisibleBtn = document.getElementById('family-select-visible');
+    const clearBtn = document.getElementById('family-clear-selected');
+    if (!dataNode || !endpointsNode || !hiddenInput || !resultBox || !selectedBox) return;
+
+    const payload = JSON.parse(dataNode.textContent || '{}');
+    const endpoints = JSON.parse(endpointsNode.textContent || '{}');
+    const levels = payload.levels || [];
+    const selectedInitial = selectedNode ? JSON.parse(selectedNode.textContent || '[]') : [];
+    const selected = new Map();
+    const visibleItems = new Map();
+    let autoSelectedNodeId = '';
+    let searchTimer = null;
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function (char) {
+            return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char];
+        });
+    }
+
+    function labelFor(item) {
+        return [item.tag, item.equipo, item.ut].filter(Boolean).join(' | ');
+    }
+
+    function syncHidden() {
+        hiddenInput.value = Array.from(selected.keys()).join(',');
+        if (countInput) countInput.value = `${selected.size} equipo${selected.size === 1 ? '' : 's'} seleccionado${selected.size === 1 ? '' : 's'}`;
+    }
+
+    function renderSelected() {
+        if (!selected.size) {
+            selectedBox.innerHTML = '<div class="muted">Sin equipos seleccionados.</div>';
+            syncHidden();
+            return;
+        }
+        selectedBox.innerHTML = Array.from(selected.values()).map((item) => `
+            <label class="family-equipment-check selected">
+                <input type="checkbox" checked data-selected-equipment-id="${item.id}">
+                <span>${escapeHtml(labelFor(item))}</span>
+            </label>
+        `).join('');
+        syncHidden();
+    }
+
+    function renderResults(items, message) {
+        visibleItems.clear();
+        if (!items.length) {
+            resultBox.innerHTML = `<div class="muted">${escapeHtml(message || 'No hay equipos para mostrar.')}</div>`;
+            return;
+        }
+        items.forEach((item) => visibleItems.set(String(item.id), item));
+        resultBox.innerHTML = items.map((item) => {
+            const checked = selected.has(String(item.id)) ? 'checked' : '';
+            return `
+                <label class="family-equipment-check">
+                    <input type="checkbox" ${checked} data-family-equipment-id="${item.id}">
+                    <span>${escapeHtml(labelFor(item))}</span>
+                </label>
+            `;
+        }).join('');
+    }
+
+    async function fetchJson(url) {
+        const response = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+        if (!response.ok) throw new Error('No se pudo cargar la información.');
+        return response.json();
+    }
+
+    function selectedNodeId() {
+        const selects = Array.from(levelWrap.querySelectorAll('[data-family-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index--) {
+            if (selects[index].value) return selects[index].value;
+        }
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return autoSelectedNodeId || '';
+    }
+
+    async function loadNodes(parentId) {
+        if (!endpoints.nodes) return [];
+        const url = parentId ? `${endpoints.nodes}?parent_id=${encodeURIComponent(parentId)}` : endpoints.nodes;
+        const data = await fetchJson(url);
+        return data.nodes || [];
+    }
+
+    async function renderFilterLevel(parentId, levelIndex, skipLeadingSingles) {
+        if (!levelWrap || levelIndex >= levels.length) return;
+        levelWrap.querySelectorAll('[data-family-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = levels[levelIndex];
+        let nodes = [];
+        try {
+            nodes = (await loadNodes(parentId || ''))
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (_error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.familyLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>Sin datos</option></select>
+            `;
+            levelWrap.appendChild(field);
+            return;
+        }
+
+        if (!nodes.length) {
+            autoSelectedNodeId = parentId || autoSelectedNodeId || '';
+            return;
+        }
+
+        if (nodes.length === 1 && skipLeadingSingles) {
+            autoSelectedNodeId = String(nodes[0].id || '');
+            await renderFilterLevel(autoSelectedNodeId, levelIndex + 1, true);
+            return;
+        }
+
+        autoSelectedNodeId = parentId || '';
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.familyLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-family-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${nodes.map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        levelWrap.appendChild(field);
+
+        const select = field.querySelector('[data-family-level-filter]');
+        if (nodes.length === 1) {
+            select.value = String(nodes[0].id || '');
+            autoSelectedNodeId = select.value;
+            await renderFilterLevel(select.value, levelIndex + 1, false);
+        }
+        select.addEventListener('change', async function () {
+            const value = select.value;
+            if (!value) {
+                autoSelectedNodeId = select.dataset.parentId || '';
+                levelWrap.querySelectorAll('[data-family-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                searchEquipment();
+                return;
+            }
+            await renderFilterLevel(value, levelIndex + 1, false);
+            searchEquipment();
+        });
+    }
+
+    async function searchEquipment() {
+        if (!endpoints.search) return;
+        const params = new URLSearchParams();
+        const query = searchInput ? searchInput.value.trim() : '';
+        const nodeId = selectedNodeId();
+        if (query) params.set('q', query);
+        if (nodeId) params.set('node_id', nodeId);
+        params.set('limit', '1000');
+        params.set('mode', 'family');
+        if (!query && !nodeId) {
+            renderResults([], 'Selecciona un nivel de la U.T. o escribe al menos 2 caracteres.');
+            return;
+        }
+        resultBox.innerHTML = '<div class="muted">Buscando equipos...</div>';
+        try {
+            const data = await fetchJson(`${endpoints.search}?${params.toString()}`);
+            renderResults(data.items || [], data.message || 'No hay equipos para mostrar.');
+        } catch (_error) {
+            renderResults([], 'No se pudieron cargar equipos.');
+        }
+    }
+
+    function scheduleSearch() {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(searchEquipment, 250);
+    }
+
+    function initFilters() {
+        if (!levelWrap) return;
+        levelWrap.innerHTML = '';
+        renderFilterLevel('', 0, true).then(searchEquipment);
+    }
+
+    selectedInitial.forEach((item) => selected.set(String(item.id), item));
+    renderSelected();
+    initFilters();
+    if (searchInput) searchInput.addEventListener('input', scheduleSearch);
+    resultBox.addEventListener('change', function (event) {
+        const input = event.target.closest('[data-family-equipment-id]');
+        if (!input) return;
+        const item = visibleItems.get(String(input.dataset.familyEquipmentId));
+        if (!item) return;
+        if (input.checked) selected.set(String(item.id), item);
+        else selected.delete(String(item.id));
+        renderSelected();
+    });
+    selectedBox.addEventListener('change', function (event) {
+        const input = event.target.closest('[data-selected-equipment-id]');
+        if (!input || input.checked) return;
+        selected.delete(String(input.dataset.selectedEquipmentId));
+        renderSelected();
+        const visibleInput = resultBox.querySelector(`[data-family-equipment-id="${input.dataset.selectedEquipmentId}"]`);
+        if (visibleInput) visibleInput.checked = false;
+    });
+    if (selectVisibleBtn) {
+        selectVisibleBtn.addEventListener('click', function () {
+            visibleItems.forEach((item) => selected.set(String(item.id), item));
+            resultBox.querySelectorAll('[data-family-equipment-id]').forEach((input) => { input.checked = true; });
+            renderSelected();
+        });
+    }
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            selected.clear();
+            resultBox.querySelectorAll('[data-family-equipment-id]').forEach((input) => { input.checked = false; });
+            renderSelected();
+        });
+    }
+});
+</script>
+{% endblock %}

@@ -329,7 +329,7 @@ def service_detail(request, pk):
     )
     access_form = ServiceAccessGrantForm(service=servicio, user=request.user)
     access_rows = list(permission['access_rows'])
-    return render(request, 'core/service_management/service_detail.html', {
+    return render(request, 'service_detail.html', {
         'service': servicio,
         'permission': permission,
         'aca_count': aca_count,
@@ -375,7 +375,7 @@ def service_equipment_families(request, pk):
         .prefetch_related('items__equipo')
         .order_by('-activa', 'nombre')
     )
-    return render(request, 'core/service_management/service_equipment_families.html', {
+    return render(request, 'service_equipment_families.html', {
         'service': servicio,
         'permission': permission,
         'familias': familias,
@@ -402,7 +402,7 @@ def service_equipment_family_form(request, pk, family_pk=None):
         _save_family_items(familia, form.cleaned_equipment)
         messages.success(request, 'Familia de equipos guardada correctamente.')
         return redirect('service_equipment_families', pk=servicio.pk)
-    return render(request, 'core/service_management/service_equipment_family_form.html', {
+    return render(request, 'service_equipment_family_form.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
@@ -425,7 +425,7 @@ def service_equipment_family_delete(request, pk, family_pk):
         familia.delete()
         messages.success(request, 'Familia de equipos eliminada.')
         return redirect('service_equipment_families', pk=servicio.pk)
-    return render(request, 'core/service_management/service_equipment_family_delete.html', {
+    return render(request, 'service_equipment_family_delete.html', {
         'service': servicio,
         'permission': permission,
         'familia': familia,
@@ -486,7 +486,7 @@ def service_dimensions(request, pk):
             'scales': list(ed.escalas_valor.all().order_by('nivel_ordinal', 'id')),
             'catalog': _catalog_preview(ed),
         })
-    return render(request, 'core/service_management/service_dimensions.html', {
+    return render(request, 'service_dimensions.html', {
         'service': servicio,
         'permission': permission,
         'dim_cards': dim_cards,

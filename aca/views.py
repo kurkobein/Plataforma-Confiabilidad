@@ -1862,7 +1862,7 @@ def service_aca_excel_upload(request, pk):
         form = ACAExcelBulkUploadForm()
     stored_upload = request.session.get(upload_session_key)
 
-    return render(request, 'core/aca/service_aca_excel_upload.html', {
+    return render(request, 'service_aca_excel_upload.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
@@ -1992,7 +1992,7 @@ def service_aca_list(request, pk):
         'other_aca_services': other_aca_services,
     }
     context.update(progress_context)
-    return render(request, 'core/aca/service_aca_list.html', context)
+    return render(request, 'service_aca_list.html', context)
 
 
 @login_required
@@ -2002,7 +2002,7 @@ def service_aca_progress_partial(request, pk):
         'service': servicio,
     }
     context.update(_aca_progress_context(servicio, request.GET))
-    return render(request, 'core/aca/partials/aca_progress_summary.html', context)
+    return render(request, 'partials/aca_progress_summary.html', context)
 
 
 def _node_path_for_panel(node, node_by_id):
@@ -2204,7 +2204,7 @@ def _aca_global_services_context(request, selected_service_id=None):
 @login_required
 def aca_panel(request):
     context = _aca_global_services_context(request, request.GET.get('service'))
-    return render(request, 'core/aca/aca_panel.html', context)
+    return render(request, 'aca_panel.html', context)
 
 
 @login_required
@@ -2217,7 +2217,7 @@ def aca_development(request):
         row['progress_color'] = _progress_color(progress_percent)
         row['progress_label'] = summary.get('average_progress_label', 'N/A')
         row['progress_order'] = float(progress_percent) if progress_percent is not None else -1
-    return render(request, 'core/aca/aca_development.html', context)
+    return render(request, 'aca_development.html', context)
 
 
 def _aca_group_key_and_label(crit):
@@ -3075,7 +3075,7 @@ def service_aca_bulk_new(request, pk):
         if errors:
             return render(
                 request,
-                'core/aca/aca_bulk_form.html',
+                'aca_bulk_form.html',
                 _bulk_render_context(
                     servicio,
                     permission,
@@ -3128,7 +3128,7 @@ def service_aca_bulk_new(request, pk):
 
     return render(
         request,
-        'core/aca/aca_bulk_form.html',
+        'aca_bulk_form.html',
         _bulk_render_context(servicio, permission, strategy, matrix_selector, dimension_payload),
     )
 
@@ -3183,7 +3183,7 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
         if errors:
             return render(
                 request,
-                'core/aca/aca_bulk_form.html',
+                'aca_bulk_form.html',
                 _bulk_render_context(
                     servicio,
                     permission,
@@ -3215,7 +3215,7 @@ def service_aca_bulk_group_edit(request, pk, carga_pk):
 
     return render(
         request,
-        'core/aca/aca_bulk_form.html',
+        'aca_bulk_form.html',
         _bulk_render_context(
             servicio,
             permission,
@@ -3379,7 +3379,7 @@ def service_aca_new(request, pk):
             if duplicate_equipos:
                 for equipo in duplicate_equipos:
                     base_form.add_error('equipo', _duplicate_aca_equipment_message(equipo))
-                return render(request, 'core/aca/aca_registro_form.html', {
+                return render(request, 'aca_registro_form.html', {
                     'service': servicio,
                     'permission': permission,
                     'base_form': base_form,
@@ -3448,7 +3448,7 @@ def service_aca_new(request, pk):
                 messages.success(request, 'Registro ACA creado correctamente.')
             return redirect('service_aca_list', pk=servicio.pk)
 
-    return render(request, 'core/aca/aca_registro_form.html', {
+    return render(request, 'aca_registro_form.html', {
         'service': servicio,
         'permission': permission,
         'base_form': base_form,

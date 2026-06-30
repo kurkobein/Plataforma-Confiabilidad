@@ -1,0 +1,1093 @@
+{% extends 'base.html' %}
+{% block title %}{{ service.codigo_servicio }} | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div class="page-title-group">
+        <a class="btn" href="{% url 'model_list' 'servicio' %}" aria-label="Volver" title="Volver"><i class="bi bi-chevron-left"></i></a>
+        <div class="page-title-copy">
+            <h2>{{ service.codigo_servicio }}</h2>
+            <p>{{ service.descripcion|default:'Sin descripción' }}</p>
+        </div>
+    </div>
+    
+</div>
+
+<div class="grid-3">
+    <div class="stat">
+        <small>Empresa</small>
+        <strong style="font-size:20px;">{{ service.empresa.sigla }}</strong>
+        <div class="muted">{{ service.empresa.nombre }}</div>
+    </div>
+    <div class="stat">
+        <small>Registros</small>
+        <strong>{{ total_count }}</strong>
+        <div class="muted">Dimensiones activas: {{ dimension_count }}</div>
+    </div>
+    <div class="stat">
+        <small>Equipos</small>
+        <strong>{{ equipment_count }}</strong>
+        <div class="muted">De la empresa del servicio</div>
+    </div>
+    <div class="stat">
+        <small>Equipos evaluados</small>
+        <strong>{{ evaluated_equipment_count }}</strong>
+        <div class="muted">Con registro ACA o FMECA</div>
+    </div>
+    <div class="stat">
+        <small>Familias</small>
+        <strong>{{ family_count }}</strong>
+        <div class="muted">Grupos para análisis</div>
+    </div>
+</div>
+
+<div class="grid-22">
+    <div class="card">
+        <h3 class="card-title">Información del servicio</h3>
+        <div class="detail-grid">
+            <div class="muted">Estrategia</div><div>{{ service.estrategia|default:'—' }}</div>
+            <div class="muted">Administrador</div><div>{{ service.creado_por_usuario|default:'—' }}</div>
+            <div class="muted">Responsable</div><div>{{ service.responsable_usuario|default:'—' }}</div>
+            <div class="muted">Fecha inicio</div><div>{{ service.fecha_inicio|default:'—' }}</div>
+            <div class="muted">Fecha fin</div><div>{{ service.fecha_fin|default:'—' }}</div>
+            <div class="muted">Estado</div><div>{{ service.status }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <h3 class="card-title">Módulos del servicio</h3>
+        <div style="display:grid; gap:10px;">
+            <div class="stat">
+                <small>ACA</small>
+                <strong style="font-size:18px;">{{ aca_count }}</strong>
+                <div class="actions" style="margin-top:10px;">
+                    <a class="btn btn-primary" href="{% url 'service_aca_list' service.pk %}">
+                        Desarrollo
+                    </a>
+                    <a class="btn" href="{% url 'aca_panel' %}?service={{ service.pk }}">
+                        Ver reporte
+                    </a>
+                </div>
+            </div>
+            <div class="stat">
+                <small>FMECA</small>
+                <strong style="font-size:18px;">{{ rcm_count }}</strong>
+                <div class="actions" style="margin-top:10px;">
+                    <a class="btn btn-primary" href="{% url 'service_fmeca_list' service.pk %}">
+                        Desarrollo
+                    </a>
+                    <a class="btn" href="{% url 'fmeca_panel' %}?service={{ service.pk }}">
+                        Ver reporte
+                    </a>
+                </div>
+            </div>
+            <div class="stat">
+                <small>PLANES</small>
+                <strong style="font-size:18px;">{{ pauta_count }}</strong>
+                <div class="actions" style="margin-top:10px;">
+                    <a class="btn btn-primary" href="{% url 'service_pautas_list' service.pk %}">
+                        Desarrollo
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% if permission.can_manage_access %}
+<div class="card">
+    <h3 class="card-title">Accesos del servicio</h3>
+    <div class="service-access-layout">
+        <div class="service-access-tools">
+            <form class="service-access-form" method="post" action="{% url 'service_access_manage' service.pk %}">
+                {% csrf_token %}
+                <div class="service-access-form-stack">
+                    <div class="form-field">
+                        <label for="{{ access_form.usuario.id_for_label }}">{{ access_form.usuario.label }}</label>
+                        {{ access_form.usuario }}
+                        {% if access_form.usuario.help_text %}<small class="muted">{{ access_form.usuario.help_text }}</small>{% endif %}
+                    </div>
+                    <div class="form-field service-access-permission-field">
+                        <label for="{{ access_form.nivel.id_for_label }}">{{ access_form.nivel.label }}</label>
+                        {{ access_form.nivel }}
+                        {% if access_form.nivel.help_text %}<small class="muted">{{ access_form.nivel.help_text }}</small>{% endif %}
+                    </div>
+                    <div class="actions service-access-actions">
+                        <button class="btn btn-primary" type="submit"><i class="bi bi-person-add"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="table-wrap-2 service-detail-pagination">
+                <table id="service-access-table" class="display no-datatable" data-page-length="5">
+                    <thead><tr><th>Usuario</th><th>Empresa</th><th>Cargo</th><th>Permiso</th><th></th></tr></thead>
+                    <tbody>
+                        {% for row in access_rows %}
+                            <tr>
+                                <td>{{ row.usuario.nombre_completo }}</td>
+                                <td>{{ row.usuario.empresa.sigla|default:'—' }}</td>
+                                <td>{{ row.usuario.cargo|default:'—' }}</td>
+                                <td>{% if row.puede_editar %}<span class="pill">Editar</span>{% else %}<span class="pill-soft">Ver</span>{% endif %}</td>
+                                <td>
+                                    <form method="post" action="{% url 'service_access_manage' service.pk %}">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="remove">
+                                        <input type="hidden" name="access_id" value="{{ row.pk }}">
+                                        <button class="btn" type="submit"><i class="bi bi-person-dash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="5" class="muted">Todavía no hay usuarios asignados a este servicio.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+    </div>
+</div>
+{% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">Equipos del servicio</h3>
+    <div class="service-equipment-intro">
+        <div class="actions">
+            {% if request.user.is_superuser %}
+            <a class="btn" href="{% url 'model_list' 'equipo' %}">Registrar equipo</a>
+            {% endif %}
+            <a class="btn" href="{% url 'service_equipment_families' service.pk %}">
+                Gestionar familias
+            </a>
+        </div>
+    </div>
+    <div class="segmented-control service-equipment-mode" aria-label="Tipo de busqueda">
+        <label><input type="radio" name="service_equipment_mode" value="equipment" checked> Equipos</label>
+        <label><input type="radio" name="service_equipment_mode" value="family"> Familias</label>
+        {% if permission.can_edit %}
+            <label><input type="radio" name="service_equipment_mode" value="link"> Vincular equipos</label>
+        {% endif %}
+    </div>
+    
+    <div class="service-equipment-tools">
+        <div class="service-equipment-inline-field">
+            <label for="service-equipment-search">Buscar</label>
+            <input id="service-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+        </div>
+        <div class="service-equipment-inline-field service-equipment-count-field">
+            <label for="service-equipment-count">Resultados</label>
+            <input id="service-equipment-count" class="input-control" type="text" readonly value="">
+        </div>
+        {% if permission.can_edit %}
+            <div class="actions service-equipment-link-actions" id="service-equipment-link-actions" hidden>
+                <button class="btn btn-primary" type="button" id="service-equipment-link-button">
+                    Vincular seleccionados
+                </button>
+                <button class="btn btn-danger" type="button" id="service-equipment-unlink-button">
+                    Desvincular seleccionados
+                </button>
+                <span class="pill-danger" id="service-equipment-unlink-warning" hidden></span>
+                <span class="muted" id="service-equipment-link-status"></span>
+            </div>
+        {% endif %}
+    </div>
+    <hr>
+    <div class="form-grid" id="service-equipment-level-filters"></div>
+    
+    <div class="table-wrap" style="margin-top:12px;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Ubicaci&oacute;n T&eacute;cnica</th>
+                    <th>Descripci&oacute;n U.T&eacute;cnica</th>
+                    <th>Equipo</th>
+                    <th>TAG</th>
+                </tr>
+            </thead>
+            <tbody id="service-equipment-table">
+                <tr><td colspan="4" class="muted">Cargando equipos...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if permission.can_edit %}
+<div class="logout-modal" id="service-equipment-unlink-modal" hidden>
+    <div class="logout-modal-backdrop" data-unlink-modal-close></div>
+    <div class="logout-modal-card service-equipment-unlink-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-equipment-unlink-title">
+        <h3 id="service-equipment-unlink-title">Desvincular equipos</h3>
+        <p class="muted" id="service-equipment-unlink-summary">
+            Se desvincularán los equipos seleccionados de este servicio.
+        </p>
+        <div class="message error" id="service-equipment-unlink-aca-warning" hidden>
+            Hay equipos con ACA asociados. Si se desvinculan se eliminarán.
+        </div>
+        <div class="actions">
+            <button class="btn" type="button" data-unlink-modal-close>Cancelar</button>
+            <button class="btn btn-danger hold-confirm-button" type="button" id="service-equipment-unlink-confirm">
+                <span>Eliminar</span>
+                <span class="hold-confirm-progress" aria-hidden="true"></span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="service-config-grid">
+    <div class="card">
+        <div class="service-equipment-intro">
+            <h3 class="card-title">Tablas y dimensiones de evaluación</h3>
+            {% if dimension_rows and request.user.is_superuser and service.estrategia_id %}
+                <a class="btn" href="{% url 'dimension_tables_editor' service.estrategia_id %}?service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                    Crear / gestionar tablas
+                </a>
+            {% endif %}
+        </div>
+        {% if dimension_rows %}
+            <p class="muted">Estas son las dimensiones activas que se usarán para este servicio.</p>
+            <div class="table-wrap service-detail-pagination">
+                <table class="datatable display" data-dt-controls="paging-only">
+                    <thead>
+                        <tr>
+                            <th>Dimensión</th>
+                            <th>Uso</th>
+                            <th>Tipo funcional</th>
+                            <th>Tipo dato</th>
+                            <th>Origen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in dimension_rows %}
+                            <tr>
+                                <td>{{ item.dimension.nombre }}</td>
+                                <td>{{ item.proceso_uso_display }}</td>
+                                <td>{{ item.dimension.tipo_funcional }}</td>
+                                <td>{{ item.dimension.tipo_dato }}</td>
+                                <td class="origin-popover-cell">
+                                    <button
+                                        class="origin-popover-trigger"
+                                        type="button"
+                                        data-origin-popover="dimension-origin-{{ forloop.counter }}"
+                                        aria-expanded="false"
+                                    >
+                                        <span>{{ item.origin.label }}</span>
+                                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                    </button>
+                                    <div id="dimension-origin-{{ forloop.counter }}" class="origin-popover-source" hidden>
+                                        {% if item.origin.calculation %}
+                                            <div class="origin-calc-preview">
+                                                {% for step in item.origin.calculation.steps %}
+                                                    <div class="origin-calc-step">
+                                                        <span>Paso {{ step.order }} · {{ step.operation }}</span>
+                                                        <strong>{{ step.expression }}</strong>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                        {% if item.origin.table_preview %}
+                                            <div class="origin-table-preview">
+                                                <table>
+                                                    <thead>
+                                                        <tr>
+                                                            {% for column in item.origin.table_preview.columns %}
+                                                                <th>{{ column }}</th>
+                                                            {% endfor %}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for row in item.origin.table_preview.rows %}
+                                                            <tr>
+                                                                {% for cell in row.cells %}
+                                                                    <td>{{ cell }}</td>
+                                                                {% endfor %}
+                                                            </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        {% endif %}
+                                        {% if item.origin.description %}
+                                            <p class="muted">{{ item.origin.description }}</p>
+                                        {% endif %}
+                                        {% if not item.origin.calculation and not item.origin.table_preview and not item.origin.description %}
+                                            <p class="muted">Ingreso directo sin tabla, escala ni cálculo asociado.</p>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions" style="margin-top:12px;">
+            </div>
+        {% else %}
+            <div class="service-config-empty">
+                <div>
+                    <strong>Sin tablas de evaluación</strong>
+            <p class="muted">La estrategia del servicio todavía no tiene dimensiones configuradas.</p>
+                </div>
+            {% if request.user.is_superuser and service.estrategia_id %}
+                <div class="actions service-config-empty-actions">
+                    <a class="btn btn-primary" href="{% url 'dimension_tables_editor' service.estrategia_id %}?service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                        Crear tablas de evaluación
+                    </a>
+                </div>
+            {% endif %}
+            </div>
+        {% endif %}
+    </div>
+
+    <div id="dimension-origin-popover" class="dimension-origin-popover" role="tooltip" hidden></div>
+
+    <div class="card">
+        <div class="service-equipment-intro">
+            <h3 class="card-title">Matrices de riesgo asociadas</h3>
+            {% if matrices and request.user.is_superuser and service.estrategia_id %}
+                <a class="btn" href="{% url 'model_list' 'matrizriesgo' %}">
+                    Crear / gestionar matrices
+                </a>
+            {% endif %}
+        </div>
+        {% if matrices %}
+            <p class="muted">
+                {% if mindco_viewer %}
+                    Como usuario Mindco puedes revisar la matriz original del cliente y su proyección homologada 5x5.
+                {% else %}
+                    Como usuario cliente verás siempre la matriz original configurada para tu servicio.
+                {% endif %}
+            </p>
+            <div class="table-wrap">
+                <table class="datatable display">
+                    <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Acciones</th></tr></thead>
+                    <tbody>
+                        {% for matriz in matrices %}
+                            <tr>
+                                <td>{{ matriz.nombre }}</td>
+                                <td>{{ matriz.niveles_probabilidad.count }}x{{ matriz.niveles_impacto.count }}</td>
+                                <td>{{ matriz.fecha_creado }}</td>
+                                <td>
+                                    <div class="actions">
+                                        <a class="btn" href="{% url 'service_matrix_view' service.pk matriz.pk %}">
+                                            {% if mindco_viewer %}Ver original + homologada{% else %}Ver matriz original{% endif %}
+                                        </a>
+                                        {% if request.user.is_superuser %}<a class="btn" href="{% url 'matriz_builder_edit' matriz.pk %}">Abrir editor</a>{% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="service-config-empty">
+                <div>
+                    <strong>Sin matrices de riesgo</strong>
+                    <p class="muted">No hay matrices registradas para la estrategia de este servicio.</p>
+                </div>
+                {% if request.user.is_superuser and service.estrategia_id %}
+                    <div class="actions service-config-empty-actions">
+                        <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}?estrategia={{ service.estrategia_id }}&service={{ service.pk }}&service_label={{ service.codigo_servicio|urlencode }}">
+                            Crear matriz de riesgo
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block extra_js %}
+{{ service_equipment_payload|json_script:"service-equipment-data" }}
+{{ service_family_payload|json_script:"service-family-data" }}
+<script>
+(function () {
+    const dataNode = document.getElementById('service-equipment-data');
+    const familyDataNode = document.getElementById('service-family-data');
+    const payload = dataNode ? JSON.parse(dataNode.textContent || '{}') : {};
+    const familyItems = familyDataNode ? JSON.parse(familyDataNode.textContent || '[]') : [];
+    const levels = payload.levels || [];
+    const filtersBox = document.getElementById('service-equipment-level-filters');
+    const searchInput = document.getElementById('service-equipment-search');
+    const countInput = document.getElementById('service-equipment-count');
+    const tableBody = document.getElementById('service-equipment-table');
+    const modeInputs = Array.from(document.querySelectorAll('input[name="service_equipment_mode"]'));
+    const linkActions = document.getElementById('service-equipment-link-actions');
+    const linkButton = document.getElementById('service-equipment-link-button');
+    const unlinkButton = document.getElementById('service-equipment-unlink-button');
+    const unlinkWarning = document.getElementById('service-equipment-unlink-warning');
+    const unlinkModal = document.getElementById('service-equipment-unlink-modal');
+    const unlinkSummary = document.getElementById('service-equipment-unlink-summary');
+    const unlinkAcaWarning = document.getElementById('service-equipment-unlink-aca-warning');
+    const unlinkConfirm = document.getElementById('service-equipment-unlink-confirm');
+    const linkStatus = document.getElementById('service-equipment-link-status');
+    const tableHead = tableBody ? tableBody.closest('table')?.querySelector('thead tr') : null;
+    const endpoints = {
+        nodes: "{% url 'service_equipment_nodes' service.pk %}",
+        search: "{% url 'service_equipment_search' service.pk %}",
+        available: "{% url 'service_equipment_available' service.pk %}",
+        link: "{% url 'service_equipment_link' service.pk %}",
+        unlink: "{% url 'service_equipment_unlink' service.pk %}"
+    };
+    const csrfToken = "{{ csrf_token|escapejs }}";
+    const nodeCache = new Map();
+    const selectedLinkIds = new Set();
+    const linkableItemsById = new Map();
+    let unlinkHoldTimer = null;
+    let unlinkHoldStarted = false;
+    let searchTimer = null;
+    let activeRequest = 0;
+    let autoSelectedNodeId = '';
+
+    function currentMode() {
+        const checked = modeInputs.find(input => input.checked);
+        return checked ? checked.value : 'equipment';
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function selectedNodeId() {
+        const selects = Array.from(filtersBox.querySelectorAll('[data-equipment-level-filter]'));
+        for (let index = selects.length - 1; index >= 0; index -= 1) {
+            if (selects[index].value) return selects[index].value;
+        }
+        const lastSelect = selects[selects.length - 1];
+        if (lastSelect && lastSelect.dataset.parentId) return lastSelect.dataset.parentId;
+        return autoSelectedNodeId || '';
+    }
+
+    function tableColspan() {
+        return currentMode() === 'link' ? 5 : 4;
+    }
+
+    function setTableMessage(message) {
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="${tableColspan()}" class="muted">${escapeHtml(message)}</td></tr>`;
+    }
+
+    function setEquipmentHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th>Ubicaci&oacute;n T&eacute;cnica</th>
+            <th>Descripci&oacute;n U.T&eacute;cnica</th>
+            <th>Equipo</th>
+            <th>TAG</th>
+        `;
+    }
+
+    function setFamilyHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th>Familia</th>
+            <th>Descripci&oacute;n</th>
+            <th>Equipos</th>
+            <th>Detalle</th>
+        `;
+    }
+
+    function setLinkHeader() {
+        if (!tableHead) return;
+        tableHead.innerHTML = `
+            <th style="width:44px;"><input type="checkbox" data-link-toggle-all aria-label="Seleccionar visibles"></th>
+            <th>Ubicaci&oacute;n T&eacute;cnica</th>
+            <th>Descripci&oacute;n U.T&eacute;cnica</th>
+            <th>Equipo</th>
+            <th>TAG</th>
+        `;
+    }
+
+    function updateLinkTools() {
+        if (linkActions) linkActions.hidden = currentMode() !== 'link';
+        const selectedItems = selectedVisibleLinkItems();
+        const selectedUnlinked = selectedItems.filter(item => !item.linked);
+        const selectedLinked = selectedItems.filter(item => item.linked);
+        const selectedLinkedWithAca = selectedLinked.filter(item => Number(item.aca_count || 0) > 0);
+        if (linkButton) {
+            linkButton.disabled = selectedUnlinked.length === 0;
+            linkButton.textContent = selectedUnlinked.length
+                ? `Vincular seleccionados (${selectedUnlinked.length})`
+                : 'Vincular seleccionados';
+        }
+        if (unlinkButton) {
+            unlinkButton.disabled = selectedLinked.length === 0;
+            unlinkButton.textContent = selectedLinked.length
+                ? `Desvincular seleccionados (${selectedLinked.length})`
+                : 'Desvincular seleccionados';
+        }
+        if (unlinkWarning) {
+            if (selectedLinkedWithAca.length) {
+                const total = selectedLinkedWithAca.reduce((sum, item) => sum + Number(item.aca_count || 0), 0);
+                unlinkWarning.hidden = false;
+                unlinkWarning.textContent = `${total} registro${total === 1 ? '' : 's'} ACA asociado${total === 1 ? '' : 's'}`;
+            } else {
+                unlinkWarning.hidden = true;
+                unlinkWarning.textContent = '';
+            }
+        }
+    }
+
+    function selectedVisibleLinkItems() {
+        if (!tableBody) return [];
+        return Array.from(tableBody.querySelectorAll('[data-link-equipment-id]:checked'))
+            .map(function (checkbox) {
+                const id = Number(checkbox.dataset.linkEquipmentId);
+                const item = linkableItemsById.get(id);
+                if (item) {
+                    return {
+                        ...item,
+                        linked: item.linked === undefined ? checkbox.dataset.linked === '1' : item.linked === true,
+                        aca_count: item.aca_count === undefined ? Number(checkbox.dataset.acaCount || 0) : Number(item.aca_count || 0),
+                    };
+                }
+                return {
+                    id: id,
+                    linked: checkbox.dataset.linked === '1',
+                    aca_count: Number(checkbox.dataset.acaCount || 0),
+                };
+            })
+            .filter(item => item && item.id);
+    }
+
+    async function fetchJson(url) {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+    }
+
+    async function loadNodes(parentId) {
+        const key = parentId || 'root';
+        if (nodeCache.has(key)) return nodeCache.get(key);
+        const url = parentId ? `${endpoints.nodes}?parent_id=${encodeURIComponent(parentId)}` : endpoints.nodes;
+        const data = await fetchJson(url);
+        const nodes = data.nodes || [];
+        nodeCache.set(key, nodes);
+        return nodes;
+    }
+
+    async function renderFilterLevel(parentId, levelIndex, skipLeadingSingles) {
+        if (!filtersBox || levelIndex >= levels.length) return;
+        filtersBox.querySelectorAll('[data-equipment-level-field]').forEach(function (field) {
+            if (Number(field.dataset.levelIndex || 0) >= levelIndex) field.remove();
+        });
+
+        const level = levels[levelIndex];
+        let options = [];
+        try {
+            const nodes = await loadNodes(parentId || '');
+            options = nodes
+                .filter(node => Number(node.level_id) === Number(level.id))
+                .sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'es', { sensitivity: 'base', numeric: true }));
+        } catch (error) {
+            const field = document.createElement('div');
+            field.className = 'form-field';
+            field.dataset.equipmentLevelField = 'true';
+            field.dataset.levelIndex = String(levelIndex);
+            field.innerHTML = `
+                <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+                <select class="input-control" disabled><option>No se pudieron cargar datos</option></select>
+            `;
+            filtersBox.appendChild(field);
+            return;
+        }
+
+        if (!options.length) {
+            autoSelectedNodeId = parentId || autoSelectedNodeId || '';
+            return;
+        }
+
+        if (options.length === 1 && skipLeadingSingles) {
+            autoSelectedNodeId = String(options[0].id || '');
+            await renderFilterLevel(autoSelectedNodeId, levelIndex + 1, true);
+            return;
+        }
+
+        autoSelectedNodeId = parentId || '';
+        const field = document.createElement('div');
+        field.className = 'form-field';
+        field.dataset.equipmentLevelField = 'true';
+        field.dataset.levelIndex = String(levelIndex);
+        field.innerHTML = `
+            <label>${escapeHtml(level.order)}. ${escapeHtml(level.name)}</label>
+            <select class="input-control" data-equipment-level-filter data-level-index="${levelIndex}" data-parent-id="${escapeHtml(parentId || '')}">
+                <option value="">Todos</option>
+                ${options.map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.label)}</option>`).join('')}
+            </select>
+        `;
+        filtersBox.appendChild(field);
+        const select = field.querySelector('[data-equipment-level-filter]');
+        if (options.length === 1) {
+            select.value = String(options[0].id || '');
+            autoSelectedNodeId = select.value;
+            await renderFilterLevel(select.value, levelIndex + 1, false);
+        }
+        select.addEventListener('change', function () {
+            const value = select.value;
+            if (!value) {
+                autoSelectedNodeId = select.dataset.parentId || '';
+                filtersBox.querySelectorAll('[data-equipment-level-field]').forEach(function (childField) {
+                    if (Number(childField.dataset.levelIndex || 0) > levelIndex) childField.remove();
+                });
+                renderTable();
+                return;
+            }
+            renderFilterLevel(value, levelIndex + 1, false).then(renderTable);
+        });
+    }
+
+    async function renderTable() {
+        if (currentMode() === 'family') {
+            renderFamilies();
+            return;
+        }
+        if (currentMode() === 'link') {
+            renderLinkableEquipment();
+            return;
+        }
+        setEquipmentHeader();
+        updateLinkTools();
+        const requestId = ++activeRequest;
+        const query = searchInput ? searchInput.value.trim() : '';
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            if (countInput) countInput.value = '';
+            setTableMessage('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres para buscar.');
+            return;
+        }
+        if (countInput) countInput.value = 'Buscando...';
+        setTableMessage('Buscando equipos...');
+        const params = new URLSearchParams({ limit: '200' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.search}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countInput) countInput.value = '';
+            setTableMessage('No se pudieron cargar los equipos.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        if (countInput) {
+            countInput.value = data.truncated
+                ? `${data.count} encontrados, mostrando ${items.length}`
+                : `${data.count || 0} encontrados`;
+        }
+        if (!tableBody) return;
+        if (!items.length) {
+            setTableMessage(data.message || 'No hay equipos para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => `
+            <tr>
+                <td><strong>${escapeHtml(item.ut)}</strong></td>
+                <td>${escapeHtml(item.descripcion_ut)}</td>
+                <td>${escapeHtml(item.equipo)}</td>
+                <td>${escapeHtml(item.tag)}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function renderLinkableEquipment() {
+        setLinkHeader();
+        updateLinkTools();
+        const requestId = ++activeRequest;
+        const query = searchInput ? searchInput.value.trim() : '';
+        const nodeId = selectedNodeId();
+        if (!nodeId && query.length < 2) {
+            if (countInput) countInput.value = '';
+            setTableMessage('Selecciona un nivel de la U.T. o escribe al menos 2 caracteres para buscar equipos de la empresa.');
+            return;
+        }
+        if (countInput) countInput.value = 'Buscando...';
+        setTableMessage('Buscando equipos disponibles...');
+        const params = new URLSearchParams({ limit: '500' });
+        if (nodeId) params.set('node_id', nodeId);
+        if (query) params.set('q', query);
+        let data;
+        try {
+            data = await fetchJson(`${endpoints.available}?${params.toString()}`);
+        } catch (error) {
+            if (requestId !== activeRequest) return;
+            if (countInput) countInput.value = '';
+            setTableMessage('No se pudieron cargar los equipos disponibles.');
+            return;
+        }
+        if (requestId !== activeRequest) return;
+        const items = data.items || [];
+        linkableItemsById.clear();
+        items.forEach(item => linkableItemsById.set(Number(item.id), item));
+        if (countInput) {
+            countInput.value = data.truncated
+                ? `${data.count} encontrados, mostrando ${items.length}`
+                : `${data.count || 0} encontrados`;
+        }
+        if (!items.length) {
+            setTableMessage('No hay equipos disponibles para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = items.map(item => {
+            const checked = selectedLinkIds.has(Number(item.id)) ? 'checked' : '';
+            const state = item.linked ? '<span class="pill-soft">Ya vinculado</span>' : '';
+            return `
+                <tr>
+                    <td><input type="checkbox" data-link-equipment-id="${item.id}" data-linked="${item.linked ? '1' : '0'}" data-aca-count="${item.aca_count || 0}" ${checked}></td>
+                    <td><strong>${escapeHtml(item.ut)}</strong> ${state}</td>
+                    <td>${escapeHtml(item.descripcion_ut)}</td>
+                    <td>${escapeHtml(item.equipo)}</td>
+                    <td>${escapeHtml(item.tag)}</td>
+                </tr>
+            `;
+        }).join('');
+        updateLinkTools();
+    }
+
+    function familyMatchesQuery(family, query) {
+        if (!query) return true;
+        const haystack = [
+            family.nombre,
+            family.descripcion,
+            ...(family.equipos || []).flatMap(item => [item.ut, item.descripcion_ut, item.equipo, item.tag])
+        ].join(' ').toLowerCase();
+        return haystack.includes(query.toLowerCase());
+    }
+
+    function renderFamilies() {
+        activeRequest += 1;
+        setFamilyHeader();
+        updateLinkTools();
+        const query = searchInput ? searchInput.value.trim() : '';
+        const matches = familyItems.filter(family => familyMatchesQuery(family, query));
+        if (filtersBox) filtersBox.style.display = 'none';
+        if (searchInput) searchInput.placeholder = 'Nombre de familia, UT, TAG o equipo';
+        if (countInput) countInput.value = `${matches.length} familias`;
+        if (!tableBody) return;
+        if (!matches.length) {
+            setTableMessage('No hay familias para los filtros seleccionados.');
+            return;
+        }
+        tableBody.innerHTML = matches.map(family => {
+            const equipos = family.equipos || [];
+            const detailRows = equipos.length
+                ? equipos.map(item => `<div class="family-equipment-mini-row"><strong>${escapeHtml(item.tag || '-')}</strong><span>${escapeHtml(item.equipo || '')}</span><span>${escapeHtml(item.ut || '')}</span></div>`).join('')
+                : '<div class="muted">Esta familia no tiene equipos.</div>';
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(family.nombre)}</strong></td>
+                    <td>${escapeHtml(family.descripcion || '')}</td>
+                    <td>${equipos.length}</td>
+                    <td>
+                        <details class="service-family-details">
+                            <summary>Ver detalles</summary>
+                            <div class="family-equipment-mini-list">${detailRows}</div>
+                        </details>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function linkSelectedEquipment() {
+        if (!selectedLinkIds.size || !linkButton) return;
+        const ids = selectedVisibleLinkItems().filter(item => !item.linked).map(item => item.id);
+        if (!ids.length) {
+            if (linkStatus) linkStatus.textContent = 'Selecciona equipos no vinculados.';
+            updateLinkTools();
+            return;
+        }
+        linkButton.disabled = true;
+        if (linkStatus) linkStatus.textContent = 'Vinculando...';
+        let data;
+        try {
+            const response = await fetch(endpoints.link, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ equipment_ids: ids }),
+            });
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(response.status === 403
+                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
+                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo vincular.')
+                );
+            }
+            if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo vincular.');
+        } catch (error) {
+            if (linkStatus) linkStatus.textContent = error.message || 'No se pudo vincular.';
+            updateLinkTools();
+            return;
+        }
+        selectedLinkIds.clear();
+        if (linkStatus) linkStatus.textContent = data.message || 'Equipos vinculados.';
+        await renderLinkableEquipment();
+    }
+
+    function selectedLinkedItems() {
+        return selectedVisibleLinkItems().filter(item => item.linked);
+    }
+
+    function cancelUnlinkHold() {
+        unlinkHoldStarted = false;
+        if (unlinkHoldTimer) {
+            clearTimeout(unlinkHoldTimer);
+            unlinkHoldTimer = null;
+        }
+        if (unlinkConfirm) unlinkConfirm.classList.remove('is-holding');
+    }
+
+    function closeUnlinkModal() {
+        if (unlinkModal) unlinkModal.hidden = true;
+        cancelUnlinkHold();
+    }
+
+    function openUnlinkModal() {
+        const items = selectedLinkedItems();
+        if (!items.length) {
+            if (linkStatus) linkStatus.textContent = 'Selecciona equipos vinculados para desvincular.';
+            return;
+        }
+        const acaTotal = items.reduce((sum, item) => sum + Number(item.aca_count || 0), 0);
+        if (unlinkSummary) {
+            unlinkSummary.textContent = `Se desvincularán ${items.length} equipo${items.length === 1 ? '' : 's'} de este servicio.`;
+        }
+        if (unlinkAcaWarning) {
+            unlinkAcaWarning.hidden = acaTotal === 0;
+            unlinkAcaWarning.textContent = acaTotal
+                ? `Hay ${acaTotal} registro${acaTotal === 1 ? '' : 's'} ACA asociado${acaTotal === 1 ? '' : 's'}. Si se desvinculan, esos registros ACA se eliminarán.`
+                : '';
+        }
+        if (unlinkModal) unlinkModal.hidden = false;
+    }
+
+    async function unlinkSelectedEquipment() {
+        const ids = selectedLinkedItems().map(item => item.id);
+        if (!ids.length || !unlinkButton) return;
+        closeUnlinkModal();
+        unlinkButton.disabled = true;
+        if (linkStatus) linkStatus.textContent = 'Desvinculando...';
+        let data;
+        try {
+            const response = await fetch(endpoints.unlink, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({ equipment_ids: ids }),
+            });
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                throw new Error(response.status === 403
+                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
+                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo desvincular.')
+                );
+            }
+            if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo desvincular.');
+        } catch (error) {
+            if (linkStatus) linkStatus.textContent = error.message || 'No se pudo desvincular.';
+            updateLinkTools();
+            return;
+        }
+        selectedLinkIds.clear();
+        if (linkStatus) linkStatus.textContent = data.message || 'Equipos desvinculados.';
+        await renderLinkableEquipment();
+    }
+
+    function scheduleRenderTable() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(renderTable, 250);
+    }
+
+    function initFilters() {
+        if (!filtersBox) return;
+        filtersBox.innerHTML = '';
+        if (searchInput) searchInput.addEventListener('input', scheduleRenderTable);
+        modeInputs.forEach(function (input) {
+            input.addEventListener('change', function () {
+                const mode = currentMode();
+                if (filtersBox) filtersBox.style.display = mode === 'family' ? 'none' : '';
+                if (searchInput) searchInput.placeholder = mode === 'family'
+                    ? 'Nombre de familia, UT, TAG o equipo'
+                    : (mode === 'link' ? 'Buscar en equipos de la empresa' : 'UT, TAG o nombre del equipo');
+                updateLinkTools();
+                renderTable();
+            });
+        });
+        if (linkButton) linkButton.addEventListener('click', linkSelectedEquipment);
+        if (unlinkButton) unlinkButton.addEventListener('click', openUnlinkModal);
+        if (unlinkModal) {
+            unlinkModal.querySelectorAll('[data-unlink-modal-close]').forEach(function (button) {
+                button.addEventListener('click', closeUnlinkModal);
+            });
+        }
+        if (unlinkConfirm) {
+            unlinkConfirm.addEventListener('pointerdown', function () {
+                if (unlinkHoldStarted) return;
+                unlinkHoldStarted = true;
+                unlinkConfirm.classList.add('is-holding');
+                unlinkHoldTimer = setTimeout(function () {
+                    unlinkHoldTimer = null;
+                    unlinkHoldStarted = false;
+                    unlinkSelectedEquipment();
+                }, 2000);
+            });
+            ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (eventName) {
+                unlinkConfirm.addEventListener(eventName, cancelUnlinkHold);
+            });
+        }
+        if (tableBody) {
+            tableBody.addEventListener('change', function (event) {
+                const checkbox = event.target.closest('[data-link-equipment-id]');
+                if (!checkbox) return;
+                const equipmentId = Number(checkbox.dataset.linkEquipmentId);
+                if (checkbox.checked) selectedLinkIds.add(equipmentId);
+                else selectedLinkIds.delete(equipmentId);
+                updateLinkTools();
+            });
+        }
+        if (tableHead) {
+            tableHead.addEventListener('change', function (event) {
+                const toggle = event.target.closest('[data-link-toggle-all]');
+                if (!toggle) return;
+                tableBody.querySelectorAll('[data-link-equipment-id]').forEach(function (checkbox) {
+                    checkbox.checked = toggle.checked;
+                    const equipmentId = Number(checkbox.dataset.linkEquipmentId);
+                    if (toggle.checked) selectedLinkIds.add(equipmentId);
+                    else selectedLinkIds.delete(equipmentId);
+                });
+                updateLinkTools();
+            });
+        }
+        renderFilterLevel('', 0, true).then(renderTable);
+    }
+
+    initFilters();
+})();
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const popover = document.getElementById('dimension-origin-popover');
+    if (!popover) return;
+
+    let activeTrigger = null;
+
+    function closeOriginPopover() {
+        if (activeTrigger) activeTrigger.setAttribute('aria-expanded', 'false');
+        activeTrigger = null;
+        popover.hidden = true;
+        popover.innerHTML = '';
+    }
+
+    function positionOriginPopover(trigger) {
+        const rect = trigger.getBoundingClientRect();
+        const spacing = 8;
+        const maxWidth = Math.min(340, window.innerWidth - 24);
+        popover.style.maxWidth = maxWidth + 'px';
+        popover.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - maxWidth - 12)) + 'px';
+        popover.style.top = (rect.bottom + spacing) + 'px';
+
+        requestAnimationFrame(function () {
+            const popRect = popover.getBoundingClientRect();
+            let left = rect.left;
+            let top = rect.bottom + spacing;
+
+            if (left + popRect.width > window.innerWidth - 12) {
+                left = window.innerWidth - popRect.width - 12;
+            }
+            if (left < 12) left = 12;
+
+            if (top + popRect.height > window.innerHeight - 12) {
+                top = rect.top - popRect.height - spacing;
+            }
+            if (top < 12) top = 12;
+
+            popover.style.left = left + 'px';
+            popover.style.top = top + 'px';
+        });
+    }
+
+    function openOriginPopover(trigger) {
+        const source = document.getElementById(trigger.dataset.originPopover || '');
+        if (!source) return;
+        if (activeTrigger === trigger && !popover.hidden) {
+            closeOriginPopover();
+            return;
+        }
+        if (activeTrigger) activeTrigger.setAttribute('aria-expanded', 'false');
+        activeTrigger = trigger;
+        trigger.setAttribute('aria-expanded', 'true');
+        popover.innerHTML = source.innerHTML;
+        popover.hidden = false;
+        positionOriginPopover(trigger);
+    }
+
+    document.addEventListener('click', function (event) {
+        const trigger = event.target.closest('.origin-popover-trigger');
+        if (trigger) {
+            event.preventDefault();
+            event.stopPropagation();
+            openOriginPopover(trigger);
+            return;
+        }
+        if (!event.target.closest('.dimension-origin-popover')) closeOriginPopover();
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closeOriginPopover();
+    });
+
+    window.addEventListener('resize', closeOriginPopover);
+});
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const table = document.getElementById('service-access-table');
+    if (!table || !window.jQuery || !$.fn || !$.fn.DataTable) return;
+    const hasPlaceholderRow = Array.from(table.tBodies[0]?.rows || []).some(function (row) {
+        return row.querySelector('td[colspan], th[colspan]');
+    });
+    if (hasPlaceholderRow || $.fn.dataTable.isDataTable(table)) return;
+
+    $(table).DataTable({
+        pageLength: Number(table.dataset.pageLength || 5),
+        lengthChange: false,
+        searching: false,
+        info: false,
+        ordering: true,
+        autoWidth: false,
+        layout: {
+            topStart: null,
+            topEnd: null,
+            bottomStart: null,
+            bottomEnd: 'paging'
+        },
+        language: {
+            emptyTable: "Sin registros.",
+            zeroRecords: "Sin registros.",
+            paginate: {
+                first: '<i class="bi bi-chevron-double-left" aria-hidden="true"></i>',
+                last: '<i class="bi bi-chevron-double-right" aria-hidden="true"></i>',
+                next: '<i class="bi bi-chevron-right" aria-hidden="true"></i>',
+                previous: '<i class="bi bi-chevron-left" aria-hidden="true"></i>'
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

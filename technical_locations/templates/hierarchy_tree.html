@@ -1,0 +1,299 @@
+{% extends 'base.html' %}
+{% block title %}Jerarquia {{ empresa }} | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Jerarquia tecnica de {{ empresa }}</h2>
+        <p>Jerarquía técnica</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'technical_location_index' %}">Empresas</a>
+        <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
+        <a class="btn" href="{% url 'hierarchy_values' empresa.pk %}">Valores</a>
+        <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Registrar UT</a>
+    </div>
+</div>
+
+<div class="card hierarchy-filter-card">
+    <div class="form-grid">
+        <div class="form-field">
+            <label for="hierarchy-search">Buscar</label>
+            <input class="input-control" id="hierarchy-search" type="search" placeholder="UT, codigo o nombre">
+        </div>
+        <div class="form-field">
+            <label for="level-filter">Nivel</label>
+            <select class="input-control" id="level-filter">
+                <option value="">Todos</option>
+                {% for level in levels %}
+                    <option value="{{ level.pk }}">{{ level.orden }}. {{ level.nombre }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-field">
+            <label>Nodo superior</label>
+            <input class="input-control" id="current-parent-label" type="text" readonly value="Raiz">
+        </div>
+    </div>
+    <div class="actions" style="margin-top:12px;">
+        <button class="btn" type="button" id="back-parent" disabled>Subir</button>
+        <button class="btn" type="button" id="reset-tree">Volver a raiz</button>
+        <button class="btn" type="button" id="refresh-tree">Actualizar</button>
+    </div>
+    <p class="muted" id="hierarchy-status" style="margin-top:10px;">Cargando...</p>
+</div>
+
+<div class="table-wrap">
+    <table class="data-table" id="hierarchy-table">
+        <thead>
+            <tr>
+                <th>UT</th>
+                <th>Nivel</th>
+                <th>Codigo</th>
+                <th>Nombre</th>
+                <th>Ruta</th>
+                <th>Equipos</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="hierarchy-table-body">
+            <tr><td colspan="7" class="muted">Cargando...</td></tr>
+        </tbody>
+    </table>
+</div>
+<div class="actions" style="margin-top:12px;">
+    <button class="btn" type="button" id="load-more-nodes" hidden>Cargar mas</button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ nodes_url|json_script:"hierarchy-nodes-url" }}
+<script>
+(function () {
+    const nodesUrlNode = document.getElementById('hierarchy-nodes-url');
+    const nodesUrl = nodesUrlNode ? JSON.parse(nodesUrlNode.textContent || '""') : '';
+    const csrfToken = '{{ csrf_token }}';
+    const searchInput = document.getElementById('hierarchy-search');
+    const levelFilter = document.getElementById('level-filter');
+    const parentLabel = document.getElementById('current-parent-label');
+    const backButton = document.getElementById('back-parent');
+    const resetButton = document.getElementById('reset-tree');
+    const refreshButton = document.getElementById('refresh-tree');
+    const loadMoreButton = document.getElementById('load-more-nodes');
+    const statusText = document.getElementById('hierarchy-status');
+    const tbody = document.getElementById('hierarchy-table-body');
+    const parentStack = [{ id: 'root', label: 'Raiz' }];
+    let searchTimer = null;
+    let abortController = null;
+    let nextOffset = 0;
+    let hasMore = false;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function currentParent() {
+        return parentStack[parentStack.length - 1];
+    }
+
+    function setStatus(text) {
+        statusText.textContent = text || '';
+    }
+
+    function setLoading() {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted">Cargando...</td></tr>';
+        setStatus('Cargando...');
+    }
+
+    function updateNavigation() {
+        parentLabel.value = currentParent().label || 'Raiz';
+        backButton.disabled = parentStack.length <= 1;
+    }
+
+    function buildUrl(offset) {
+        const url = new URL(nodesUrl, window.location.origin);
+        const query = (searchInput.value || '').trim();
+        const level = levelFilter.value || '';
+        const parent = currentParent().id || 'root';
+
+        if (query.length === 1) {
+            return null;
+        }
+        if (query.length >= 2) {
+            url.searchParams.set('q', query);
+            if (level) {
+                url.searchParams.set('level_id', level);
+            }
+            url.searchParams.set('limit', '200');
+            url.searchParams.set('offset', String(offset || 0));
+            return url;
+        }
+
+        if (level && parent === 'root') {
+            url.searchParams.set('level_id', level);
+        } else {
+            url.searchParams.set('parent_id', parent);
+            if (level) {
+                url.searchParams.set('level_id', level);
+            }
+        }
+        url.searchParams.set('limit', '300');
+        url.searchParams.set('offset', String(offset || 0));
+        return url;
+    }
+
+    function renderRows(nodes, meta, append) {
+        if (!nodes.length) {
+            if (!append) {
+                tbody.innerHTML = '<tr><td colspan="7" class="muted">No hay ubicaciones tecnicas para el filtro seleccionado.</td></tr>';
+                setStatus('0 resultados.');
+            }
+            loadMoreButton.hidden = true;
+            return;
+        }
+
+        const html = nodes.map(node => {
+            const hasChildren = Number(node.children_count || 0) > 0;
+            const childButton = hasChildren
+                ? `<button class="btn" type="button" data-open-children="${node.id}" data-label="${escapeHtml(node.ut)}">Ver hijos (${node.children_count})</button>`
+                : '';
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(node.ut)}</strong></td>
+                    <td>${escapeHtml(node.level_order)}. ${escapeHtml(node.level_name)}</td>
+                    <td><strong>${escapeHtml(node.code)}</strong></td>
+                    <td>${escapeHtml(node.name)}</td>
+                    <td>${escapeHtml(node.route)}</td>
+                    <td>${escapeHtml(node.equipment_count || 0)}</td>
+                    <td>
+                        <div class="actions">
+                            ${childButton}
+                            <a class="btn" href="${escapeHtml(node.edit_url)}">Editar</a>
+                            <a class="btn" href="${escapeHtml(node.move_url)}">Mover</a>
+                            <a class="btn" href="${escapeHtml(node.insert_url)}">Insertar nivel arriba</a>
+                            <form method="post"
+                                  action="${escapeHtml(node.delete_url)}"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Esto desactivara esta ubicacion tecnica y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. ¿Continuar?');">
+                                <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
+                                <button class="btn btn-danger" type="submit">Eliminar</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        if (append) {
+            tbody.insertAdjacentHTML('beforeend', html);
+        } else {
+            tbody.innerHTML = html;
+        }
+
+        const total = Number(meta.count || nodes.length);
+        const limit = Number(meta.limit || nodes.length);
+        const shown = nodes.length;
+        nextOffset = Number(meta.next_offset || 0);
+        hasMore = Boolean(meta.has_more);
+        loadMoreButton.hidden = !hasMore;
+        const visibleRows = tbody.querySelectorAll('tr').length;
+        setStatus(hasMore ? `${total} resultados, mostrando ${visibleRows}.` : `${total} resultados.`);
+    }
+
+    function loadNodes(options) {
+        const append = Boolean(options && options.append);
+        const offset = append ? nextOffset : 0;
+        if (!nodesUrl) {
+            tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo configurar la carga de jerarquia.</td></tr>';
+            return;
+        }
+        const url = buildUrl(offset);
+        if (!url) {
+            tbody.innerHTML = '<tr><td colspan="7" class="muted">Escribe al menos 2 caracteres para buscar.</td></tr>';
+            setStatus('Escribe al menos 2 caracteres para buscar.');
+            loadMoreButton.hidden = true;
+            return;
+        }
+
+        if (abortController) {
+            abortController.abort();
+        }
+        abortController = new AbortController();
+        if (!append) {
+            nextOffset = 0;
+            hasMore = false;
+            loadMoreButton.hidden = true;
+            setLoading();
+        } else {
+            loadMoreButton.disabled = true;
+            loadMoreButton.textContent = 'Cargando...';
+        }
+        fetch(url, { signal: abortController.signal })
+            .then(response => response.json())
+            .then(data => {
+                renderRows(data.nodes || [], data, append);
+                loadMoreButton.disabled = false;
+                loadMoreButton.textContent = 'Cargar mas';
+            })
+            .catch(error => {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+                tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo cargar la jerarquia.</td></tr>';
+                setStatus('No se pudo cargar la jerarquia.');
+                loadMoreButton.disabled = false;
+                loadMoreButton.textContent = 'Cargar mas';
+            });
+    }
+
+    tbody.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-open-children]');
+        if (!button) {
+            return;
+        }
+        parentStack.push({
+            id: button.dataset.openChildren,
+            label: button.dataset.label || 'Nodo seleccionado',
+        });
+        searchInput.value = '';
+        updateNavigation();
+        loadNodes();
+    });
+
+    backButton.addEventListener('click', function () {
+        if (parentStack.length <= 1) {
+            return;
+        }
+        parentStack.pop();
+        updateNavigation();
+        loadNodes();
+    });
+
+    resetButton.addEventListener('click', function () {
+        parentStack.splice(1);
+        searchInput.value = '';
+        levelFilter.value = '';
+        updateNavigation();
+        loadNodes();
+    });
+
+    refreshButton.addEventListener('click', loadNodes);
+    loadMoreButton.addEventListener('click', function () {
+        if (hasMore) {
+            loadNodes({ append: true });
+        }
+    });
+    levelFilter.addEventListener('change', loadNodes);
+    searchInput.addEventListener('input', function () {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(loadNodes, 250);
+    });
+
+    updateNavigation();
+    loadNodes();
+})();
+</script>
+{% endblock %}

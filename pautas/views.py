@@ -145,7 +145,7 @@ def service_pautas_list(request, pk):
         .prefetch_related('tareas')
         .order_by('-creado_en', 'codigo')
     )
-    return render(request, 'core/pautas/service_pautas_list.html', {
+    return render(request, 'service_pautas_list.html', {
         'service': servicio,
         'permission': permission,
         'pautas': pautas,
@@ -156,7 +156,7 @@ def service_pautas_list(request, pk):
 def service_pauta_detail(request, service_pk, pauta_pk):
     servicio, permission = _service_or_404(request, service_pk, edit=False)
     pauta = _service_pauta_or_404(servicio, pauta_pk)
-    return render(request, 'core/pautas/service_pauta_detail.html', {
+    return render(request, 'service_pauta_detail.html', {
         'service': servicio,
         'permission': permission,
         'pauta': pauta,
@@ -201,7 +201,7 @@ def service_pauta_templates(request, pk):
         'unmapped': templates_total - templates_mapped,
     }
 
-    return render(request, 'core/pautas/service_pauta_templates.html', {
+    return render(request, 'service_pauta_templates.html', {
         'service': servicio,
         'permission': permission,
         'form': form,
@@ -227,7 +227,7 @@ def service_pauta_template_edit(request, service_pk, template_pk):
             return redirect('service_pauta_templates', pk=servicio.pk)
     else:
         form = PlantillaPautaForm(instance=plantilla)
-    return render(request, 'core/pautas/service_pauta_template_form.html', {
+    return render(request, 'service_pauta_template_form.html', {
         'service': servicio,
         'permission': permission,
         'plantilla': plantilla,
@@ -292,7 +292,7 @@ def service_pauta_template_mapping(request, service_pk, template_pk):
         except PautaExportError as exc:
             messages.warning(request, str(exc))
 
-    return render(request, 'core/pautas/service_pauta_template_mapping.html', {
+    return render(request, 'service_pauta_template_mapping.html', {
         'service': servicio,
         'permission': permission,
         'plantilla': plantilla,
@@ -414,7 +414,7 @@ def service_pautas_generate(request, pk):
                     return redirect('service_pautas_list', pk=servicio.pk)
                 messages.warning(request, 'No se pudo generar ninguna pauta con la seleccion actual.')
 
-    return render(request, 'core/pautas/service_pautas_generate.html', {
+    return render(request, 'service_pautas_generate.html', {
         'service': servicio,
         'permission': permission,
         'form': form,

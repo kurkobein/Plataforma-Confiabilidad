@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Insertar nivel | Mindco{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>Insertar nivel intermedio</h2>
+        <p>Se insertará un nodo entre {% if parent %}{{ parent.ut }}{% else %}raíz{% endif %} y {{ child.ut }}.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'hierarchy_tree' child.empresa_id %}">Volver</a>
+    </div>
+</div>
+<div class="card">
+    <form method="post" class="form-grid">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            <div><strong>{{ field.label }}</strong></div>
+            <div>{{ field }}{{ field.errors }}</div>
+        {% endfor %}
+        <div></div>
+        <div class="actions"><button class="btn btn-primary" type="submit">Insertar</button></div>
+    </form>
+</div>
+{% endblock %}
