@@ -495,6 +495,7 @@ class ServicioForm(BaseModelForm):
     class Meta:
         model = Servicio
         fields = '__all__'
+        exclude = ['matriz_aca_activa']
         widgets = {
             'codigo_servicio': forms.TextInput(attrs={'class': 'input-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'input-textarea', 'rows': 3}),
@@ -512,6 +513,14 @@ class ServicioForm(BaseModelForm):
         }
 
     def save(self, commit=True):
+        if (
+            self.instance.matriz_aca_activa_id
+            and not app_models.MatrizRiesgo.objects.filter(
+                pk=self.instance.matriz_aca_activa_id,
+                estrategia_id=self.instance.estrategia_id,
+            ).exists()
+        ):
+            self.instance.matriz_aca_activa = None
         instance = super().save(commit=commit)
 
         return instance

@@ -505,6 +505,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (section === 'rcm' || section === 'fmeca') {
             fixedCrumb(crumbs, 'Desarrollo FMECA', `${serviceHref}fmeca/`);
             if (parts[3] === 'nuevo') fixedCrumb(crumbs, 'Nuevo registro FMECA');
+            else if (parts[3] === 'nuevo-masivo') fixedCrumb(crumbs, 'Nueva carga grupal');
             else if (parts[3] === 'tareas') fixedCrumb(crumbs, 'Configurar tareas');
             else if (parts[3] === 'carga-masiva') fixedCrumb(crumbs, 'Carga masiva FMECA');
             else if (/^\d+$/.test(parts[3] || '') && parts[4] === 'editar') fixedCrumb(crumbs, 'Editar registro FMECA');

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from core import models as app_models
 from core.access import get_service_equipment
+from core.services.matrix_selection import get_service_aca_matrix
 
 
 class ACAExcelBulkUploadForm(forms.Form):
@@ -510,9 +511,7 @@ class ServicioACARegistroForm(forms.Form):
         ).order_by('nombre') if service else app_models.FamiliaEquipo.objects.none()
         self.fields['familia_equipo'].empty_label = 'Sin familia'
         if service and getattr(service, 'estrategia_id', None):
-            self.matriz = app_models.MatrizRiesgo.objects.filter(
-                estrategia=service.estrategia
-            ).order_by('-fecha_creado', '-id').first()
+            self.matriz = get_service_aca_matrix(service)
 
             if self.matriz:
                 self.fields['matrix_celda'].queryset = app_models.MatrizRiesgoCelda.objects.filter(

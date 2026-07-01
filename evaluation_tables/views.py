@@ -1044,7 +1044,6 @@ def _auto_matrix_theoretical_max(estrategia_dimension, source_index, seen=None):
 
 
 def _auto_matrix_source_options(estrategia):
-    _ensure_auto_impact_total_dimension(estrategia)
     estrategia_dimensions = list(_auto_matrix_dimension_queryset(estrategia))
     source_index = _auto_matrix_source_index(estrategia_dimensions)
     options = []
@@ -2460,7 +2459,7 @@ def matriz_builder_new(request):
                     ),
                 )
                 _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload)
-                messages.success(request, 'La matriz se creó correctamente y sus dimensiones se asignaron automáticamente.')
+                messages.success(request, 'La matriz se creó correctamente con fuentes reales de la estrategia.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
             matrix_preview, display_legend, display_rules = _matrix_builder_bound_post_state(
@@ -2502,7 +2501,14 @@ def matriz_builder_edit(request, pk):
         builder_form = MatrizBuilderForm(
             request.POST,
             strategy=strategy,
-            initial={'fecha_creado': matriz.fecha_creado},
+            require_axis_sources=bool(
+                matriz.dimension_probabilidad_id and matriz.dimension_impacto_id
+            ),
+            initial={
+                'fecha_creado': matriz.fecha_creado,
+                'dimension_probabilidad': matriz.dimension_probabilidad,
+                'dimension_impacto': matriz.dimension_impacto,
+            },
         )
         if builder_form.is_valid():
             action = request.POST.get('action', 'preview')
@@ -2545,6 +2551,7 @@ def matriz_builder_edit(request, pk):
                     existing_impact=matriz.dimension_impacto,
                     selected_prob=cd.get('dimension_probabilidad'),
                     selected_impact=cd.get('dimension_impacto'),
+                    allow_missing=True,
                 )
                 matriz.nombre = cd['nombre']
                 matriz.fecha_creado = cd['fecha_creado']
@@ -2558,7 +2565,7 @@ def matriz_builder_edit(request, pk):
                 )
                 matriz.save()
                 _persist_matrix_grid(matriz, prob_defs, impact_defs, cell_payload)
-                messages.success(request, 'La matriz se actualizó correctamente y sus dimensiones se ajustaron automáticamente.')
+                messages.success(request, 'La matriz se actualizó correctamente con sus fuentes de eje.')
                 return redirect('matriz_builder_edit', pk=matriz.pk)
         else:
             matrix_preview, display_legend, display_rules = _matrix_builder_bound_post_state(
@@ -2587,16 +2594,22 @@ def matriz_builder_edit(request, pk):
             matriz.dimension_impacto,
             display_legend,
         )
-        builder_form = MatrizBuilderForm(initial={
-            'nombre': matriz.nombre,
-            'fecha_creado': matriz.fecha_creado,
-            'estrategia': matriz.estrategia,
-            'dimension_probabilidad': matriz.dimension_probabilidad,
-            'dimension_impacto': matriz.dimension_impacto,
-            'modo_resolucion': _matrix_resolution_mode(matriz),
-            'x_count': len(matrix_preview['x_defs']),
-            'y_count': len(matrix_preview['rows']),
-        }, strategy=matriz.estrategia)
+        builder_form = MatrizBuilderForm(
+            initial={
+                'nombre': matriz.nombre,
+                'fecha_creado': matriz.fecha_creado,
+                'estrategia': matriz.estrategia,
+                'dimension_probabilidad': matriz.dimension_probabilidad,
+                'dimension_impacto': matriz.dimension_impacto,
+                'modo_resolucion': _matrix_resolution_mode(matriz),
+                'x_count': len(matrix_preview['x_defs']),
+                'y_count': len(matrix_preview['rows']),
+            },
+            strategy=matriz.estrategia,
+            require_axis_sources=bool(
+                matriz.dimension_probabilidad_id and matriz.dimension_impacto_id
+            ),
+        )
 
     return render(
         request,

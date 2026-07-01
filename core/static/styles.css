@@ -3036,6 +3036,62 @@ select {
     flex: 0 0 auto;
 }
 
+.matrix-aca-toggle {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    gap: 6px;
+    padding: 2px 0;
+    white-space: nowrap;
+}
+
+.matrix-aca-toggle-track {
+    background: #cbd5e1;
+    border-radius: 999px;
+    display: inline-flex;
+    height: 18px;
+    padding: 2px;
+    transition: background-color 160ms ease;
+    width: 32px;
+}
+
+.matrix-aca-toggle-track > span {
+    background: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+    height: 14px;
+    transform: translateX(0);
+    transition: transform 160ms ease;
+    width: 14px;
+}
+
+.matrix-aca-toggle:hover .matrix-aca-toggle-track {
+    background: #94a3b8;
+}
+
+.matrix-aca-toggle.is-active {
+    color: #166534;
+    cursor: default;
+}
+
+.matrix-aca-toggle.is-active .matrix-aca-toggle-track {
+    background: #22c55e;
+}
+
+.matrix-aca-toggle.is-active .matrix-aca-toggle-track > span {
+    transform: translateX(14px);
+}
+
+.matrix-aca-toggle:disabled {
+    opacity: 1;
+}
+
 @media (max-width: 1100px) {
     .service-config-grid {
         grid-template-columns: 1fr;
@@ -4160,25 +4216,6 @@ table.dataTable.rcm-records-table.compact-table > tfoot > tr > td {
 
 .rcm-field-map-actions {
     justify-content: flex-end;
-}
-
-.fmeca-bulk-date {
-    align-items: center;
-    display: inline-flex;
-    gap: 6px;
-    margin: 0;
-    white-space: nowrap;
-}
-
-.fmeca-bulk-date span {
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.fmeca-bulk-date .input-control {
-    min-width: 132px;
-    width: 132px;
 }
 
 .fmeca-bulk-errors {

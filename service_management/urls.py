@@ -5,6 +5,11 @@ from . import views
 
 urlpatterns = [
     path('servicios/<int:pk>/', views.service_detail, name='service_detail'),
+    path(
+        'servicios/<int:pk>/matrices/<int:matrix_pk>/activar-aca/',
+        views.service_aca_matrix_activate,
+        name='service_aca_matrix_activate',
+    ),
     path('servicios/<int:pk>/accesos/', views.service_access_manage, name='service_access_manage'),
     path('servicios/<int:pk>/dimensiones/', views.service_dimensions, name='service_dimensions'),
     path('servicios/<int:pk>/familias-equipos/', views.service_equipment_families, name='service_equipment_families'),

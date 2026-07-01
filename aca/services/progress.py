@@ -9,7 +9,13 @@ def _is_generated_matrix_axis_dimension(estrategia_dimension):
     if not estrategia_dimension:
         return False
     name = (estrategia_dimension.dimension.nombre or '').strip().lower()
-    return name.startswith('probabilidad - ') or name.startswith('impacto - ')
+    return name.startswith((
+        'eje x - ',
+        'eje y - ',
+        'probabilidad - ',
+        'impacto - ',
+        'consecuencia - ',
+    ))
 
 
 def _format_percent(value):

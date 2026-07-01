@@ -354,13 +354,32 @@
             </p>
             <div class="table-wrap">
                 <table class="datatable display">
-                    <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Acciones</th></tr></thead>
+                    <thead><tr><th>Nombre</th><th>Formato original</th><th>Fecha</th><th>Uso ACA</th><th>Acciones</th></tr></thead>
                     <tbody>
                         {% for matriz in matrices %}
                             <tr>
                                 <td>{{ matriz.nombre }}</td>
                                 <td>{{ matriz.niveles_probabilidad.count }}x{{ matriz.niveles_impacto.count }}</td>
                                 <td>{{ matriz.fecha_creado }}</td>
+                                <td>
+                                    {% if permission.can_edit %}
+                                        <form method="post" action="{% url 'service_aca_matrix_activate' service.pk matriz.pk %}">
+                                            {% csrf_token %}
+                                            <button
+                                                class="matrix-aca-toggle{% if matriz.pk == active_aca_matrix_id %} is-active{% endif %}"
+                                                type="submit"
+                                                aria-pressed="{% if matriz.pk == active_aca_matrix_id %}true{% else %}false{% endif %}"
+                                                {% if matriz.pk == active_aca_matrix_id %}disabled{% endif %}
+                                            >
+                                                <span class="matrix-aca-toggle-track" aria-hidden="true"><span></span></span>
+                                            </button>
+                                        </form>
+                                    {% elif matriz.pk == active_aca_matrix_id %}
+                                        <span class="pill-success">Activa</span>
+                                    {% else %}
+                                        <span class="muted">Inactiva</span>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     <div class="actions">
                                         <a class="btn" href="{% url 'service_matrix_view' service.pk matriz.pk %}">

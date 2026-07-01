@@ -9,7 +9,7 @@
     <div class="actions">
         <a class="btn" href="{% url 'dashboard' %}">Inicio</a>
         {% if model_key == 'matrizriesgo' %}
-            <a class="btn" href="{% url 'matriz_auto_generate' %}">Generar matriz automática</a>
+            <a class="btn" href="{% url 'matriz_auto_generate' %}">Nueva matriz parametrizada</a>
             <a class="btn btn-primary" href="{% url 'matriz_builder_new' %}">Nueva matriz visual</a>
         {% elif model_key == 'criticidad' %}
             <a class="btn btn-primary" href="{% url 'aca_registro_new' %}">Nuevo desarrollo ACA</a>

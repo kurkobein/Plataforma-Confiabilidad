@@ -18,8 +18,8 @@
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_fmeca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
             <a class="btn" href="{% url 'service_fmeca_task_config' service.pk %}">Configurar tareas</a>
-            <a class="btn" href="{% url 'service_fmeca_bulk_new' service.pk %}"><i class="bi bi-table"></i> Carga grupal</a>
-            <a class="btn btn-primary" href="{% url 'service_fmeca_new' service.pk %}">Registrar</a>
+            <a class="btn btn-primary" href="{% url 'service_fmeca_bulk_new' service.pk %}">Carga grupal FMECA</a>
+            <a class="btn btn-outline-danger" href="{% url 'service_fmeca_new' service.pk %}">Registrar</a>
         {% endif %}
     </div>
 </div>

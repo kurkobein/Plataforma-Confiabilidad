@@ -9,15 +9,10 @@
         </a>
         <div class="page-title-copy">
             <h2>Carga grupal FMECA</h2>
-            <p>{{ service.codigo_servicio }} - registra varios equipos o familias en una sola planilla.</p>
+            <p>{{ service.codigo_servicio }} &middot; {{ selected_date }}</p>
         </div>
     </div>
     <div class="actions">
-        <label class="fmeca-bulk-date">
-            <span>Fecha de análisis</span>
-            <input class="input-control" type="date" name="fecha_analisis_header"
-                   value="{{ selected_date|date:'Y-m-d' }}" data-fmeca-bulk-date>
-        </label>
         <button class="btn" type="button" id="fmeca-bulk-add-row">
             <i class="bi bi-plus-lg"></i> Agregar fila
         </button>
@@ -68,7 +63,6 @@
     </div>
 
     <div class="fmeca-bulk-footer">
-        <span class="muted">Las tareas se pueden agregar después desde la edición de cada registro.</span>
         <div class="actions">
             <button class="btn btn-primary" type="submit" name="save_as" value="complete">Guardar carga grupal</button>
             <button class="btn" type="submit" name="save_as" value="draft">Guardar borrador</button>
@@ -114,8 +108,6 @@
     const tbody = document.getElementById('fmeca-bulk-body');
     const payloadInput = document.getElementById('fmeca-bulk-payload');
     const fileInputs = document.getElementById('fmeca-bulk-file-inputs');
-    const dateControl = document.querySelector('[data-fmeca-bulk-date]');
-    const dateValue = document.getElementById('fmeca-bulk-date-value');
     const equipmentModal = document.getElementById('fmeca-equipment-modal');
     const equipmentSearch = document.getElementById('fmeca-equipment-search');
     const equipmentResults = document.getElementById('fmeca-equipment-results');
@@ -414,12 +406,8 @@
         if (event.target === equipmentModal) equipmentModal.hidden = true;
     });
     document.getElementById('fmeca-bulk-add-row').addEventListener('click', () => addRow());
-    dateControl.addEventListener('change', () => {
-        dateValue.value = dateControl.value;
-    });
 
     form.addEventListener('submit', function () {
-        dateValue.value = dateControl.value;
         payloadInput.value = JSON.stringify({
             rows: Object.values(rows).map(row => {
                 const copy = Object.assign({}, row);

@@ -28,6 +28,7 @@ from aca.services.progress import (
     group_progress_by_hierarchy_level,
 )
 from core.services.criticality_rules import apply_criticality_rules, dimension_source_values, matrix_rule_config
+from core.services.matrix_selection import get_service_aca_matrix
 from core.views import (
     _calc_slug,
     clear_session_upload,
@@ -191,16 +192,7 @@ def _save_aca_attachments(criticidad, attachment_payload, usuario):
 
 
 def _service_matrix_selector(servicio):
-    matriz = None
-    if getattr(servicio, 'estrategia_id', None):
-        matriz = models.MatrizRiesgo.objects.filter(
-            estrategia=servicio.estrategia
-        ).select_related(
-            'dimension_probabilidad',
-            'dimension_probabilidad__dimension',
-            'dimension_impacto',
-            'dimension_impacto__dimension',
-        ).order_by('-fecha_creado', '-id').first()
+    matriz = get_service_aca_matrix(servicio)
 
     if not matriz:
         return {
@@ -281,14 +273,7 @@ def _service_matrix_selector(servicio):
     }
 
 def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
-    matriz = models.MatrizRiesgo.objects.filter(
-        estrategia=estrategia
-    ).select_related(
-        'dimension_probabilidad',
-        'dimension_probabilidad__dimension',
-        'dimension_impacto',
-        'dimension_impacto__dimension',
-    ).order_by('-fecha_creado', '-id').first()
+    matriz = getattr(selected_cell, 'matriz', None)
     if not matriz:
         return
 
@@ -298,7 +283,11 @@ def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
         evaluacion.dimensiones.values_list('dimension_id', flat=True)
     )
 
-    if prob_dim and prob_dim.dimension_id not in existing_dimension_ids:
+    if (
+        prob_dim
+        and _is_generated_matrix_axis_dimension(prob_dim, 'probabilidad')
+        and prob_dim.dimension_id not in existing_dimension_ids
+    ):
         models.CriticidadDimension.objects.create(
             criticidad=evaluacion,
             dimension=prob_dim.dimension,
@@ -307,7 +296,11 @@ def _save_matrix_dimensions(evaluacion, estrategia, selected_cell):
             valor_texto=selected_cell.probabilidad.nombre or selected_cell.probabilidad.descripcion or '',
         )
 
-    if impact_dim and impact_dim.dimension_id not in existing_dimension_ids:
+    if (
+        impact_dim
+        and _is_generated_matrix_axis_dimension(impact_dim, 'impacto')
+        and impact_dim.dimension_id not in existing_dimension_ids
+    ):
         models.CriticidadDimension.objects.create(
             criticidad=evaluacion,
             dimension=impact_dim.dimension,
@@ -1380,14 +1373,8 @@ def _sync_criticidad_resumen(evaluacion, estrategia):
         evaluacion.dimensiones.select_related('dimension', 'estrategia_dimension').all()
     )
 
-    matriz = models.MatrizRiesgo.objects.filter(
-        estrategia=estrategia
-    ).select_related(
-        'dimension_probabilidad',
-        'dimension_probabilidad__dimension',
-        'dimension_impacto',
-        'dimension_impacto__dimension',
-    ).order_by('-fecha_creado', '-id').first()
+    service = getattr(getattr(evaluacion, 'aca_carga', None), 'servicio', None)
+    matriz = get_service_aca_matrix(service)
 
     prob_val = None
     impact_val = None

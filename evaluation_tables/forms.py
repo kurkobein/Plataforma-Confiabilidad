@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 
 from core import models as app_models
@@ -15,17 +16,17 @@ class MatrizBuilderForm(forms.Form):
     )
     dimension_probabilidad = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
-        required=False,
+        required=True,
         label='Dimension eje X',
-        empty_label='Crear dimension automatica',
-        help_text='Dimension existente que entrega el valor para el eje X.',
+        empty_label='Selecciona una fuente real',
+        help_text='Dimensión existente de la estrategia que entrega el valor real para el eje X.',
     )
     dimension_impacto = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
-        required=False,
+        required=True,
         label='Dimension eje Y',
-        empty_label='Crear dimension automatica',
-        help_text='Dimension existente que entrega el valor para el eje Y.',
+        empty_label='Selecciona una fuente real',
+        help_text='Dimensión existente de la estrategia que entrega el valor real para el eje Y.',
     )
     modo_resolucion = forms.ChoiceField(
         choices=app_models.MatrizRiesgo.RESOLUCION_CHOICES,
@@ -54,21 +55,26 @@ class MatrizBuilderForm(forms.Form):
         },
     )
 
-    def __init__(self, *args, strategy=None, **kwargs):
+    def __init__(self, *args, strategy=None, require_axis_sources=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.initial.setdefault('fecha_creado', timezone.localdate())
+        for field_name in ('dimension_probabilidad', 'dimension_impacto'):
+            self.fields[field_name].required = require_axis_sources
         strategy_id = getattr(strategy, 'pk', strategy) if strategy is not None else None
         if self.is_bound:
             strategy_id = self.data.get(self.add_prefix('estrategia')) or strategy_id
         elif self.initial.get('estrategia'):
             strategy_id = getattr(self.initial.get('estrategia'), 'pk', self.initial.get('estrategia'))
 
+        process_values = [
+            app_models.EstrategiaDimension.PROCESO_ACA,
+            app_models.EstrategiaDimension.PROCESO_FMECA,
+            app_models.EstrategiaDimension.PROCESO_AMBOS,
+            *getattr(app_models.EstrategiaDimension, 'PROCESO_FMECA_ALIASES', ()),
+        ]
         axis_qs = app_models.EstrategiaDimension.objects.filter(
             activo=True,
-            proceso_uso__in=[
-                app_models.EstrategiaDimension.PROCESO_ACA,
-                app_models.EstrategiaDimension.PROCESO_AMBOS,
-            ],
+            proceso_uso__in=list(dict.fromkeys(process_values)),
         ).select_related(
             'estrategia',
             'dimension',
@@ -82,6 +88,22 @@ class MatrizBuilderForm(forms.Form):
             axis_qs = axis_qs.filter(estrategia_id=strategy_id)
         else:
             axis_qs = app_models.EstrategiaDimension.objects.none()
+
+        legacy_axis_ids = {
+            getattr(self.initial.get(field_name), 'pk', self.initial.get(field_name))
+            for field_name in ('dimension_probabilidad', 'dimension_impacto')
+            if self.initial.get(field_name)
+        }
+        generated_axis_filter = (
+            Q(dimension__nombre__istartswith='Eje X - ')
+            | Q(dimension__nombre__istartswith='Eje Y - ')
+            | Q(dimension__nombre__istartswith='Probabilidad - ')
+            | Q(dimension__nombre__istartswith='Impacto - ')
+            | Q(dimension__nombre__istartswith='Consecuencia - ')
+        )
+        axis_qs = axis_qs.filter(
+            ~generated_axis_filter | Q(pk__in=legacy_axis_ids)
+        )
 
         def axis_label(obj):
             try:

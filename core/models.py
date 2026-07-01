@@ -146,6 +146,14 @@ class Servicio(BaseUnmanagedModel):
     creado_en = models.DateTimeField()
     empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='servicios')
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='servicios')
+    matriz_aca_activa = models.ForeignKey(
+        'MatrizRiesgo',
+        on_delete=models.SET_NULL,
+        db_column='matriz_aca_activa_id',
+        blank=True,
+        null=True,
+        related_name='servicios_aca_activa',
+    )
     creado_por_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='creado_por_usuario_id', blank=True, null=True, related_name='servicios_creados', verbose_name='Administrador')
     responsable_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='responsable_usuario_id', blank=True, null=True, related_name='servicios_responsables', verbose_name='Responsable')
     class Meta(BaseUnmanagedModel.Meta):
@@ -1191,7 +1199,7 @@ class NivelImpacto(BaseUnmanagedModel):
     matriz = models.ForeignKey(MatrizRiesgo, on_delete=models.DO_NOTHING, db_column='matriz_id', related_name='niveles_impacto')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_nivelesimpacto'
+        db_table = 'reliability_nivelesejey'
         ordering = ['matriz_id', 'orden_visual']
 
     def __str__(self):
@@ -1206,7 +1214,7 @@ class NivelProbabilidad(BaseUnmanagedModel):
     matriz = models.ForeignKey(MatrizRiesgo, on_delete=models.DO_NOTHING, db_column='matriz_id', related_name='niveles_probabilidad')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_nivelesprobabilidad'
+        db_table = 'reliability_nivelesejex'
         ordering = ['matriz_id', 'orden_visual']
 
     def __str__(self):

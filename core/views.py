@@ -1537,64 +1537,11 @@ def model_delete(request, model_key, pk):
                 )
             return redirect('model_list', model_key=model_key)
         if model_key == 'matrizriesgo':
-            generated_axis_dimensions = []
-
-            for estrategia_dimension in [obj.dimension_probabilidad, obj.dimension_impacto]:
-                if estrategia_dimension and _is_generated_matrix_axis_dimension(estrategia_dimension):
-                    generated_axis_dimensions.append(estrategia_dimension)
-
             models.MatrizRiesgoCelda.objects.filter(matriz=obj).delete()
             models.NivelImpacto.objects.filter(matriz=obj).delete()
             models.NivelProbabilidad.objects.filter(matriz=obj).delete()
 
             obj.delete()
-
-            for estrategia_dimension in generated_axis_dimensions:
-                used_by_other_matrix = models.MatrizRiesgo.objects.filter(
-                    Q(dimension_probabilidad=estrategia_dimension) |
-                    Q(dimension_impacto=estrategia_dimension)
-                ).exists()
-
-                used_by_records = models.CriticidadDimension.objects.filter(
-                    Q(estrategia_dimension=estrategia_dimension) |
-                    Q(dimension=estrategia_dimension.dimension)
-                ).exists()
-
-                if used_by_other_matrix or used_by_records:
-                    continue
-
-                dimension = estrategia_dimension.dimension
-
-                models.EscalaValor.objects.filter(
-                    estrategia_dimension=estrategia_dimension
-                ).delete()
-
-                try:
-                    catalogo = estrategia_dimension.catalogo
-                except models.DimensionCatalogo.DoesNotExist:
-                    catalogo = None
-
-                if catalogo:
-                    fila_ids = list(catalogo.filas.values_list('id', flat=True))
-
-                    models.DimensionCatalogoCelda.objects.filter(
-                        fila_id__in=fila_ids
-                    ).delete()
-
-                    models.DimensionCatalogoColumna.objects.filter(
-                        catalogo=catalogo
-                    ).delete()
-
-                    models.DimensionCatalogoFila.objects.filter(
-                        catalogo=catalogo
-                    ).delete()
-
-                    catalogo.delete()
-
-                estrategia_dimension.delete()
-
-                if not models.EstrategiaDimension.objects.filter(dimension=dimension).exists():
-                    dimension.delete()
 
             messages.success(request, 'Matriz eliminada correctamente.')
             return redirect('model_list', model_key=model_key)
@@ -1809,7 +1756,13 @@ def logout_view(request):
 
 def _service_or_404(request, pk, edit=False):
     servicio = get_object_or_404(
-        models.Servicio.objects.select_related('empresa', 'estrategia', 'responsable_usuario', 'creado_por_usuario'),
+        models.Servicio.objects.select_related(
+            'empresa',
+            'estrategia',
+            'matriz_aca_activa',
+            'responsable_usuario',
+            'creado_por_usuario',
+        ),
         pk=pk,
     )
     permission = get_service_permission(request.user, servicio)
@@ -2685,15 +2638,6 @@ def _sync_matrix_levels(matriz, model_cls, definitions, delete_stale=True):
     return result
 
 
-def _next_strategy_order(estrategia):
-    current = models.EstrategiaDimension.objects.filter(estrategia=estrategia, activo=True).order_by('-orden').first()
-    return (current.orden if current else 0) + 1
-
-
-def _matrix_axis_prefix(axis):
-    return 'Eje X' if axis == 'probabilidad' else 'Eje Y'
-
-
 def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
     if not estrategia_dimension:
         return False
@@ -2709,50 +2653,6 @@ def _is_generated_matrix_axis_dimension(estrategia_dimension, axis=None):
     return any(name.startswith(prefix) for prefix in prefixes)
 
 
-def _update_generated_matrix_axis_dimension(estrategia_dimension, axis, matrix_name):
-    prefix = _matrix_axis_prefix(axis)
-    dimension = estrategia_dimension.dimension
-    dimension.nombre = f'{prefix} - {matrix_name}'
-    dimension.descripcion = f'Dimension creada automaticamente para la matriz {matrix_name}'
-    dimension.tipo_funcional = axis
-    dimension.tipo_dato = 'numerico'
-    dimension.save()
-    estrategia_dimension.obligatorio = True
-    estrategia_dimension.proceso_uso = models.EstrategiaDimension.PROCESO_ACA
-    estrategia_dimension.activo = True
-    estrategia_dimension.save(update_fields=['obligatorio', 'proceso_uso', 'activo'])
-    return estrategia_dimension
-
-
-def _create_generated_matrix_axis_dimension(estrategia, axis, matrix_name, order):
-    prefix = _matrix_axis_prefix(axis)
-    dimension = models.Dimension.objects.create(
-        nombre=f'{prefix} - {matrix_name}',
-        descripcion=f'Dimension creada automaticamente para la matriz {matrix_name}',
-        tipo_funcional=axis,
-        tipo_dato='numerico',
-    )
-    return models.EstrategiaDimension.objects.create(
-        estrategia=estrategia,
-        dimension=dimension,
-        orden=order,
-        obligatorio=True,
-        proceso_uso=models.EstrategiaDimension.PROCESO_ACA,
-        activo=True,
-    )
-
-
-def _resolve_matrix_axis_dimension(estrategia, axis, matrix_name, next_order, selected=None, existing=None):
-    if selected and selected.estrategia_id == estrategia.pk:
-        return selected, next_order
-
-    if existing and existing.estrategia_id == estrategia.pk and _is_generated_matrix_axis_dimension(existing, axis):
-        return _update_generated_matrix_axis_dimension(existing, axis, matrix_name), next_order
-
-    created = _create_generated_matrix_axis_dimension(estrategia, axis, matrix_name, next_order)
-    return created, next_order + 1
-
-
 def _ensure_matrix_strategy_dimensions(
     estrategia,
     matrix_name,
@@ -2762,24 +2662,18 @@ def _ensure_matrix_strategy_dimensions(
     existing_impact=None,
     selected_prob=None,
     selected_impact=None,
+    allow_missing=False,
 ):
-    next_order = _next_strategy_order(estrategia)
-    prob_dim, next_order = _resolve_matrix_axis_dimension(
-        estrategia,
-        'probabilidad',
-        matrix_name,
-        next_order,
-        selected=selected_prob,
-        existing=existing_prob,
-    )
-    impact_dim, next_order = _resolve_matrix_axis_dimension(
-        estrategia,
-        'impacto',
-        matrix_name,
-        next_order,
-        selected=selected_impact,
-        existing=existing_impact,
-    )
+    prob_dim = selected_prob or existing_prob
+    impact_dim = selected_impact or existing_impact
+    if prob_dim and prob_dim.estrategia_id != estrategia.pk:
+        raise ValueError('Selecciona una dimensión real de la estrategia para el eje X.')
+    if impact_dim and impact_dim.estrategia_id != estrategia.pk:
+        raise ValueError('Selecciona una dimensión real de la estrategia para el eje Y.')
+    if not allow_missing and not prob_dim:
+        raise ValueError('Selecciona una dimensión real de la estrategia para el eje X.')
+    if not allow_missing and not impact_dim:
+        raise ValueError('Selecciona una dimensión real de la estrategia para el eje Y.')
     return prob_dim, impact_dim
 
 

@@ -8,9 +8,11 @@ from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from core import models
 from core.access import get_accessible_services, get_service_equipment, is_mindco_user
+from core.services.matrix_selection import get_service_aca_matrix, set_service_aca_matrix
 from service_management.forms import FamiliaEquipoForm, ServiceAccessGrantForm
 from core.views import (
     _active_subtree_ids,
@@ -327,6 +329,7 @@ def service_detail(request, pk):
         if servicio.estrategia_id
         else []
     )
+    active_aca_matrix = get_service_aca_matrix(servicio)
     access_form = ServiceAccessGrantForm(service=servicio, user=request.user)
     access_rows = list(permission['access_rows'])
     return render(request, 'service_detail.html', {
@@ -341,6 +344,7 @@ def service_detail(request, pk):
         'equipment_count': _service_equipment_count(servicio),
         'dimension_rows': dimension_rows,
         'matrices': matrices,
+        'active_aca_matrix_id': active_aca_matrix.pk if active_aca_matrix else None,
         'access_form': access_form,
         'access_rows': access_rows,
         'dimension_count': len(estrategia_dims),
@@ -348,6 +352,24 @@ def service_detail(request, pk):
         'service_equipment_payload': _service_equipment_browser_payload(servicio),
         'service_family_payload': _service_family_payload(servicio),
     })
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def service_aca_matrix_activate(request, pk, matrix_pk):
+    servicio, _permission = _service_or_404(request, pk, edit=True)
+    matriz = get_object_or_404(
+        models.MatrizRiesgo,
+        pk=matrix_pk,
+        estrategia_id=servicio.estrategia_id,
+    )
+    set_service_aca_matrix(servicio, matriz)
+    messages.success(
+        request,
+        f'La matriz "{matriz.nombre}" quedó activa para los registros ACA del servicio.',
+    )
+    return redirect('service_detail', pk=servicio.pk)
 
 
 def _save_family_items(familia, equipos):
