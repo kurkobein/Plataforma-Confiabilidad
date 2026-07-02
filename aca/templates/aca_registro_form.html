@@ -1171,7 +1171,7 @@
 
         if (matrixResolutionMode === 'umbral_resultado') {
             const resultValue = resultFromAxisValues(probValue, impactValue);
-            if (resultValue === null || probValue === null || impactValue === null) {
+            if (resultValue === null) {
                 clearMatrixSelection();
                 return;
             }

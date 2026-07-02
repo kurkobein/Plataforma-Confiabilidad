@@ -138,7 +138,15 @@ def compute_criticidad_progress(criticidad, progress_dimensions):
 def get_aca_criticidad_queryset(servicio):
     return (
         models.Criticidad.objects.filter(aca_carga__servicio=servicio)
-        .select_related('equipo', 'equipo__nodo', 'equipo__nodo__nivel', 'aca_carga')
+        .select_related(
+            'equipo',
+            'equipo__nodo',
+            'equipo__nodo__nivel',
+            'aca_carga',
+            'matriz',
+            'matriz_celda',
+            'matriz_celda__matriz',
+        )
         .prefetch_related(
             Prefetch(
                 'dimensiones',

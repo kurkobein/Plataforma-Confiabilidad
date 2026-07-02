@@ -494,7 +494,7 @@ class ServicioACARegistroForm(forms.Form):
         widget=forms.HiddenInput(),
     )
 
-    def __init__(self, *args, service=None, allow_incomplete=False, **kwargs):
+    def __init__(self, *args, service=None, matrix=None, allow_incomplete=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.service = service
         self.matriz = None
@@ -511,7 +511,11 @@ class ServicioACARegistroForm(forms.Form):
         ).order_by('nombre') if service else app_models.FamiliaEquipo.objects.none()
         self.fields['familia_equipo'].empty_label = 'Sin familia'
         if service and getattr(service, 'estrategia_id', None):
-            self.matriz = get_service_aca_matrix(service)
+            self.matriz = (
+                matrix
+                if matrix and matrix.estrategia_id == service.estrategia_id
+                else get_service_aca_matrix(service)
+            )
 
             if self.matriz:
                 self.fields['matrix_celda'].queryset = app_models.MatrizRiesgoCelda.objects.filter(

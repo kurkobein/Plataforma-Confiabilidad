@@ -839,12 +839,22 @@
         ]);
 
         let cell = null;
-        if (probValue === null || impactValue === null) return;
-
         if (matrixConfig.resolutionMode === 'umbral_resultado') {
-            const result = probValue * impactValue;
+            let effectiveProbValue = probValue;
+            let effectiveImpactValue = impactValue;
+            if (matrixConfig.probAxisGenerated && !matrixConfig.impactAxisGenerated) {
+                effectiveProbValue = null;
+            }
+            if (matrixConfig.impactAxisGenerated && !matrixConfig.probAxisGenerated) {
+                effectiveImpactValue = null;
+            }
+            const result = effectiveProbValue !== null && effectiveImpactValue !== null
+                ? effectiveProbValue * effectiveImpactValue
+                : (effectiveImpactValue !== null ? effectiveImpactValue : effectiveProbValue);
+            if (result === null) return;
             cell = findFloorMatrixCell(result);
         } else {
+            if (probValue === null || impactValue === null) return;
             cell = matrixCells().find(button => numericEquals(button.dataset.probValue, probValue) && numericEquals(button.dataset.impactValue, impactValue));
         }
         if (cell) {

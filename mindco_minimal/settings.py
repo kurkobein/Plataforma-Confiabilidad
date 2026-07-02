@@ -3,6 +3,25 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_env_file(path):
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_env_file(BASE_DIR / '.env')
+
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'mindco-minimal-dev-secret-key')
 DEBUG = os.getenv('DJANGO_DEBUG', '1') == '1'
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',')
@@ -57,29 +76,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mindco_minimal.wsgi.application'
 
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    ".trycloudflare.com",
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    "https://*.trycloudflare.com",
-]
-
-DATABASES = { 
-    'default': { 
-        'ENGINE': 'django.db.backends.mysql', 
-        'NAME': 'Mindcodbk', 
-        'USER': 'root', 
-        'PASSWORD': 
-        'FelipeS@002', 
-        'HOST': '127.0.0.1', 
-        'PORT': '3306', 
-        'OPTIONS': { 
-            'charset': 'utf8mb4', 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.getenv('MYSQLDATABASE'),
+        'USER': os.getenv('MYSQLUSER'),
+        'PASSWORD': os.getenv('MYSQLPASSWORD'),
+        'HOST': os.getenv('MYSQLHOST'),
+        'PORT': os.getenv('MYSQLPORT', '3306'),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
         },
-    } 
+    }
 }
 
 AUTH_PASSWORD_VALIDATORS = []

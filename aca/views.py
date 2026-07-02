@@ -3160,6 +3160,8 @@ def service_aca_bulk_new(request, pk):
                     indicador_criticidad='',
                     valor_criticidad_equipo=selected_cell.resultado_num if selected_cell else None,
                     criticidad_final=selected_cell.clasificacion if selected_cell else '',
+                    matriz=matriz,
+                    matriz_celda=selected_cell,
                 )
                 _create_dimension_items(evaluacion, row['prepared'])
                 if selected_cell:
@@ -3553,7 +3555,6 @@ def _serialize_aca_for_undo(crit):
             'frecuencia_original': str(crit.frecuencia_original) if crit.frecuencia_original is not None else None,
             'frecuencia_normalizada': str(crit.frecuencia_normalizada) if crit.frecuencia_normalizada is not None else None,
             'valor_cons_total': str(crit.valor_cons_total) if crit.valor_cons_total is not None else None,
-            'indicador_criticidad': crit.indicador_criticidad or '',
             'valor_criticidad_equipo': str(crit.valor_criticidad_equipo) if crit.valor_criticidad_equipo is not None else None,
             'criticidad_final': crit.criticidad_final or '',
             'creado_en': crit.creado_en.isoformat() if crit.creado_en else timezone.now().isoformat(),

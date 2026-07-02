@@ -363,6 +363,8 @@ class Command(BaseCommand):
                 indicador_criticidad="",
                 valor_criticidad_equipo=selected_cell.resultado_num if selected_cell else decimal_or_none(row.get("criticidad")),
                 criticidad_final=selected_cell.clasificacion if selected_cell else text_or_blank(row.get("criticidad_nivel")),
+                matriz=matriz,
+                matriz_celda=selected_cell,
             )
             created_dimensions = _create_dimension_items(criticidad, prepared)
             if selected_cell:

@@ -55,7 +55,7 @@ class Empresa(BaseUnmanagedModel):
     logo = models.BinaryField(blank=True, null=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_empresa'
+        db_table = 'empresa'
         ordering = ['nombre']
 
     def __str__(self):
@@ -67,7 +67,7 @@ class Cargo(BaseUnmanagedModel):
     jefatura = models.CharField(max_length=150)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_cargo'
+        db_table = 'cargo'
         ordering = ['nombre_cargo']
 
     def __str__(self):
@@ -81,7 +81,7 @@ class Estrategia(BaseUnmanagedModel):
     empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='estrategias')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_estrategia'
+        db_table = 'estrategia'
         ordering = ['empresa__nombre', 'nombre']
 
     def __str__(self):
@@ -98,7 +98,7 @@ class Usuario(BaseUnmanagedModel):
     all_objects = AllUsuarioManager()
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_usuario'
+        db_table = 'usuario'
         ordering = ['nombre_completo']
         default_manager_name = 'objects'
         base_manager_name = 'all_objects'
@@ -123,7 +123,7 @@ class UsuarioEliminado(BaseUnmanagedModel):
     motivo = models.CharField(max_length=255, blank=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_usuario_eliminado'
+        db_table = 'usuario_eliminado'
         ordering = ['-eliminado_en', 'nombre_completo']
 
     def __str__(self):
@@ -157,7 +157,7 @@ class Servicio(BaseUnmanagedModel):
     creado_por_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='creado_por_usuario_id', blank=True, null=True, related_name='servicios_creados', verbose_name='Administrador')
     responsable_usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='responsable_usuario_id', blank=True, null=True, related_name='servicios_responsables', verbose_name='Responsable')
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_servicio'
+        db_table = 'servicio'
         ordering = ['-creado_en', 'codigo_servicio']
 
     def __str__(self):
@@ -174,7 +174,7 @@ class AccesoUsuario(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', related_name='accesos')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_accesousuario'
+        db_table = 'accesousuario'
         ordering = ['-creado_en']
 
     def __str__(self):
@@ -187,7 +187,7 @@ class Componente(BaseUnmanagedModel):
     descripcion = models.TextField(blank=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_componente'
+        db_table = 'componente'
         ordering = ['nombre']
 
     def __str__(self):
@@ -216,7 +216,7 @@ class NivelJerarquia(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_niveljerarquia'
+        db_table = 'niveljerarquia'
         ordering = ['empresa__nombre', 'orden', 'nombre']
         unique_together = (
             ('empresa', 'orden'),
@@ -237,7 +237,7 @@ class NodoJerarquia(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_nodojerarquia'
+        db_table = 'nodojerarquia'
         ordering = ['empresa__nombre', 'nivel__orden', 'orden', 'codigo', 'nombre']
         unique_together = (
             ('empresa', 'parent', 'codigo'),
@@ -278,7 +278,7 @@ class ValorNivelJerarquia(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_valorniveljerarquia'
+        db_table = 'valorniveljerarquia'
         ordering = ['empresa__nombre', 'nivel__orden', 'orden', 'codigo', 'nombre']
         unique_together = (
             ('empresa', 'nivel', 'codigo'),
@@ -301,7 +301,7 @@ class Equipo(BaseUnmanagedModel):
     nodo = models.ForeignKey(NodoJerarquia, on_delete=models.DO_NOTHING, db_column='nodo_id', blank=True, null=True, related_name='equipos')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_equipo'
+        db_table = 'equipo'
         ordering = ['tag_equipo', 'nombre_equipo']
 
     @property
@@ -324,7 +324,7 @@ class ComponenteEquipo(BaseUnmanagedModel):
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='componentes')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_componenteequipo'
+        db_table = 'componenteequipo'
         ordering = ['equipo_id', 'componente_id']
 
     def __str__(self):
@@ -336,7 +336,7 @@ class ServicioEquipo(BaseUnmanagedModel):
     servicio = models.ForeignKey(Servicio, on_delete=models.DO_NOTHING, db_column='servicio_id', related_name='equipos_servicio')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_servicioequipo'
+        db_table = 'servicioequipo'
         ordering = ['servicio_id', 'equipo_id']
 
     def __str__(self):
@@ -353,7 +353,7 @@ class FamiliaEquipo(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='familias_equipo')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_familiaequipo'
+        db_table = 'familiaequipo'
         ordering = ['servicio_id', 'nombre']
         unique_together = (('servicio', 'nombre'),)
         indexes = [
@@ -371,7 +371,7 @@ class FamiliaEquipoItem(BaseUnmanagedModel):
     orden = models.PositiveIntegerField(default=0)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_familiaequipoitem'
+        db_table = 'familiaequipoitem'
         ordering = ['familia_id', 'orden', 'equipo__tag_equipo', 'equipo__nombre_equipo']
         unique_together = (('familia', 'equipo'),)
         indexes = [
@@ -392,7 +392,7 @@ class EscenarioFalla(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='escenarios_falla')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_escenariofalla'
+        db_table = 'escenariofalla'
         ordering = ['servicio_id', 'nombre']
         unique_together = (('servicio', 'nombre'),)
         indexes = [
@@ -423,7 +423,7 @@ class Carga(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='cargas')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_acacarga'
+        db_table = 'acacarga'
         ordering = ['-fecha_analisis', '-creado_en']
 
     def __str__(self):
@@ -443,9 +443,25 @@ class Criticidad(BaseUnmanagedModel):
     creado_en = models.DateTimeField()
     aca_carga = models.ForeignKey(Carga, on_delete=models.DO_NOTHING, db_column='aca_carga_id', related_name='criticidades')
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', blank=True, null=True, related_name='criticidades')
+    matriz = models.ForeignKey(
+        'MatrizRiesgo',
+        on_delete=models.SET_NULL,
+        db_column='matriz_id',
+        blank=True,
+        null=True,
+        related_name='criticidades_aca',
+    )
+    matriz_celda = models.ForeignKey(
+        'MatrizRiesgoCelda',
+        on_delete=models.SET_NULL,
+        db_column='matriz_celda_id',
+        blank=True,
+        null=True,
+        related_name='criticidades_aca',
+    )
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_criticidad'
+        db_table = 'criticidad'
         ordering = ['-creado_en', 'id']
 
     def __str__(self):
@@ -463,7 +479,7 @@ class CriticidadAdjunto(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='adjuntos_aca')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_criticidadadjunto'
+        db_table = 'criticidadadjunto'
         ordering = ['-creado_en', '-id']
         indexes = [
             models.Index(fields=['criticidad'], name='idx_critadj_criticidad'),
@@ -506,7 +522,7 @@ class Dimension(BaseUnmanagedModel):
     config_calculo = models.TextField(blank=True, null=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_dimension'
+        db_table = 'dimension'
         ordering = ['nombre']
 
     def __str__(self):
@@ -538,7 +554,7 @@ class EstrategiaDimension(BaseUnmanagedModel):
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='dimensiones_estrategia')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_estrategiadimension'
+        db_table = 'estrategiadimension'
         ordering = ['estrategia_id', 'orden']
 
     def __str__(self):
@@ -563,7 +579,7 @@ class RCM(BaseUnmanagedModel):
     observacion = models.TextField('Observación', blank=True, default='')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_rcm'
+        db_table = 'rcm'
         ordering = ['-fecha_analisis', 'id']
         indexes = [
             models.Index(fields=['equipo'], name='idx_rcm_equipo'),
@@ -602,7 +618,7 @@ class RCMCampoOpcion(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_rcmcampoopcion'
+        db_table = 'rcmcampoopcion'
         ordering = ['campo', 'valor']
         constraints = [
             models.UniqueConstraint(
@@ -632,7 +648,7 @@ class RCMAdjunto(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', blank=True, null=True, related_name='adjuntos_rcm')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_rcmadjunto'
+        db_table = 'rcmadjunto'
         ordering = ['-creado_en', '-id']
         indexes = [
             models.Index(fields=['rcm'], name='idx_rcmadj_rcm'),
@@ -647,7 +663,7 @@ class FMEA_FMECA(BaseUnmanagedModel):
     rcm = models.OneToOneField(RCM, on_delete=models.DO_NOTHING, db_column='rcm_id', related_name='fmea_fmeca')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_fmea_fmeca'
+        db_table = 'fmea_fmeca'
         ordering = ['id']
 
     def __str__(self):
@@ -663,7 +679,7 @@ class EvaluacionFMEA(BaseUnmanagedModel):
     escala_valor = models.ForeignKey('EscalaValor', on_delete=models.DO_NOTHING, db_column='escala_valor_id', blank=True, null=True, related_name='evaluaciones_fmea')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_evaluacionfmea'
+        db_table = 'evaluacionfmea'
         ordering = ['fmea_id', 'estrategia_dimension_id']
         constraints = [
             models.UniqueConstraint(fields=['fmea', 'estrategia_dimension'], name='uniq_fmea_dimension'),
@@ -691,7 +707,7 @@ class TipoTareaEstrategia(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_tipo_tarea_estrategia'
+        db_table = 'tipo_tarea_estrategia'
         ordering = ['estrategia_id', 'orden', 'nombre']
         constraints = [
             models.UniqueConstraint(fields=['estrategia', 'codigo'], name='uniq_tte_estrategia_codigo'),
@@ -733,7 +749,7 @@ class CampoTareaEstrategia(BaseUnmanagedModel):
     activo = models.BooleanField(default=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_campo_tarea_estrategia'
+        db_table = 'campo_tarea_estrategia'
         ordering = ['tipo_tarea_estrategia_id', 'orden', 'nombre']
         constraints = [
             models.UniqueConstraint(fields=['tipo_tarea_estrategia', 'clave'], name='uniq_cte_tipo_clave'),
@@ -800,7 +816,7 @@ class TareaRCM(BaseUnmanagedModel):
     estado = models.CharField(max_length=30, choices=ESTADO_CHOICES, default=ESTADO_ACTIVO)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_tarea_rcm'
+        db_table = 'tarea_rcm'
         ordering = ['fmea_id', 'orden', 'id']
         indexes = [
             models.Index(fields=['fmea'], name='idx_trcm_fmea'),
@@ -823,7 +839,7 @@ class ValorCampoTareaRCM(BaseUnmanagedModel):
     valor_fecha = models.DateField(blank=True, null=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_valor_campo_tarea_rcm'
+        db_table = 'valor_campo_tarea_rcm'
         ordering = ['tarea_id', 'campo__orden', 'campo_id']
         constraints = [
             models.UniqueConstraint(fields=['tarea', 'campo'], name='uniq_valor_tarea_campo'),
@@ -858,7 +874,7 @@ class PlantillaPauta(BaseUnmanagedModel):
     actualizado_en = models.DateTimeField(auto_now=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_plantillapauta'
+        db_table = 'plantillapauta'
         ordering = ['-activa', 'nombre']
         indexes = [
             models.Index(fields=['empresa'], name='idx_ppauta_empresa'),
@@ -878,7 +894,7 @@ class MapeoPlantillaPauta(BaseUnmanagedModel):
     actualizado_en = models.DateTimeField(auto_now=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_mapeoplantillapauta'
+        db_table = 'mapeoplantillapauta'
         ordering = ['plantilla__nombre']
 
     def __str__(self):
@@ -926,7 +942,7 @@ class Pauta(BaseUnmanagedModel):
     actualizado_en = models.DateTimeField(auto_now=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_pauta'
+        db_table = 'pauta'
         ordering = ['-creado_en', 'codigo']
         constraints = [
             models.UniqueConstraint(fields=['servicio', 'codigo'], name='uniq_pauta_servicio_codigo'),
@@ -970,7 +986,7 @@ class PautaTarea(BaseUnmanagedModel):
     estado_equipo = models.CharField(max_length=100, blank=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_pautatarea'
+        db_table = 'pautatarea'
         ordering = ['pauta_id', 'orden', 'id']
         indexes = [
             models.Index(fields=['pauta'], name='idx_ptarea_pauta'),
@@ -997,7 +1013,7 @@ class ReglaGeneracionPauta(BaseUnmanagedModel):
     config = models.JSONField(default=dict, blank=True)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_reglageneracionpauta'
+        db_table = 'reglageneracionpauta'
         ordering = ['servicio_id', 'estrategia_id', 'nombre']
         indexes = [
             models.Index(fields=['estrategia'], name='idx_rgpa_estrategia'),
@@ -1024,7 +1040,7 @@ class DimensionCatalogo(BaseUnmanagedModel):
     estrategia_dimension = models.OneToOneField(EstrategiaDimension, on_delete=models.DO_NOTHING, db_column='estrategia_dimension_id', related_name='catalogo')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_dimensioncatalogo'
+        db_table = 'dimensioncatalogo'
         ordering = ['nombre']
 
     def __str__(self):
@@ -1037,7 +1053,7 @@ class DimensionCatalogoFila(BaseUnmanagedModel):
     catalogo = models.ForeignKey(DimensionCatalogo, on_delete=models.DO_NOTHING, db_column='catalogo_id', related_name='filas')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_dimensioncatalogofila'
+        db_table = 'dimensioncatalogofila'
         ordering = ['catalogo_id', 'orden']
 
     def __str__(self):
@@ -1056,7 +1072,7 @@ class EscalaUnificada(BaseUnmanagedModel):
     interpretacion = models.CharField(max_length=255)
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_escalaunificada'
+        db_table = 'escalaunificada'
         ordering = ['nivel']
 
     def __str__(self):
@@ -1073,7 +1089,7 @@ class EscalaValor(BaseUnmanagedModel):
     estrategia_dimension = models.ForeignKey(EstrategiaDimension, on_delete=models.DO_NOTHING, db_column='estrategia_dimension_id', related_name='escalas_valor')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_escalavalor'
+        db_table = 'escalavalor'
         ordering = ['estrategia_dimension_id', 'nivel_ordinal']
 
     def __str__(self):
@@ -1094,7 +1110,7 @@ class CriticidadDimension(BaseUnmanagedModel):
     estrategia_dimension = models.ForeignKey(EstrategiaDimension, on_delete=models.DO_NOTHING, db_column='estrategia_dimension_id', blank=True, null=True, related_name='criticidades')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_criticidaddimension'
+        db_table = 'criticidaddimension'
         ordering = ['criticidad_id', 'id']
 
     def __str__(self):
@@ -1117,7 +1133,7 @@ class DimensionCatalogoColumna(BaseUnmanagedModel):
     catalogo = models.ForeignKey(DimensionCatalogo, on_delete=models.DO_NOTHING, db_column='catalogo_id', related_name='columnas')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_dimensioncatalogocolumna'
+        db_table = 'dimensioncatalogocolumna'
         ordering = ['catalogo_id', 'orden']
 
     def __str__(self):
@@ -1132,7 +1148,7 @@ class DimensionCatalogoCelda(BaseUnmanagedModel):
     fila = models.ForeignKey(DimensionCatalogoFila, on_delete=models.DO_NOTHING, db_column='fila_id', related_name='celdas')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_dimensioncatalogocelda'
+        db_table = 'dimensioncatalogocelda'
         ordering = ['fila_id', 'columna_id']
 
     def __str__(self):
@@ -1154,7 +1170,7 @@ class InicioSesion(BaseUnmanagedModel):
     usuario = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, db_column='usuario_id', related_name='inicios_sesion')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_iniciosesion'
+        db_table = 'iniciosesion'
         ordering = ['-hora']
 
     def __str__(self):
@@ -1184,7 +1200,7 @@ class MatrizRiesgo(BaseUnmanagedModel):
     estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', related_name='matrices_riesgo')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_matrizriesgo'
+        db_table = 'matrizriesgo'
         ordering = ['-fecha_creado', 'nombre']
 
     def __str__(self):
@@ -1199,7 +1215,7 @@ class NivelImpacto(BaseUnmanagedModel):
     matriz = models.ForeignKey(MatrizRiesgo, on_delete=models.DO_NOTHING, db_column='matriz_id', related_name='niveles_impacto')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_nivelesejey'
+        db_table = 'nivelesejey'
         ordering = ['matriz_id', 'orden_visual']
 
     def __str__(self):
@@ -1214,7 +1230,7 @@ class NivelProbabilidad(BaseUnmanagedModel):
     matriz = models.ForeignKey(MatrizRiesgo, on_delete=models.DO_NOTHING, db_column='matriz_id', related_name='niveles_probabilidad')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_nivelesejex'
+        db_table = 'nivelesejex'
         ordering = ['matriz_id', 'orden_visual']
 
     def __str__(self):
@@ -1231,7 +1247,7 @@ class MatrizRiesgoCelda(BaseUnmanagedModel):
     probabilidad = models.ForeignKey(NivelProbabilidad, on_delete=models.DO_NOTHING, db_column='probabilidad_id', related_name='celdas')
 
     class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'reliability_matrizriesgocelda'
+        db_table = 'matrizriesgocelda'
         ordering = ['matriz_id', 'id']
 
     def __str__(self):
