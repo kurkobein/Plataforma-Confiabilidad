@@ -599,9 +599,6 @@ document.addEventListener("DOMContentLoaded", function () {
             isCompanyHierarchy ? { preserveRoot: true } : null
         );
         if (isCompanyHierarchy) {
-            const header = document.querySelector('.page-header[data-company-label]');
-            const companyLabel = cleanLabel(header ? header.dataset.companyLabel : '') || `Empresa ${parts[1]}`;
-            fixedCrumb(crumbs, companyLabel, `/empresas/${parts[1]}/jerarquia/`);
             if (parts[3] === 'estructura') fixedCrumb(crumbs, 'Estructura');
             else if (parts[3] === 'valores') fixedCrumb(crumbs, 'Valores');
             else if (parts[3] === 'constructor') fixedCrumb(crumbs, 'Constructor');
