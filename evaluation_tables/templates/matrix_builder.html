@@ -442,15 +442,31 @@ Editar matriz
     }
     function ruleActionValueOptions(rule) {
       const type = rule.accion?.tipo || "criticidad_minima";
+      const currentValue = String(rule.accion?.valor ?? "").trim();
       let values = [];
       if (type === "subir_niveles") {
-        values = ["1", "2", "3", "4", "5"];
+        const levelCount = Math.max(2, legendItems.length || 2);
+        values = Array.from({ length: levelCount - 1 }, (_, index) => String(index + 1));
+        if (/^[1-9]\d*$/.test(currentValue)) values.push(currentValue);
       } else if (type === "forzar_valor") {
-        values = [...new Set(matrixValues().map(formatNumber).filter(Boolean))];
+        values = matrixValues()
+          .map(formatNumber)
+          .filter(Boolean)
+          .sort((left, right) => decimalValue(left, 0) - decimalValue(right, 0));
+        if (currentValue && Number.isFinite(decimalValue(currentValue, NaN))) values.push(currentValue);
       } else {
-        values = ["máxima", ...legendItems.map(item => item.name).filter(Boolean)];
+        values = [...legendItems.map(item => item.name).filter(Boolean)];
+        const currentKey = simpleSlug(currentValue);
+        const matchesLevel = values.some(value => simpleSlug(value) === currentKey);
+        const numericMinimum = type === "criticidad_minima" && Number.isFinite(decimalValue(currentValue, NaN));
+        if (currentValue && !matchesLevel && numericMinimum) values.push(currentValue);
       }
-      return [...new Set(values)].map(value => `<option value="${htmlEscape(value)}"></option>`).join("");
+      values = [...new Map(values.map(value => [simpleSlug(value) || String(value), String(value)])).values()];
+      let selectedValue = values.find(value => simpleSlug(value) === simpleSlug(currentValue));
+      if (!selectedValue) selectedValue = values[0] || "";
+      rule.accion = rule.accion || {};
+      rule.accion.valor = selectedValue;
+      return values.map(value => `<option value="${htmlEscape(value)}" ${value === selectedValue ? "selected" : ""}>${htmlEscape(value)}</option>`).join("");
     }
     function renderCriticalityRules() {
       normalizeRulePriorities();
@@ -467,7 +483,6 @@ Editar matriz
             <input data-rule-value-to="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor_hasta)}" placeholder="Hasta" ${condition.operador === "entre" ? "" : "hidden"}>
             <button class="btn btn-danger" type="button" data-remove-condition="${ruleIndex}-${conditionIndex}" title="Quitar condición"><i class="bi bi-x-lg"></i></button>
           </div>`).join("");
-        const actionListId = `criticality-action-values-${ruleIndex}`;
         const combinator = conditionCount > 1
           ? `<select data-rule-combinator="${ruleIndex}"><option ${rule.combinador !== "OR" ? "selected" : ""}>AND</option><option ${rule.combinador === "OR" ? "selected" : ""}>OR</option></select>`
           : "";
@@ -482,13 +497,11 @@ Editar matriz
           </div>
           <div class="criticality-rule-action">
             <select data-rule-action="${ruleIndex}">
-              <option value="criticidad_minima" ${rule.accion?.tipo === "criticidad_minima" ? "selected" : ""}>Criticidad mínima</option>
               <option value="forzar_criticidad" ${rule.accion?.tipo === "forzar_criticidad" ? "selected" : ""}>Forzar criticidad</option>
-              <option value="subir_niveles" ${rule.accion?.tipo === "subir_niveles" ? "selected" : ""}>Subir niveles</option>
-              <option value="forzar_valor" ${rule.accion?.tipo === "forzar_valor" ? "selected" : ""}>Forzar valor</option>
             </select>
-            <input data-rule-action-value="${ruleIndex}" list="${actionListId}" value="${htmlEscape(rule.accion?.valor)}" placeholder="Valor, nivel o máxima">
-            <datalist id="${actionListId}">${ruleActionValueOptions(rule)}</datalist>
+            <select data-rule-action-value="${ruleIndex}" aria-label="Valor de la acción">
+              ${ruleActionValueOptions(rule)}
+            </select>
           </div>
           <div>${conditions}</div>
           <button class="btn" type="button" data-add-condition="${ruleIndex}"><i class="bi bi-plus"></i> Condición</button>
@@ -1014,6 +1027,7 @@ Editar matriz
       impactJson.value = JSON.stringify(impactDefs);
       cellsJson.value = JSON.stringify(cells);
       legendJson.value = JSON.stringify(legendItems);
+      renderCriticalityRules();
     }
     function showBuilderValidation(message) {
       if (!builderValidation) return;

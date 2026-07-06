@@ -7,7 +7,12 @@ from core import models
 
 
 RULE_OPERATORS = {'>', '>=', '<', '<=', '=', '!=', 'entre'}
-RULE_ACTIONS = {'criticidad_minima', 'forzar_criticidad', 'subir_niveles', 'forzar_valor'}
+RULE_ACTIONS = {
+    'criticidad_minima',
+    'forzar_criticidad',
+    'subir_niveles',
+    'forzar_valor',
+}
 
 
 def _decimal(value):
@@ -85,14 +90,14 @@ def normalize_rules(raw_rules):
             errors.append(f'Regla {index}: accion invalida.')
         if action_value in (None, ''):
             errors.append(f'Regla {index}: indica el valor de la accion.')
-        if action_type == 'subir_niveles':
+        elif action_type == 'subir_niveles':
             try:
-                if int(action_value) < 0:
+                if int(action_value) < 1:
                     raise ValueError
             except (TypeError, ValueError):
-                errors.append(f'Regla {index}: subir niveles requiere un entero mayor o igual a cero.')
-        if action_type == 'forzar_valor' and _decimal(action_value) is None:
-            errors.append(f'Regla {index}: forzar valor requiere un numero valido.')
+                errors.append(f'Regla {index}: los niveles a subir deben ser un entero mayor a 0.')
+        elif action_type == 'forzar_valor' and _decimal(action_value) is None:
+            errors.append(f'Regla {index}: el valor forzado debe ser numerico.')
         if not conditions:
             errors.append(f'Regla {index}: agrega al menos una condicion.')
         try:

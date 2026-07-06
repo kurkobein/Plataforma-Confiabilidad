@@ -4,11 +4,28 @@
 {% block title %}Panel FMECA | Mindco{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header"
+     {% if selected_service %}
+         data-service-id="{{ selected_service.pk }}"
+         data-service-label="{{ selected_service.codigo_servicio }}"
+     {% endif %}>
     <div>
         <h2>Panel FMECA</h2>
         <p>Resumen global de avance FMECA por servicio.</p>
     </div>
+    {% if selected_service %}
+        <div class="actions">
+            <a class="btn" href="{% url 'service_fmeca_export' selected_service.pk 'excel' %}">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel
+            </a>
+            <a class="btn" href="{% url 'service_fmeca_export' selected_service.pk 'pdf' %}">
+                <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+            </a>
+            <a class="btn" href="{% url 'service_fmeca_list' selected_service.pk %}">
+                Desarrollo FMECA
+            </a>
+        </div>
+    {% endif %}
 </div>
 
 {% if selected_service %}
@@ -52,9 +69,6 @@
                 {% endif %}
             </div>
         </div>
-        <div class="actions">
-            <a class="btn" href="{% url 'service_fmeca_list' selected_service.pk %}">Desarrollo FMECA</a>
-        </div>
     </div>
 
     <details class="card aca-panel-section" open>
@@ -88,7 +102,7 @@
             </div>
             <div class="aca-panel-filter-row">
                 {% for level in panel_hierarchy_levels %}
-                    <details class="aca-panel-filter-dropdown" data-panel-level-filter {% if level.selected_ids %}open{% endif %}>
+                    <details class="aca-panel-filter-dropdown" data-panel-level-filter>
                         <summary>
                             <span>{{ level.name }}</span>
                             <small>{{ level.selected_ids|length }} seleccionados</small>
@@ -99,6 +113,7 @@
                                 <label class="aca-panel-checkbox">
                                     <input type="checkbox" name="panel_nodes" value="{{ node.id }}"
                                            data-panel-level-id="{{ level.id }}" data-panel-hierarchy-checkbox
+                                           data-panel-node-ancestors="{{ node.ancestor_ids|join:',' }}"
                                            {% if node.id in level.selected_ids %}checked{% endif %}>
                                     <span>{{ node.label }}</span>
                                 </label>
@@ -165,7 +180,7 @@
                         <th>Equipo</th>
                         <th>TAG</th>
                         <th>Modo de falla</th>
-                    </tr>
+                        
                 </thead>
                 <tbody>
                     {% for row in table_rows %}
@@ -212,7 +227,7 @@
                     <th>Descripción</th>
                     <th>Registros</th>
                     <th>Avance</th>
-                    <th></th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -255,27 +270,54 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function syncLevelVisibility() {
         let previousLevelHasSelection = true;
-        levelFilters.forEach(function (filter, index) {
-            const visibleCheckboxes = Array.from(filter.querySelectorAll('[data-panel-hierarchy-checkbox]'))
-                .filter(function (input) { return !input.closest('label')?.hidden; });
+        let interactiveLevelReached = false;
+        const selectedAncestorGroups = [];
+        levelFilters.forEach(function (filter) {
+            const levelCheckboxes = Array.from(filter.querySelectorAll('[data-panel-hierarchy-checkbox]'));
+            levelCheckboxes.forEach(function (input) {
+                const ancestorIds = new Set(
+                    String(input.dataset.panelNodeAncestors || '')
+                        .split(',')
+                        .filter(Boolean)
+                );
+                const belongsToSelectedBranches = selectedAncestorGroups.every(function (selectedIds) {
+                    return Array.from(selectedIds).some(function (selectedId) {
+                        return ancestorIds.has(selectedId);
+                    });
+                });
+                const label = input.closest('label');
+                if (label) label.hidden = !belongsToSelectedBranches;
+                if (!belongsToSelectedBranches) input.checked = false;
+            });
+            const visibleCheckboxes = levelCheckboxes.filter(function (input) {
+                return !input.closest('label')?.hidden;
+            });
             if (!previousLevelHasSelection || !visibleCheckboxes.length) {
                 filter.classList.add('is-panel-filter-hidden');
                 filter.open = false;
-                visibleCheckboxes.forEach(function (input) { input.checked = false; });
+                levelCheckboxes.forEach(function (input) { input.checked = false; });
                 previousLevelHasSelection = false;
                 return;
             }
-            if (visibleCheckboxes.length === 1) {
+            if (visibleCheckboxes.length === 1 && !interactiveLevelReached) {
                 visibleCheckboxes[0].checked = true;
                 filter.classList.add('is-panel-filter-hidden');
                 filter.open = false;
             } else {
-                filter.classList.toggle('is-panel-filter-hidden', index > 0 && !previousLevelHasSelection);
+                filter.classList.remove('is-panel-filter-hidden');
+                interactiveLevelReached = true;
             }
             const checkedCount = filter.querySelectorAll('[data-panel-hierarchy-checkbox]:checked').length;
             const countLabel = filter.querySelector('summary small');
             if (countLabel) countLabel.textContent = checkedCount + ' seleccionados';
             previousLevelHasSelection = previousLevelHasSelection && checkedCount > 0;
+            if (checkedCount) {
+                selectedAncestorGroups.push(new Set(
+                    visibleCheckboxes
+                        .filter(function (input) { return input.checked; })
+                        .map(function (input) { return String(input.value); })
+                ));
+            }
         });
     }
 

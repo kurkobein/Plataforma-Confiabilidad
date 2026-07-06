@@ -111,7 +111,9 @@
                             {% if not selected_strategy %}disabled{% endif %}>
                         <option value="">Selecciona fuente…</option>
                         {% for option in source_options %}
-                            <option value="{{ option.id }}" {% if form_values.source_x == option.id|stringformat:'s' %}selected{% endif %}>
+                            <option value="{{ option.id }}"
+                                    {% if form_values.source_x == option.id|stringformat:'s' %}selected{% endif %}
+                                    {% if not option.maximo_disponible %}disabled{% endif %}>
                                 {{ option.label }} — máx: {{ option.maximo_label }}
                             </option>
                         {% endfor %}
@@ -123,34 +125,13 @@
                             {% if not selected_strategy %}disabled{% endif %}>
                         <option value="">Selecciona fuente…</option>
                         {% for option in source_options %}
-                            <option value="{{ option.id }}" {% if form_values.source_y == option.id|stringformat:'s' %}selected{% endif %}>
+                            <option value="{{ option.id }}"
+                                    {% if form_values.source_y == option.id|stringformat:'s' %}selected{% endif %}
+                                    {% if not option.maximo_disponible %}disabled{% endif %}>
                                 {{ option.label }} — máx: {{ option.maximo_label }}
                             </option>
                         {% endfor %}
                     </select>
-                </div>
-            </div>
-
-            {# Sección: Máximos manuales #}
-            <div class="auto-matrix-section-header auto-matrix-section-header--spaced">
-                <i class="bi bi-calculator auto-matrix-section-icon"></i>
-                <span>Máximos manuales</span>
-                <span class="auto-matrix-section-badge auto-matrix-section-badge--neutral">Opcional</span>
-            </div>
-            <p class="muted auto-matrix-section-hint">Completa solo si el máximo no puede calcularse automáticamente desde la fuente seleccionada.</p>
-
-            <div class="form-grid auto-matrix-form-grid">
-                <div class="form-field">
-                    <label for="auto-matrix-max-x">Máximo manual eje X</label>
-                    <input id="auto-matrix-max-x" class="input-control" type="number" step="0.01"
-                           name="maximo_x_manual" value="{{ form_values.maximo_x_manual }}"
-                           placeholder="Solo si no se puede calcular">
-                </div>
-                <div class="form-field">
-                    <label for="auto-matrix-max-y">Máximo manual eje Y</label>
-                    <input id="auto-matrix-max-y" class="input-control" type="number" step="0.01"
-                           name="maximo_y_manual" value="{{ form_values.maximo_y_manual }}"
-                           placeholder="Solo si no se puede calcular">
                 </div>
             </div>
 

@@ -7,7 +7,7 @@ class HierarchyRouteRowForm(forms.Form):
     nodo_id = forms.CharField(required=False, max_length=60, widget=forms.HiddenInput())
     nivel_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
     nivel_nombre = forms.CharField(required=False, max_length=100, label='Nivel')
-    codigo = forms.CharField(required=False, max_length=50, label='Codigo')
+    codigo = forms.CharField(required=False, max_length=50, label='Código')
     nodo_nombre = forms.CharField(required=False, max_length=200, label='Nombre')
 
     def __init__(self, *args, **kwargs):
@@ -76,7 +76,7 @@ class HierarchyValueForm(forms.Form):
         label='Nodo superior',
         empty_label='Sin nodo superior',
     )
-    codigo = forms.CharField(max_length=50, label='Codigo')
+    codigo = forms.CharField(max_length=50, label='Código')
     nombre = forms.CharField(max_length=200, label='Nombre')
 
     def __init__(self, *args, empresa=None, **kwargs):

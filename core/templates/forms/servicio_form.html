@@ -97,4 +97,43 @@
         </div>
     </form>
 </div>
+{{ form.strategy_options|json_script:"service-strategy-options" }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const companySelect = document.getElementById('{{ form.empresa.id_for_label }}');
+    const strategySelect = document.getElementById('{{ form.estrategia.id_for_label }}');
+    const optionsNode = document.getElementById('service-strategy-options');
+    if (!companySelect || !strategySelect || !optionsNode) return;
+
+    const strategyOptions = JSON.parse(optionsNode.textContent || '[]');
+
+    function refreshStrategyOptions() {
+        const companyId = String(companySelect.value || '');
+        const previousValue = String(strategySelect.value || '');
+        const matching = strategyOptions.filter(function (option) {
+            return String(option.company_id) === companyId;
+        });
+
+        strategySelect.replaceChildren();
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = companyId
+            ? (matching.length ? 'Selecciona una estrategia' : 'Sin estrategias disponibles')
+            : 'Selecciona primero una empresa';
+        strategySelect.appendChild(emptyOption);
+
+        matching.forEach(function (option) {
+            const node = document.createElement('option');
+            node.value = String(option.id);
+            node.textContent = option.label;
+            if (node.value === previousValue) node.selected = true;
+            strategySelect.appendChild(node);
+        });
+        strategySelect.disabled = !companyId || !matching.length;
+    }
+
+    companySelect.addEventListener('change', refreshStrategyOptions);
+    refreshStrategyOptions();
+});
+</script>
 {% endblock %}

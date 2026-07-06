@@ -20,14 +20,13 @@
     {% elif model_key == 'equipo' %}
     <p>Se eliminará el equipo <strong>{{ object }}</strong>.</p>
     <div class="message error">
-        También se eliminarán sus vínculos con servicios, familias, componentes, registros ACA/RCM-FMECA y pautas asociadas.
+        También se eliminarán sus vínculos con servicios, familias, registros ACA/RCM-FMECA y pautas asociadas.
     </div>
     {% if equipment_delete_summary %}
     <p class="muted">
         Asociaciones actuales:
         {{ equipment_delete_summary.servicios }} servicio(s),
         {{ equipment_delete_summary.familias }} familia(s),
-        {{ equipment_delete_summary.componentes }} componente(s),
         {{ equipment_delete_summary.aca }} ACA,
         {{ equipment_delete_summary.rcm }} RCM/FMECA y
         {{ equipment_delete_summary.pautas }} pauta(s).

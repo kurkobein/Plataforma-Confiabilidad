@@ -35,16 +35,6 @@ MODEL_REGISTRY = OrderedDict({
         'allow_direct_crud': True,
         'delete_superuser_only': True,
     },
-    'componente': {
-        'model': models.Componente,
-        'label': 'Componentes',
-        'group': 'Configuración',
-        'search_fields': ['nombre', 'descripcion'],
-        'show_in_sidebar': False,
-        'show_in_dashboard': False,
-        'allow_direct_crud': True,
-        'delete_superuser_only': True,
-    },
     'equipo': {
         'model': models.Equipo,
         'label': 'Equipos',
@@ -167,16 +157,7 @@ MODEL_REGISTRY = OrderedDict({
         'allow_direct_crud': False,
         'delete_superuser_only': True,
     },
-    'componenteequipo': {
-        'model': models.ComponenteEquipo,
-        'label': 'Componente - Equipo',
-        'group': 'Operación',
-        'search_fields': [],
-        'show_in_sidebar': False,
-        'show_in_dashboard': False,
-        'allow_direct_crud': False,
-        'delete_superuser_only': True,
-    },
+
     'carga': {
         'model': models.Carga,
         'label': 'Cargas',

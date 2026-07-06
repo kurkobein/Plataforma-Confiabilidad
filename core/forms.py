@@ -82,6 +82,18 @@ class EmpresaForm(BaseModelForm):
 
         return instance
 
+
+class CargoForm(BaseModelForm):
+    class Meta:
+        model = app_models.Cargo
+        fields = ['nombre_cargo', 'area', 'jefatura']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['jefatura'].required = False
+        self.fields['jefatura'].help_text = 'Opcional.'
+
+
 def build_modelform(model_class):
     if model_class in FORM_CACHE:
         return FORM_CACHE[model_class]
@@ -479,6 +491,54 @@ class ServicioForm(BaseModelForm):
     def __init__(self, *args, creador_usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.creador_usuario = creador_usuario
+        selected_company_id = None
+        if self.is_bound:
+            raw_company_id = self.data.get(self.add_prefix('empresa'))
+            if str(raw_company_id or '').isdigit():
+                selected_company_id = int(raw_company_id)
+        elif self.instance and self.instance.pk:
+            selected_company_id = self.instance.empresa_id
+        else:
+            initial_company = self.initial.get('empresa')
+            selected_company_id = getattr(initial_company, 'pk', initial_company)
+
+        current_strategy_id = (
+            self.instance.estrategia_id
+            if self.instance and self.instance.pk
+            else None
+        )
+        available_strategies = app_models.Estrategia.objects.filter(activa=True)
+        if current_strategy_id:
+            available_strategies = app_models.Estrategia.objects.filter(
+                Q(activa=True) | Q(pk=current_strategy_id)
+            )
+        available_strategies = available_strategies.select_related('empresa').order_by(
+            'empresa__nombre',
+            'nombre',
+            'version',
+        )
+        self.strategy_options = [
+            {
+                'id': strategy.pk,
+                'company_id': strategy.empresa_id,
+                'label': str(strategy),
+            }
+            for strategy in available_strategies
+        ]
+        if selected_company_id:
+            self.fields['estrategia'].queryset = available_strategies.filter(
+                empresa_id=selected_company_id
+            )
+        else:
+            self.fields['estrategia'].queryset = app_models.Estrategia.objects.none()
+        self.fields['estrategia'].empty_label = (
+            'Selecciona una estrategia'
+            if selected_company_id
+            else 'Selecciona primero una empresa'
+        )
+        self.fields['estrategia'].help_text = (
+            'Solo se muestran estrategias activas pertenecientes a la empresa del servicio.'
+        )
         self.fields['creado_en'].input_formats = ['%Y-%m-%dT%H:%M']
         self.fields['creado_por_usuario'].label = 'Administrador'
         self.fields['creado_por_usuario'].help_text = 'Usuario administrador del servicio.'
@@ -491,6 +551,17 @@ class ServicioForm(BaseModelForm):
         if creador_usuario:
             self.fields['creado_por_usuario'].initial = creador_usuario.pk
             self.initial['creado_por_usuario'] = creador_usuario.pk
+
+    def clean(self):
+        cleaned = super().clean()
+        company = cleaned.get('empresa')
+        strategy = cleaned.get('estrategia')
+        if company and strategy and strategy.empresa_id != company.pk:
+            self.add_error(
+                'estrategia',
+                'La estrategia seleccionada no pertenece a la empresa del servicio.',
+            )
+        return cleaned
 
     class Meta:
         model = Servicio
@@ -534,6 +605,8 @@ def get_form_for_key(model_key: str):
         return UsuarioSyncForm
     if model_key == 'empresa':
         return EmpresaForm
+    if model_key == 'cargo':
+        return CargoForm
 
     from .registry import MODEL_REGISTRY
 

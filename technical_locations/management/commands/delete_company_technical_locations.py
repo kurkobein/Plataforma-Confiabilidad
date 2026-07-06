@@ -43,7 +43,6 @@ def build_summary(empresa):
         'pauta_ids': pauta_ids,
         'servicio_equipo_count': models.ServicioEquipo.objects.filter(equipo_id__in=equipment_ids).count(),
         'familia_item_count': models.FamiliaEquipoItem.objects.filter(equipo_id__in=equipment_ids).count(),
-        'componente_equipo_count': models.ComponenteEquipo.objects.filter(equipo_id__in=equipment_ids).count(),
         'criticidad_dimension_count': models.CriticidadDimension.objects.filter(criticidad_id__in=criticidad_ids).count(),
         'criticidad_adjunto_count': models.CriticidadAdjunto.objects.filter(criticidad_id__in=criticidad_ids).count(),
         'rcm_adjunto_count': models.RCMAdjunto.objects.filter(rcm_id__in=rcm_ids).count(),
@@ -90,7 +89,6 @@ def delete_company_data(summary):
 
     models.ServicioEquipo.objects.filter(equipo_id__in=equipment_ids).delete()
     models.FamiliaEquipoItem.objects.filter(equipo_id__in=equipment_ids).delete()
-    models.ComponenteEquipo.objects.filter(equipo_id__in=equipment_ids).delete()
     models.Equipo.objects.filter(id__in=equipment_ids).delete()
 
     node_ids_by_depth = list(
@@ -128,7 +126,6 @@ class Command(BaseCommand):
         self.stdout.write(f'Equipos: {len(summary["equipment_ids"])}')
         self.stdout.write(f'ServicioEquipo: {summary["servicio_equipo_count"]}')
         self.stdout.write(f'FamiliaEquipoItem: {summary["familia_item_count"]}')
-        self.stdout.write(f'ComponenteEquipo: {summary["componente_equipo_count"]}')
         self.stdout.write(f'ACA: {len(summary["criticidad_ids"])}')
         self.stdout.write(f'Dimensiones ACA: {summary["criticidad_dimension_count"]}')
         self.stdout.write(f'RCM: {len(summary["rcm_ids"])}')

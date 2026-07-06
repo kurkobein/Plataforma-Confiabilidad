@@ -433,12 +433,12 @@ document.addEventListener("DOMContentLoaded", function () {
         return cleanLabel(subtitle ? subtitle.textContent : '');
     }
 
-    function fixedCrumb(crumbs, label, url) {
+    function fixedCrumb(crumbs, label, url, options) {
         label = cleanLabel(label);
         if (!label) return;
         const previous = crumbs[crumbs.length - 1];
         if (previous && previous.label.toLowerCase() === label.toLowerCase()) return;
-        crumbs.push({ label, url: url || '' });
+        crumbs.push({ label, url: url || '', ...(options || {}) });
     }
 
     function serviceLabelFromPage() {
@@ -565,7 +565,6 @@ document.addEventListener("DOMContentLoaded", function () {
             empresa: 'Empresas',
             estrategia: 'Estrategias',
             dimension: 'Dimensiones',
-            componente: 'Componentes',
             escalaunificada: 'Escalas unificadas',
             matrizriesgo: 'Matrices de riesgo',
             criticidad: 'Criticidades',
@@ -592,12 +591,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function technicalLocationFixedCrumbs(parts) {
         const crumbs = [{ label: 'Inicio', url: '/' }];
-        fixedCrumb(crumbs, 'Ubicaciones técnicas', '/ubicaciones-tecnicas/');
-        if (parts[0] === 'empresas' && parts[2] === 'jerarquia') {
-            fixedCrumb(crumbs, objectLabelFromPage(`Empresa ${parts[1]}`), `/empresas/${parts[1]}/jerarquia/`);
+        const isCompanyHierarchy = parts[0] === 'empresas' && parts[2] === 'jerarquia';
+        fixedCrumb(
+            crumbs,
+            'Ubicaciones técnicas',
+            '/ubicaciones-tecnicas/',
+            isCompanyHierarchy ? { preserveRoot: true } : null
+        );
+        if (isCompanyHierarchy) {
+            const header = document.querySelector('.page-header[data-company-label]');
+            const companyLabel = cleanLabel(header ? header.dataset.companyLabel : '') || `Empresa ${parts[1]}`;
+            fixedCrumb(crumbs, companyLabel, `/empresas/${parts[1]}/jerarquia/`);
             if (parts[3] === 'estructura') fixedCrumb(crumbs, 'Estructura');
             else if (parts[3] === 'valores') fixedCrumb(crumbs, 'Valores');
             else if (parts[3] === 'constructor') fixedCrumb(crumbs, 'Constructor');
+            else fixedCrumb(crumbs, 'Jerarquía técnica');
         } else if (parts[0] === 'jerarquia') {
             fixedCrumb(crumbs, pageTitle());
         }
@@ -640,8 +648,15 @@ document.addEventListener("DOMContentLoaded", function () {
         if (parts[0] === 'fmeca') {
             const crumbs = [{ label: 'Inicio', url: '/' }];
             fixedCrumb(crumbs, 'FMECA', '/fmeca/desarrollo/');
-            if (parts[1] === 'panel') fixedCrumb(crumbs, 'Panel');
-            else if (parts[1] === 'desarrollo') fixedCrumb(crumbs, 'Desarrollo');
+            if (parts[1] === 'panel') {
+                const panelHeader = document.querySelector('.page-header[data-service-id]');
+                const serviceId = panelHeader ? panelHeader.dataset.serviceId : '';
+                const serviceLabel = panelHeader ? panelHeader.dataset.serviceLabel : '';
+                if (serviceId) {
+                    fixedCrumb(crumbs, serviceLabel || `Servicio ${serviceId}`, `/servicios/${serviceId}/`);
+                    fixedCrumb(crumbs, 'Panel FMECA');
+                }
+            }
             return crumbs;
         }
         const crumbs = genericFixedCrumbs(parts);
@@ -656,7 +671,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // El primer elemento restante es la seccion raiz ya visible en el sidebar.
         // En una vista raiz esto deja el breadcrumb vacio; en vistas internas
         // conserva solamente el objeto y las subsecciones relevantes.
-        if (stack.length) stack = stack.slice(1);
+        if (stack.length && !stack[0].preserveRoot) stack = stack.slice(1);
         header.querySelectorAll('.page-location').forEach(node => node.remove());
         if (!stack.length) return;
         const nav = document.createElement('nav');

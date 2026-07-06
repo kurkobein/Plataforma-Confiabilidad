@@ -135,42 +135,6 @@ def _impact_total_calculation_config(estrategia, exclude_ed_id=None):
     }
 
 
-def _impact_total_config_source_ids(config):
-    config = config if isinstance(config, dict) else {}
-    source_ids = set()
-    steps = config.get('pasos') if isinstance(config.get('pasos'), list) else []
-    operands = []
-    if steps:
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
-            operands.extend(step.get('operandos') or step.get('campos') or step.get('sources') or [])
-    else:
-        operands = config.get('operandos') or config.get('campos') or config.get('sources') or []
-    for operand in operands:
-        if not isinstance(operand, dict):
-            continue
-        raw_id = operand.get('estrategia_dimension_id') or operand.get('ed_id')
-        if raw_id not in (None, ''):
-            source_ids.add(str(raw_id))
-    return source_ids
-
-
-def _impact_total_config_is_weighted(config):
-    config = config if isinstance(config, dict) else {}
-    steps = config.get('pasos') if isinstance(config.get('pasos'), list) else []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        if step.get('modo') == 'ponderado' or step.get('ponderado') is True:
-            return True
-        operands = step.get('operandos') or []
-        if any(isinstance(operand, dict) and operand.get('peso') not in (None, '') for operand in operands):
-            return True
-    operands = config.get('operandos') if isinstance(config.get('operandos'), list) else []
-    return any(isinstance(operand, dict) and operand.get('peso') not in (None, '') for operand in operands)
-
-
 def _calculation_config_has_sources(config):
     config = config if isinstance(config, dict) else {}
     pasos = config.get('pasos') if isinstance(config.get('pasos'), list) else []
@@ -260,23 +224,7 @@ def _ensure_auto_impact_total_dimension(estrategia):
             )
 
     config_calculo = _json_loads_safe(dimension.config_calculo, {})
-    expected_config = _impact_total_calculation_config(
-        estrategia,
-        exclude_ed_id=estrategia_dimension.pk,
-    )
-    expected_source_ids = {
-        str(operand.get('estrategia_dimension_id'))
-        for operand in expected_config.get('operandos', [])
-        if operand.get('estrategia_dimension_id') not in (None, '')
-    }
-    current_source_ids = _impact_total_config_source_ids(config_calculo)
-    should_rebuild_config = (
-        not config_calculo.get('auto_impact_total')
-        or not _calculation_config_has_sources(config_calculo)
-        or _impact_total_config_is_weighted(config_calculo)
-        or current_source_ids != expected_source_ids
-    )
-    if should_rebuild_config:
+    if not _calculation_config_has_sources(config_calculo):
         config_calculo = _impact_total_calculation_config(
             estrategia,
             exclude_ed_id=estrategia_dimension.pk,
@@ -1051,6 +999,7 @@ def _auto_matrix_source_options(estrategia):
         if _is_generated_matrix_axis_dimension(estrategia_dimension):
             continue
         maximum = _auto_matrix_theoretical_max(estrategia_dimension, source_index)
+        maximum_available = maximum is not None and maximum > 0
         catalogo = _catalog_for_strategy_dimension(estrategia_dimension)
         options.append({
             'id': estrategia_dimension.pk,
@@ -1058,7 +1007,8 @@ def _auto_matrix_source_options(estrategia):
             'campo': (catalogo.campo if catalogo else '') or _safe_slug(estrategia_dimension.dimension.nombre),
             'tipo_calculo': estrategia_dimension.dimension.tipo_calculo or '',
             'maximo': maximum,
-            'maximo_label': _auto_matrix_decimal_label(maximum) if maximum is not None else 'requiere máximo manual',
+            'maximo_disponible': maximum_available,
+            'maximo_label': _auto_matrix_decimal_label(maximum) if maximum_available else 'no calculable',
         })
     return options, source_index
 
@@ -2207,8 +2157,6 @@ def _auto_matrix_form_values(request):
         'levels_y': data.get('levels_y') or '5',
         'source_x': data.get('source_x') or '',
         'source_y': data.get('source_y') or '',
-        'maximo_x_manual': data.get('maximo_x_manual') or '',
-        'maximo_y_manual': data.get('maximo_y_manual') or '',
         'distribucion': 'lineal',
         'reverse_x': '1' if data.get('reverse_x') == '1' else '',
         'reverse_y': reverse_y,
@@ -2261,14 +2209,16 @@ def matriz_auto_generate(request):
 
         max_x = source_x_option.get('maximo') if source_x_option else None
         max_y = source_y_option.get('maximo') if source_y_option else None
-        if max_x is None:
-            max_x = _decimal_or_none(form_values['maximo_x_manual'])
-        if max_y is None:
-            max_y = _decimal_or_none(form_values['maximo_y_manual'])
         if max_x is None or max_x <= 0:
-            errors.append('El eje X necesita un máximo teórico mayor a 0.')
+            errors.append(
+                'No se pudo calcular automáticamente un máximo teórico mayor a 0 para el eje X. '
+                'Revisa la tabla o la fórmula de la fuente seleccionada.'
+            )
         if max_y is None or max_y <= 0:
-            errors.append('El eje Y necesita un máximo teórico mayor a 0.')
+            errors.append(
+                'No se pudo calcular automáticamente un máximo teórico mayor a 0 para el eje Y. '
+                'Revisa la tabla o la fórmula de la fuente seleccionada.'
+            )
 
         levels_x = _auto_matrix_positive_int(form_values['levels_x'])
         levels_y = _auto_matrix_positive_int(form_values['levels_y'])

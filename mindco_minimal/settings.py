@@ -76,13 +76,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mindco_minimal.wsgi.application'
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.trycloudflare.com",
+    "https://*.up.railway.app",
+]
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': os.getenv('MYSQLDATABASE'),
         'USER': os.getenv('MYSQLUSER'),
         'PASSWORD': os.getenv('MYSQLPASSWORD'),
-        'HOST': os.getenv('MYSQLHOST'),
+        'HOST': (os.getenv('MYSQLHOST') or '127.0.0.1').strip().strip("'\""),
         'PORT': os.getenv('MYSQLPORT', '3306'),
         'OPTIONS': {
             'charset': 'utf8mb4',

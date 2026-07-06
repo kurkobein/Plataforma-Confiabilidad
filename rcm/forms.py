@@ -480,7 +480,7 @@ class RCMRegistroForm(forms.Form):
         required=False,
         min_value=0,
         label='Criticidad',
-        help_text='Si queda vacío, el análisis corresponde a FMEA; si tiene valor, corresponde a FMECA.',
+        
     )
     componente = forms.CharField(required=False, max_length=255, label='Componente')
     funcion = forms.CharField(label='Función', required=False, widget=forms.Textarea(attrs={'rows': 3}))

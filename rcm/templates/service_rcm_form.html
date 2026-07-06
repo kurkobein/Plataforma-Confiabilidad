@@ -156,7 +156,7 @@
         </div>
 
         <div class="card">
-            <h3 class="card-title">Análisis FMECA</h3>
+            <h3 class="card-title">Análisis RCM</h3>
             <div class="form-grid">
                 <div class="form-field">
                     <label for="{{ form.estado.id_for_label }}">{{ form.estado.label }}</label>
@@ -193,7 +193,7 @@
     </div>
 
     <div class="card">
-        <!-- <h3 class="card-title">FMECA</h3> -->
+        <h3 class="card-title">FMECA</h3>
         <div class="form-field">
             <label for="{{ form.criticidad.id_for_label }}">{{ form.criticidad.label }}</label>
             <div class="rcm-criticality-inline">
@@ -218,14 +218,12 @@
                             </option>
                         {% endfor %}
                     </select>
-                    <small class="muted" id="rcm-aca-criticality-status">
-                        Selecciona un equipo para buscar registros ACA.
-                    </small>
                 </div>
             </div>
             {% if form.criticidad.help_text %}<small class="muted">{{ form.criticidad.help_text }}</small>{% endif %}
             {% if form.criticidad.errors %}<div class="form-error">{{ form.criticidad.errors }}</div>{% endif %}
         </div>
+        <div style="height: 15px;"></div>
         {% if form.impact_dimensions %}
             <div class="form-field full">
                 <div class="dimension-grid">

@@ -18,6 +18,8 @@ from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from .access import get_accessible_services, get_profile_for_user, get_service_equipment, get_service_permission
 from .user_sync import archive_profile, sync_profile_from_auth_user
@@ -346,10 +348,6 @@ def _delete_equipment_related_data(equipment_ids):
     counts['servicios_equipo'] = _delete_by_materialized_ids(
         models.ServicioEquipo,
         models.ServicioEquipo.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True),
-    )
-    counts['componentes_equipo'] = _delete_by_materialized_ids(
-        models.ComponenteEquipo,
-        models.ComponenteEquipo.objects.filter(equipo_id__in=equipment_ids).values_list('id', flat=True),
     )
     counts['equipos'] = _delete_by_materialized_ids(models.Equipo, equipment_ids)
     return counts
@@ -1590,7 +1588,6 @@ def model_delete(request, model_key, pk):
         equipment_delete_summary = {
             'servicios': models.ServicioEquipo.objects.filter(equipo=obj).count(),
             'familias': models.FamiliaEquipoItem.objects.filter(equipo=obj).count(),
-            'componentes': models.ComponenteEquipo.objects.filter(equipo=obj).count(),
             'aca': models.Criticidad.objects.filter(equipo=obj).count(),
             'rcm': models.RCM.objects.filter(equipo=obj).count(),
             'pautas': models.Pauta.objects.filter(equipo=obj).count(),
@@ -1725,13 +1722,18 @@ def _record_login_location(request, profile):
         longitud=longitud,
     )
     hora_chile = timezone.localtime(login_record.hora).replace(tzinfo=None)
+    table_name = connection.ops.quote_name(models.InicioSesion._meta.db_table)
+    time_column = connection.ops.quote_name(models.InicioSesion._meta.get_field('hora').column)
+    pk_column = connection.ops.quote_name(models.InicioSesion._meta.pk.column)
     with connection.cursor() as cursor:
         cursor.execute(
-            'UPDATE reliability_iniciosesion SET hora = %s WHERE id = %s',
+            f'UPDATE {table_name} SET {time_column} = %s WHERE {pk_column} = %s',
             [hora_chile, login_record.pk],
         )
 
 
+@never_cache
+@ensure_csrf_cookie
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')

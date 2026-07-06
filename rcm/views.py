@@ -24,6 +24,7 @@ from rcm.import_excel import Command as RCMExcelImportCommand
 from rcm.import_excel import BASE_ALIASES, ImportStats, TASK_ALIASES, clean_text
 from rcm.services.progress import (
     build_fmeca_service_progress_summary,
+    compatible_hierarchy_node_ids,
     filter_fmeca_by_hierarchy,
     get_fmeca_progress_dimensions,
     get_fmeca_queryset,
@@ -293,6 +294,10 @@ def fmeca_panel(request):
                 for value in legacy_progress_nodo.replace(';', ',').split(',')
                 if value.strip().isdigit() and int(value.strip()) in available_node_ids
             }
+        selected_panel_node_ids = compatible_hierarchy_node_ids(
+            hierarchy_filters,
+            selected_panel_node_ids,
+        )
         levels = hierarchy_filters.get('levels', [])
         level_order = {int(level['id']): index for index, level in enumerate(levels)}
         node_by_id = {
@@ -312,34 +317,18 @@ def fmeca_panel(request):
         for node in selected_nodes:
             selected_by_level.setdefault(int(node.get('level_id') or 0), set()).add(int(node['id']))
         panel_hierarchy_levels = []
-        allowed_parent_paths = None
         for level in levels:
             level_id = int(level['id'])
             level_nodes = [
                 node for node in hierarchy_filters.get('nodes', [])
                 if str(node.get('level_id')) == str(level_id)
             ]
-            if allowed_parent_paths:
-                level_nodes = [
-                    node for node in level_nodes
-                    if any(
-                        str(node.get('path') or '') == parent_path
-                        or str(node.get('path') or '').startswith(parent_path + '-')
-                        for parent_path in allowed_parent_paths
-                    )
-                ]
             selected_in_level = selected_by_level.get(level_id, set())
             panel_hierarchy_levels.append({
                 **level,
                 'nodes': level_nodes,
                 'selected_ids': selected_in_level,
             })
-            if selected_in_level:
-                allowed_parent_paths = {
-                    str(node.get('path') or '')
-                    for node in level_nodes
-                    if int(node['id']) in selected_in_level and node.get('path')
-                }
         selected_progress_nodo = ','.join(str(node_id) for node_id in deepest_node_ids)
         selected_progress_nivel = str(deepest_level_id or '')
         selected_avance_min, selected_avance_max = _progress_range_from_params(request.GET)

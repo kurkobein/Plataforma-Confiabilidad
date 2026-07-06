@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Valores UT | Mindco{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header" data-company-label="{{ empresa.nombre }}">
     <div>
         <h2>Valores UT - {{ empresa }}</h2>
         <p>Jerarquía técnica</p>
@@ -59,7 +59,7 @@
         <form method="post" class="card hierarchy-builder-card hierarchy-bulk-card" id="hierarchy-bulk-form" novalidate>
             {% csrf_token %}
             <input type="hidden" name="action" value="bulk_create">
-            <h3 class="card-title">Carga rapida</h3>
+            <h3 class="card-title">Carga rápida</h3>
             <p class="muted" style="margin-top:-4px;">Elige el nivel y su nodo superior una vez. Luego pega varias filas desde Excel.</p>
             {% if bulk_form.non_field_errors %}<div class="form-errors">{{ bulk_form.non_field_errors }}</div>{% endif %}
             {{ bulk_form.sin_nodo_superior }}
@@ -90,7 +90,7 @@
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Codigo</th>
+                                <th>Código</th>
                                 <th>Nombre</th>
                             </tr>
                         </thead>
@@ -101,7 +101,7 @@
                     <button class="btn" type="button" id="bulk-add-rows">Agregar filas</button>
                     <button class="btn" type="button" id="bulk-clear-rows">Limpiar</button>
                 </div>
-                <small class="muted">Puedes pegar una columna de codigos, una columna de nombres o dos columnas desde Excel. Cada linea horizontal representa un valor.</small>
+                <small class="muted">Puedes pegar una columna de códigos, una columna de nombres o dos columnas desde Excel. Cada linea horizontal representa un valor.</small>
                 {{ bulk_form.bulk_values.errors }}
             </div>
             <div class="actions" style="margin-top: 1rem;">
@@ -112,10 +112,10 @@
     </div>
 
     <div class="card hierarchy-side-card">
-        <h3 class="card-title">Filtro rapido</h3>
+        <h3 class="card-title">Filtro rápido</h3>
         <div class="form-field">
             <label>Buscar</label>
-            <input class="input-control" id="value-search" type="search" placeholder="Codigo o nombre">
+            <input class="input-control" id="value-search" type="search" placeholder="Código o nombre">
         </div>
         <div class="form-field" style="margin-top:12px;">
             <label>Ruta U.T.</label>
@@ -131,7 +131,7 @@
             <tr>
                 <th>Nivel</th>
                 <th>Nodo superior</th>
-                <th>Codigo</th>
+                <th>Código</th>
                 <th>Nombre</th>
                 <th>UT</th>
                 <th>Ruta</th>

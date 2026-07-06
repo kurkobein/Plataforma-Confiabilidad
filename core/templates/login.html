@@ -179,7 +179,7 @@
           {% if form.non_field_errors %}
           <div class="message">{{ form.non_field_errors }}</div>
           {% endif %}
-          <form method="post" id="login-form">
+          <form method="post" action="{% url 'login' %}" id="login-form">
             {% csrf_token %}
             <input type="hidden" name="latitud" id="login-latitud">
             <input type="hidden" name="longitud" id="login-longitud">

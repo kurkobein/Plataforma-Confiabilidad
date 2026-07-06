@@ -62,9 +62,9 @@ class Empresa(BaseUnmanagedModel):
         return f'{self.nombre} ({self.sigla})'
 
 class Cargo(BaseUnmanagedModel):
-    nombre_cargo = models.CharField(max_length=150)
-    area = models.CharField(max_length=150)
-    jefatura = models.CharField(max_length=150)
+    nombre_cargo = models.CharField(max_length=150, verbose_name="Nombre del cargo")
+    area = models.CharField(max_length=150, verbose_name="Área")
+    jefatura = models.CharField(max_length=150, verbose_name="Jefatura")
 
     class Meta(BaseUnmanagedModel.Meta):
         db_table = 'cargo'
@@ -138,14 +138,14 @@ class Servicio(BaseUnmanagedModel):
         ('pausado', 'Pausado'),
     ]
 
-    codigo_servicio = models.CharField(max_length=100)
-    descripcion = models.TextField(blank=True)
-    fecha_inicio = models.DateField(blank=True, null=True)
-    fecha_fin = models.DateField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='activo')
+    codigo_servicio = models.CharField(max_length=100, verbose_name="Código del servicio")
+    descripcion = models.TextField(blank=True, verbose_name="Descripción")
+    fecha_inicio = models.DateField(blank=True, null=True, verbose_name="Fecha de inicio")
+    fecha_fin = models.DateField(blank=True, null=True, verbose_name="Fecha de fin")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='activo', verbose_name="Estado")
     creado_en = models.DateTimeField()
     empresa = models.ForeignKey(Empresa, on_delete=models.DO_NOTHING, db_column='empresa_id', related_name='servicios')
-    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='servicios')
+    estrategia = models.ForeignKey(Estrategia, on_delete=models.DO_NOTHING, db_column='estrategia_id', blank=True, null=True, related_name='servicios', verbose_name="Estrategia")
     matriz_aca_activa = models.ForeignKey(
         'MatrizRiesgo',
         on_delete=models.SET_NULL,
@@ -180,19 +180,6 @@ class AccesoUsuario(BaseUnmanagedModel):
     def __str__(self):
         scope = self.servicio or self.estrategia or self.empresa
         return f'{self.usuario} -> {scope}'
-
-
-class Componente(BaseUnmanagedModel):
-    nombre = models.CharField(max_length=200)
-    descripcion = models.TextField(blank=True)
-
-    class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'componente'
-        ordering = ['nombre']
-
-    def __str__(self):
-        return self.nombre
-
 
 def _technical_segment(value):
     value = (value or '').strip().upper()
@@ -317,19 +304,6 @@ class Equipo(BaseUnmanagedModel):
 
     def __str__(self):
         return f'{self.tag_display} - {self.nombre_equipo}'
-
-
-class ComponenteEquipo(BaseUnmanagedModel):
-    componente = models.ForeignKey(Componente, on_delete=models.DO_NOTHING, db_column='componente_id', related_name='componentes_equipo')
-    equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='componentes')
-
-    class Meta(BaseUnmanagedModel.Meta):
-        db_table = 'componenteequipo'
-        ordering = ['equipo_id', 'componente_id']
-
-    def __str__(self):
-        return f'{self.equipo} / {self.componente}'
-
 
 class ServicioEquipo(BaseUnmanagedModel):
     equipo = models.ForeignKey(Equipo, on_delete=models.DO_NOTHING, db_column='equipo_id', related_name='servicios_equipo')

@@ -13,8 +13,6 @@
         </div>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'service_fmeca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
-        <a class="btn" href="{% url 'service_fmeca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_fmeca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
             <a class="btn" href="{% url 'service_fmeca_task_config' service.pk %}">Configurar tareas</a>
