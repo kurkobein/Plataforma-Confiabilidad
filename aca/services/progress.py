@@ -293,6 +293,12 @@ def get_hierarchy_filter_options(servicio):
             'level_order': node.nivel.orden if node.nivel_id else 9999,
             'label': _node_option_label(node, node_by_id),
             'path': _node_path_code(node, node_by_id) or node.codigo,
+            'parent_id': node.parent_id,
+            'ancestor_ids': [
+                path_node.pk
+                for path_node in _node_path(node, node_by_id)
+                if path_node.pk != node.pk
+            ],
         }
         for node in available_nodes
     ]
@@ -301,6 +307,48 @@ def get_hierarchy_filter_options(servicio):
         'levels': levels,
         'nodes': nodes,
     }
+
+
+def compatible_hierarchy_node_ids(hierarchy_filters, selected_node_ids):
+    available_nodes = {
+        int(node['id']): node
+        for node in hierarchy_filters.get('nodes', [])
+        if node.get('id')
+    }
+    requested_ids = {
+        int(node_id)
+        for node_id in selected_node_ids
+        if str(node_id).isdigit() and int(node_id) in available_nodes
+    }
+    if not requested_ids:
+        return set()
+
+    valid_ids = set()
+    selected_ancestor_groups = []
+    for level in hierarchy_filters.get('levels', []):
+        level_id = int(level['id'])
+        level_ids = {
+            node_id
+            for node_id in requested_ids
+            if int(available_nodes[node_id].get('level_id') or 0) == level_id
+        }
+        if not level_ids:
+            continue
+
+        compatible_ids = set()
+        for node_id in level_ids:
+            ancestor_ids = {
+                int(ancestor_id)
+                for ancestor_id in available_nodes[node_id].get('ancestor_ids', [])
+            }
+            if all(ancestor_ids.intersection(group) for group in selected_ancestor_groups):
+                compatible_ids.add(node_id)
+
+        if compatible_ids:
+            valid_ids.update(compatible_ids)
+            selected_ancestor_groups.append(compatible_ids)
+
+    return valid_ids
 
 
 def get_descendant_node_ids(nodo):

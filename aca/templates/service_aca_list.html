@@ -11,8 +11,6 @@
         </div>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'service_aca_export' service.pk 'excel' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Exportar Excel</a>
-        <a class="btn" href="{% url 'service_aca_export' service.pk 'pdf' %}"><i class="bi bi-file-earmark-pdf"></i> Exportar PDF</a>
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_aca_excel_upload' service.pk %}"><i class="bi bi-upload"></i> Carga masiva</a>
             <a class="btn btn-primary" href="{% url 'service_aca_bulk_new' service.pk %}"> Carga grupal ACA</a>

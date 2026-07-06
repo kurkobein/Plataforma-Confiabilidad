@@ -19,6 +19,7 @@ from core.access import get_accessible_services, get_profile_for_user, get_servi
 from aca.forms import ACAExcelBulkUploadForm, CriticidadDimensionFormSet, CriticidadDimensionInputForm, ServicioACARegistroForm
 from aca.services.progress import (
     build_aca_service_progress_summary,
+    compatible_hierarchy_node_ids,
     compute_criticidad_progress,
     filter_criticidades_by_hierarchy,
     get_aca_criticidad_queryset,
@@ -2044,6 +2045,7 @@ def _aca_panel_progress_context(servicio, params):
         for node_id in params.getlist('panel_nodes')
         if str(node_id).isdigit() and int(node_id) in available_node_ids
     }
+    selected_node_ids = compatible_hierarchy_node_ids(hierarchy_filters, selected_node_ids)
     levels = hierarchy_filters.get('levels', [])
     level_order = {int(level['id']): index for index, level in enumerate(levels)}
     available_nodes = list(
@@ -2096,21 +2098,13 @@ def _aca_panel_progress_context(servicio, params):
     for node in selected_nodes:
         selected_by_level.setdefault(node.nivel_id, set()).add(node.pk)
 
-    allowed_parent_ids = None
     panel_levels = []
     for level in levels:
         level_id = int(level['id'])
-        level_nodes = [node for node in available_nodes if node.nivel_id == level_id]
-        if allowed_parent_ids:
-            level_nodes = [
-                node for node in level_nodes
-                if any(path_node.pk in allowed_parent_ids for path_node in _node_path_for_panel(node, all_node_by_id))
-            ]
-        level_nodes.sort(key=lambda node: (node.codigo or '', node.nombre or ''))
-        for node in level_nodes:
-            code = '-'.join(path_node.codigo for path_node in _node_path_for_panel(node, all_node_by_id) if path_node.codigo)
-            name = node.nombre or node.codigo or 'Sin nombre'
-            node.panel_label = f'{name} - {code}' if code else name
+        level_nodes = [
+            node for node in hierarchy_filters.get('nodes', [])
+            if str(node.get('level_id')) == str(level_id)
+        ]
         selected_in_level = selected_by_level.get(level_id, set())
         panel_levels.append({
             'id': level_id,
@@ -2118,8 +2112,6 @@ def _aca_panel_progress_context(servicio, params):
             'nodes': level_nodes,
             'selected_ids': selected_in_level,
         })
-        if selected_in_level:
-            allowed_parent_ids = selected_in_level
 
     progress_summary = build_aca_service_progress_summary(servicio, criticidades=criticidades)
     progress_by_criticidad_id = progress_summary.get('progress_by_criticidad_id', {})

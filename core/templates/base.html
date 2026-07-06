@@ -735,6 +735,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const hasServiceContext = (stack || []).some(item => /^\/servicios\/\d+\/?$/.test(pathOnly(item.url)));
         if (!hasServiceContext) return '';
         if (/^\/estrategias\/\d+\/tablas\/?$/.test(currentPath)) return '/servicio/';
+        if (/^\/servicios\/\d+\/aca\//.test(currentPath) || /^\/servicios\/\d+\/aca\/?$/.test(currentPath)) return '/aca/desarrollo/';
         if (/^\/servicios\/\d+\/fmeca\//.test(currentPath) || /^\/servicios\/\d+\/fmeca\/?$/.test(currentPath)) return '/fmeca/desarrollo/';
         if (/^\/servicios\/\d+\/rcm\//.test(currentPath) || /^\/servicios\/\d+\/rcm\/?$/.test(currentPath)) return '/fmeca/desarrollo/';
         return '';

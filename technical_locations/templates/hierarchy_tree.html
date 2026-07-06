@@ -7,7 +7,6 @@
         <p>Jerarquía técnica</p>
     </div>
     <div class="actions">
-        <a class="btn" href="{% url 'technical_location_index' %}">Empresas</a>
         <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
         <a class="btn" href="{% url 'hierarchy_values' empresa.pk %}">Valores</a>
         <a class="btn btn-primary" href="{% url 'hierarchy_create_route' empresa.pk %}">Registrar UT</a>
@@ -170,7 +169,7 @@
                     <td>${escapeHtml(node.route)}</td>
                     <td>${escapeHtml(node.equipment_count || 0)}</td>
                     <td>
-                        <div class="actions">
+                        <div class="actions" style="margin-left: auto; justify-content: flex-end;">
                             ${childButton}
                             <a class="btn" href="${escapeHtml(node.edit_url)}">Editar</a>
                             <a class="btn" href="${escapeHtml(node.move_url)}">Mover</a>
