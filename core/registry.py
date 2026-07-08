@@ -48,7 +48,7 @@ MODEL_REGISTRY = OrderedDict({
     },
     'niveljerarquia': {
         'model': models.NivelJerarquia,
-        'label': 'Niveles jerarquia UT',
+        'label': 'Niveles jerarquía UT',
         'group': 'Configuración',
         'search_fields': ['nombre'],
         'show_in_sidebar': False,
@@ -58,7 +58,7 @@ MODEL_REGISTRY = OrderedDict({
     },
     'nodojerarquia': {
         'model': models.NodoJerarquia,
-        'label': 'Nodos jerarquia UT',
+        'label': 'Nodos jerarquía UT',
         'group': 'Configuración',
         'search_fields': ['codigo', 'nombre'],
         'show_in_sidebar': False,

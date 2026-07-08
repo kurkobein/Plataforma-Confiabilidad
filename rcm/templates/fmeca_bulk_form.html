@@ -82,7 +82,7 @@
             </button>
         </div>
         <input class="input-control" type="search" id="fmeca-equipment-search"
-               placeholder="Buscar equipo">
+               placeholder="Ej: EQ-001 o Bomba auxiliar">
         <div class="fmeca-equipment-results" id="fmeca-equipment-results"></div>
         <small class="muted" id="fmeca-equipment-count"></small>
     </div>
@@ -233,7 +233,7 @@
         }
         return `<input class="input-control" type="number" step="any"
                       data-row-dimension="${row.row_id}" data-field-name="${escapeHtml(dimension.field_name)}"
-                      value="${escapeHtml(value)}" placeholder="Valor">`;
+                      value="${escapeHtml(value)}" placeholder="Ej: 10">`;
     }
 
     function rowComplete(row) {
@@ -277,7 +277,7 @@
             <td class="fmeca-col-option"><select class="input-control" data-row-field="efecto">${optionHtml(fieldOptions.efecto, row.efecto, 'Seleccionar')}</select></td>
             ${dimensions.map(dimension => `<td class="fmeca-col-dimension${dimension.is_calculated ? ' fmeca-bulk-calculated' : ''}">${dimensionControl(row, dimension)}</td>`).join('')}
             <td class="fmeca-col-number"><input class="input-control fmeca-bulk-number" type="number" min="0" data-row-field="criticidad" value="${escapeHtml(row.criticidad)}" placeholder="Automática"></td>
-            <td class="fmeca-col-notes"><input class="input-control" data-row-field="observacion" value="${escapeHtml(row.observacion)}" placeholder="Opcional"></td>
+            <td class="fmeca-col-notes"><input class="input-control" data-row-field="observacion" value="${escapeHtml(row.observacion)}" placeholder="Ej: revisión pendiente"></td>
             <td class="fmeca-col-files" data-row-files-cell="${rowId}"></td>
             <td class="fmeca-col-actions">
                 <div class="actions fmeca-bulk-row-actions">

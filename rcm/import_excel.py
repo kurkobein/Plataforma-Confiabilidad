@@ -334,7 +334,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--file', required=True, help='Ruta del Excel RCM.xlsx.')
-        parser.add_argument('--service', required=True, help='ID, codigo o descripcion del servicio.')
+        parser.add_argument('--service', required=True, help='ID, código o descripción del servicio.')
         parser.add_argument('--sheet', default='RCM', help='Hoja del Excel. Default: RCM. Si no existe, intenta RCM-FMECA.')
         parser.add_argument('--header-row', type=int, default=None, help='Fila de encabezados. Si se omite, se autodetecta.')
         parser.add_argument('--start-row', type=int, default=None, help='Primera fila de datos. Si se omite, usa la siguiente al encabezado.')
@@ -348,7 +348,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         if load_workbook is None:
-            raise CommandError('openpyxl no esta instalado.')
+            raise CommandError('openpyxl no está instalado.')
 
         path = Path(options['file'])
         if not path.exists():
@@ -375,7 +375,7 @@ class Command(BaseCommand):
         start_row = options.get('start_row') or header_row + 1
         header_map = self.build_header_map(ws, header_row)
         if not header_map:
-            raise CommandError('No se detectaron encabezados validos.')
+            raise CommandError('No se detectaron encabezados válidos.')
 
         stats = ImportStats()
         stats.header_row = header_row
@@ -428,7 +428,7 @@ class Command(BaseCommand):
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING('Dry-run: no se guardaron cambios.'))
             else:
-                self.stdout.write(self.style.SUCCESS('Importacion RCM completada.'))
+                self.stdout.write(self.style.SUCCESS('Importación RCM completada.'))
 
     def resolve_service(self, value):
         qs = models.Servicio.objects.select_related('empresa', 'estrategia')
@@ -443,7 +443,7 @@ class Command(BaseCommand):
         service = qs.filter(Q(codigo_servicio__icontains=value) | Q(descripcion__icontains=value)).first()
         if service:
             return service
-        raise CommandError(f'No se encontro servicio para: {value}')
+        raise CommandError(f'No se encontró servicio para: {value}')
 
     def build_header_map(self, ws, header_row):
         header_map = {}
@@ -578,7 +578,7 @@ class Command(BaseCommand):
                 continue
             label = getattr(self, 'header_labels', {}).get(col, f'Columna {col}')
             sample = self.first_non_empty_column_value(ws, col, start_row)
-            sample_text = f' | primer valor: {sample}' if not value_is_empty(sample) else ' | primer valor: vacio'
+            sample_text = f' | primer valor: {sample}' if not value_is_empty(sample) else ' | primer valor: vacío'
             self.stdout.write(self.style.NOTICE(f'- {name} -> {label}{sample_text}'))
 
     def first_non_empty_column_value(self, ws, col, start_row):
@@ -743,7 +743,7 @@ class Command(BaseCommand):
             if fallback:
                 segments.append(fallback)
             if stats:
-                stats.warn(f'No se encontro nodo jerarquico para "{raw}" en nivel {level_order}; se uso "{fallback}" como codigo.')
+                stats.warn(f'No se encontró nodo jerárquico para "{raw}" en nivel {level_order}; se usó "{fallback}" como código.')
 
         tag = self.technical_segment(clean_text(self.get_cell(row, header_map, BASE_ALIASES['tag'])))
         if tag and (not segments or segments[-1] != tag):
@@ -1399,7 +1399,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE(f'Fila encabezados: {stats.header_row}'))
         if stats.start_row:
             self.stdout.write(self.style.NOTICE(f'Primera fila datos: {stats.start_row}'))
-        self.stdout.write(self.style.NOTICE(f'Filas leidas: {stats.filas_leidas}'))
+        self.stdout.write(self.style.NOTICE(f'Filas leídas: {stats.filas_leidas}'))
         self.stdout.write(self.style.NOTICE(f'Filas importadas: {stats.filas_importadas}'))
         self.stdout.write(self.style.NOTICE(f'Filas omitidas: {stats.filas_omitidas}'))
         self.stdout.write(self.style.NOTICE(f'Filas omitidas por NPR=0: {stats.filas_omitidas_npr_cero}'))
@@ -1412,7 +1412,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f'Evaluaciones creadas: {stats.evaluaciones_creadas}'))
         self.stdout.write(self.style.NOTICE(f'Evaluaciones calculadas: {stats.evaluaciones_calculadas}'))
         self.stdout.write(self.style.NOTICE(f'Dependientes resueltas: {stats.dependientes_resueltas}'))
-        self.stdout.write(self.style.NOTICE(f'Dependientes resueltas con minimo por fuente 0: {stats.dependientes_minimo_cero}'))
+        self.stdout.write(self.style.NOTICE(f'Dependientes resueltas con mínimo por fuente 0: {stats.dependientes_minimo_cero}'))
         self.stdout.write(self.style.NOTICE(f'Tareas creadas: {stats.tareas_creadas}'))
         warning_total = len(stats.warnings) + sum(stats.unresolved_dimensions.values())
         if warning_total:

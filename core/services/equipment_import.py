@@ -237,7 +237,7 @@ def _candidate_data_score(worksheet, candidate):
 
 def read_xlsx_rows(file, sheet_name=None, limit=None):
     if load_workbook is None:
-        raise ValueError('openpyxl no esta instalado en el entorno de Django.')
+        raise ValueError('openpyxl no está instalado en el entorno de Django.')
     file.seek(0)
     workbook = load_workbook(BytesIO(file.read()), read_only=True, data_only=True)
     selected_sheet_name = sheet_name
@@ -265,7 +265,7 @@ def read_xlsx_rows(file, sheet_name=None, limit=None):
     headers = []
     if header_row is None:
         detail = f' en la hoja "{selected_sheet_name}"' if selected_sheet_name else ''
-        raise ValueError(f'No se encontraron encabezados validos{detail} en las primeras {HEADER_SCAN_ROWS} filas.')
+        raise ValueError(f'No se encontraron encabezados válidos{detail} en las primeras {HEADER_SCAN_ROWS} filas.')
     for index, label in enumerate(candidate['raw_headers']):
         key = normalize_header(label)
         if key:
@@ -439,7 +439,7 @@ def parse_mindco_simple_rows(rows, headers, empresa, servicio=None, last_segment
                 raise ValueError('sin empresa resoluble.')
             hierarchy, equipment = build_hierarchy_from_mindco_row(row, headers, last_segment_is_equipment)
             if not hierarchy:
-                raise ValueError('jerarquia invalida.')
+                raise ValueError('jerarquía inválida.')
             normalized.append({
                 'row_number': row['row_number'],
                 'empresa': empresa,
@@ -462,7 +462,7 @@ def parse_sap_uts_rows(rows, headers, empresa, servicio=None, last_level_is_equi
                 raise ValueError('sin empresa resoluble.')
             hierarchy, equipment = build_hierarchy_from_sap_row(row, headers, last_level_is_equipment)
             if not hierarchy:
-                raise ValueError('jerarquia invalida.')
+                raise ValueError('jerarquía inválida.')
             normalized.append({
                 'row_number': row['row_number'],
                 'empresa': row_empresa,
@@ -588,7 +588,7 @@ def _normalize_import_rows(file, empresa, servicio=None, sheet_name=None, format
     headers, rows = read_xlsx_rows(file, sheet_name=sheet_name, limit=limit)
     detected = detect_excel_format(headers) if format == FORMAT_AUTO else format
     if detected not in FORMAT_CHOICES or detected == FORMAT_AUTO:
-        raise ValueError('Formato invalido. Usa auto, mindco_simple o sap_uts.')
+        raise ValueError('Formato inválido. Usa auto, mindco_simple o sap_uts.')
     if detected == FORMAT_SAP:
         normalized, warnings, errors = parse_sap_uts_rows(rows, headers, empresa, servicio, last_level_is_equipment)
     else:
@@ -655,7 +655,7 @@ def preview_equipment_import(file, empresa, servicio=None, sheet_name=None, form
             seen_equipment.add(equipment_key)
             if existing_equipment:
                 report.equipment_to_update += 1
-                report.warnings.append(f'Fila {item["row_number"]}: equipo existente sera actualizado.')
+                report.warnings.append(f'Fila {item["row_number"]}: equipo existente será actualizado.')
             else:
                 report.equipment_to_create += 1
         service = item.get('servicio')

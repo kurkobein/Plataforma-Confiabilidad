@@ -71,7 +71,7 @@ def _find_header(ws):
         header_map = _build_header_map(row)
         if all(_find_column(header_map, key) is not None for key in ('tag', 'nombre', 'ut')):
             return row_number, header_map
-    raise ValueError('No se encontraron encabezados validos. Usa columnas TAG, Nombre y UT.')
+    raise ValueError('No se encontraron encabezados válidos. Usa columnas TAG, Nombre y UT.')
 
 
 def _row_value(row, columns, field_key):
@@ -153,7 +153,7 @@ def _resolve_node_from_ut(empresa, ut):
         ).order_by('orden')
     )
     if not levels:
-        return None, 'La empresa no tiene estructura de ubicacion tecnica configurada.'
+        return None, 'La empresa no tiene estructura de ubicación técnica configurada.'
     if len(codes) != len(levels):
         return None, f'La UT tiene {len(codes)} componentes y la estructura requiere {len(levels)} niveles.'
 
@@ -197,7 +197,7 @@ def _append_warning(report, message):
 
 def import_equipment_excel(archivo, empresa):
     if load_workbook is None:
-        raise ValueError('openpyxl no esta instalado en el entorno de Django.')
+        raise ValueError('openpyxl no está instalado en el entorno de Django.')
     archivo.seek(0)
     wb = load_workbook(archivo, data_only=True, read_only=True)
     ws = wb.active

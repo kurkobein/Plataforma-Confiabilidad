@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}Ubicaciones tecnicas | Mindco{% endblock %}
+{% block title %}Ubicaciones técnicas | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Ubicaciones tecnicas</h2>
+        <h2>Ubicaciones técnicas</h2>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'dashboard' %}">Inicio</a>
@@ -30,7 +30,7 @@
                     <td>{{ row.equipos_count }}</td>
                     <td>
                         <div class="actions">
-                            <a class="btn" href="{% url 'hierarchy_tree' row.empresa.pk %}">Ver jerarquia</a>
+                            <a class="btn" href="{% url 'hierarchy_tree' row.empresa.pk %}">Ver jerarquía</a>
                             <a class="btn" href="{% url 'hierarchy_structure' row.empresa.pk %}">Estructura</a>
                             <a class="btn btn-primary" href="{% url 'hierarchy_values' row.empresa.pk %}">Valores</a>
                         </div>

@@ -17,22 +17,22 @@ class MatrizBuilderForm(forms.Form):
     dimension_probabilidad = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
         required=True,
-        label='Dimension eje X',
+        label='Dimensión eje X',
         empty_label='Selecciona una fuente real',
         help_text='Dimensión existente de la estrategia que entrega el valor real para el eje X.',
     )
     dimension_impacto = forms.ModelChoiceField(
         queryset=app_models.EstrategiaDimension.objects.none(),
         required=True,
-        label='Dimension eje Y',
+        label='Dimensión eje Y',
         empty_label='Selecciona una fuente real',
         help_text='Dimensión existente de la estrategia que entrega el valor real para el eje Y.',
     )
     modo_resolucion = forms.ChoiceField(
         choices=app_models.MatrizRiesgo.RESOLUCION_CHOICES,
         initial=app_models.MatrizRiesgo.RESOLUCION_EXACTA,
-        label='Resolucion ACA',
-        help_text='Exacta mantiene el comportamiento actual. Umbral inferior usa el resultado calculado y toma la celda mas cercana por debajo.',
+        label='Resolución ACA',
+        help_text='Exacta mantiene el comportamiento actual. Umbral inferior usa el resultado calculado y toma la celda más cercana por debajo.',
     )
     x_count = forms.IntegerField(
         min_value=2,
@@ -130,7 +130,7 @@ class MatrizBuilderForm(forms.Form):
             if estrategia_dimension.estrategia_id != estrategia.pk:
                 self.add_error(
                     field_name,
-                    'La dimension elegida debe pertenecer a la estrategia seleccionada.',
+                    'La dimensión elegida debe pertenecer a la estrategia seleccionada.',
                 )
         return cleaned
 

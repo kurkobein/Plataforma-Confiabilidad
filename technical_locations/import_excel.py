@@ -118,7 +118,7 @@ def parse_level(value):
 
 
 class Command(BaseCommand):
-    help = 'Importa estructura y valores de ubicaciones tecnicas desde CSV/XLSX.'
+    help = 'Importa estructura y valores de ubicaciones técnicas desde CSV/XLSX.'
 
     def add_arguments(self, parser):
         parser.add_argument('--archivo', help='Ruta al archivo .xlsx o .csv a importar.')
@@ -126,7 +126,7 @@ class Command(BaseCommand):
         parser.add_argument('--sheet', help='Hoja del XLSX. Si se omite, usa la primera hoja.')
         parser.add_argument(
             '--estructura',
-            help='Estructura base separada por comas. Ej: "Empresa,Area de negocio,Planta,Area,Sistema,Ubicacion tecnica,Equipo"',
+            help='Estructura base separada por comas. Ej: "Empresa,Área de negocio,Planta,Área,Sistema,Ubicación técnica,Equipo"',
         )
         parser.add_argument('--dry-run', action='store_true', help='Valida y muestra resumen sin guardar cambios.')
         parser.add_argument('--deactivate-missing', action='store_true', help='Desactiva nodos activos no presentes en el archivo.')
@@ -135,7 +135,7 @@ class Command(BaseCommand):
             '--equipo-min-level',
             type=int,
             default=5,
-            help='Nivel minimo 1-based para crear equipos automaticamente desde UT cuando el archivo no trae TAG. Default: 5.',
+            help='Nivel mínimo 1-based para crear equipos automáticamente desde UT cuando el archivo no trae TAG. Default: 5.',
         )
         parser.add_argument('--crear-plantilla', help='Crea una plantilla CSV en la ruta indicada y termina.')
 
@@ -156,7 +156,7 @@ class Command(BaseCommand):
             equipment_min_level=options.get('equipo_min_level') or 5,
         )
         if not rows:
-            raise CommandError('El archivo no contiene filas validas para importar.')
+            raise CommandError('El archivo no contiene filas válidas para importar.')
 
         with transaction.atomic():
             levels_by_order = self.ensure_levels(empresa, rows, options.get('estructura'))
@@ -187,7 +187,7 @@ class Command(BaseCommand):
                 transaction.set_rollback(True)
                 self.stdout.write(self.style.WARNING('Dry-run: no se guardaron cambios.'))
             else:
-                self.stdout.write(self.style.SUCCESS('Importacion de ubicaciones tecnicas completada.'))
+                self.stdout.write(self.style.SUCCESS('Importación de ubicaciones técnicas completada.'))
 
     def create_template(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -198,7 +198,7 @@ class Command(BaseCommand):
             ['Planta', 'ERB', 'Refineria Bio Bio', 'E-DS', 'E-DS-ERB', '', ''],
             ['Area', 'FCCU', 'Unidad FCCU', 'E-DS-ERB', 'E-DS-ERB-FCCU', '', ''],
             ['Sistema', 'INST', 'Instrumentacion', 'E-DS-ERB-FCCU', 'E-DS-ERB-FCCU-INST', '', ''],
-            ['Ubicacion tecnica', '0000001FC86', 'Lazo de control', 'E-DS-ERB-FCCU-INST', 'E-DS-ERB-FCCU-INST-0000001FC86', '', ''],
+            ['Ubicación técnica', '0000001FC86', 'Lazo de control', 'E-DS-ERB-FCCU-INST', 'E-DS-ERB-FCCU-INST-0000001FC86', '', ''],
             ['Equipo', 'EQ001', 'Bomba principal', 'E-DS-ERB-FCCU-INST-0000001FC86', 'E-DS-ERB-FCCU-INST-0000001FC86-EQ001', 'TAG-001', 'Bomba principal'],
         ]
         with path.open('w', newline='', encoding='utf-8-sig') as fh:
@@ -302,7 +302,7 @@ class Command(BaseCommand):
             code = row.get('codigo') or row.get('ut_completa')
             path_codes = self.path_for_row(row, level_order, latest_path_by_order)
             if not path_codes:
-                raise CommandError(f'Fila {number}: falta codigo o UT.')
+                raise CommandError(f'Fila {number}: falta código o UT.')
             code = path_codes[-1]
 
             for order in list(latest_path_by_order):

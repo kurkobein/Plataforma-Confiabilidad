@@ -479,8 +479,8 @@ Editar matriz
             <select data-rule-operator="${ruleIndex}-${conditionIndex}">
               ${[">",">=","<","<=","=","!=","entre"].map(op => `<option ${op === condition.operador ? "selected" : ""}>${op}</option>`).join("")}
             </select>
-            <input data-rule-value="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor)}" placeholder="Valor">
-            <input data-rule-value-to="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor_hasta)}" placeholder="Hasta" ${condition.operador === "entre" ? "" : "hidden"}>
+            <input data-rule-value="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor)}" placeholder="Ej: Alto">
+            <input data-rule-value-to="${ruleIndex}-${conditionIndex}" value="${htmlEscape(condition.valor_hasta)}" placeholder="Ej: Crítico" ${condition.operador === "entre" ? "" : "hidden"}>
             <button class="btn btn-danger" type="button" data-remove-condition="${ruleIndex}-${conditionIndex}" title="Quitar condición"><i class="bi bi-x-lg"></i></button>
           </div>`).join("");
         const combinator = conditionCount > 1
@@ -490,7 +490,7 @@ Editar matriz
           <div class="criticality-rule-head">
             <button class="btn criticality-rule-drag" type="button" draggable="true" data-rule-drag="${ruleIndex}" title="Mover regla"><i class="bi bi-list"></i></button>
             <input type="checkbox" data-rule-active="${ruleIndex}" ${rule.activa !== false ? "checked" : ""} title="Activa">
-            <input data-rule-name="${ruleIndex}" value="${htmlEscape(rule.nombre || `Regla ${ruleIndex + 1}`)}" placeholder="Nombre de regla">
+            <input data-rule-name="${ruleIndex}" value="${htmlEscape(rule.nombre || `Regla ${ruleIndex + 1}`)}" placeholder="Ej: impacto alto">
             <span class="pill" title="Prioridad automática">${ruleIndex + 1}</span>
             ${combinator}
             <button class="btn btn-danger" type="button" data-remove-rule="${ruleIndex}" title="Eliminar regla"><i class="bi bi-trash3"></i></button>
@@ -638,18 +638,18 @@ Editar matriz
     function describeAxisOption(axisName, option) {
       const label = axisName === "probabilidad" ? "Eje X" : "Eje Y";
       if (!option) {
-        return `<div class="matrix-axis-hint-item"><strong>${label}:</strong> sin dimension seleccionada. Puedes editar los niveles manualmente.</div>`;
+        return `<div class="matrix-axis-hint-item"><strong>${label}:</strong> sin dimensión seleccionada. Puedes editar los niveles manualmente.</div>`;
       }
       if (option.requires_threshold) {
-        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada sin tabla de niveles propia; se resolvera por umbral inferior usando el resultado calculado.</div>`;
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimensión calculada sin tabla de niveles propia; se resolverá por umbral inferior usando el resultado calculado.</div>`;
       }
       if (option.has_levels) {
         return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Niveles cargados desde ${option.source_type}.</div>`;
       }
       if (option.is_calculated) {
-        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimension calculada; define los niveles manualmente o usa umbral inferior por resultado.</div>`;
+        return `<div class="matrix-axis-hint-item warning"><strong>${label}: ${option.label}</strong>. Es una dimensión calculada; define los niveles manualmente o usa umbral inferior por resultado.</div>`;
       }
-      return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Sin escala/catalogo; los niveles quedan editables manualmente.</div>`;
+      return `<div class="matrix-axis-hint-item"><strong>${label}: ${option.label}</strong>. Sin escala/catálogo; los niveles quedan editables manualmente.</div>`;
     }
     function renderAxisDimensionHints() {
       if (!axisHint) return;
@@ -903,7 +903,7 @@ Editar matriz
       legendItems.forEach((item, idx) => {
         const row = document.createElement("div");
         row.className = "legend-row";
-        row.innerHTML = `<input class="input-control" value="${item.name}" placeholder="Nombre" data-legend-name="${idx}">
+        row.innerHTML = `<input class="input-control" value="${item.name}" placeholder="Ej: Bajo" data-legend-name="${idx}">
       <input class="input-control" value="${item.range}" placeholder="1-4" data-legend-range="${idx}">
       <input class="legend-swatch" type="color" value="${item.color}" data-legend-color="${idx}">
       <button class="btn btn-danger" type="button" data-legend-remove="${idx}">X</button>`;

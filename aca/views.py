@@ -608,14 +608,14 @@ def service_aca_bulk_dimension_order(request, pk):
 
     raw_ids = payload.get('dimension_ids') if isinstance(payload, dict) else None
     if not isinstance(raw_ids, list):
-        return JsonResponse({'ok': False, 'error': 'Orden de dimensiones invalido.'}, status=400)
+        return JsonResponse({'ok': False, 'error': 'Orden de dimensiones inválido.'}, status=400)
 
     dimension_ids = []
     for raw_id in raw_ids:
         try:
             dimension_id = int(raw_id)
         except (TypeError, ValueError):
-            return JsonResponse({'ok': False, 'error': 'La lista contiene una dimension invalida.'}, status=400)
+            return JsonResponse({'ok': False, 'error': 'La lista contiene una dimensión inválida.'}, status=400)
         if dimension_id not in dimension_ids:
             dimension_ids.append(dimension_id)
 
@@ -1854,7 +1854,7 @@ def service_aca_excel_upload(request, pk):
                     preview=preview_only,
                 )
                 if preview_only:
-                    messages.info(request, 'Previsualizacion lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
+                    messages.info(request, 'Previsualización lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
                 else:
                     try:
                         form.cleaned_data['archivo'].close()
@@ -3050,7 +3050,7 @@ def service_aca_bulk_new(request, pk):
                     if not target_equipos:
                         row_errors.append('la familia seleccionada no tiene equipos.')
                 else:
-                    row_errors.append('familia requerida o invalida.')
+                    row_errors.append('familia requerida o inválida.')
             else:
                 equipo_id = row.get('equipo_id')
                 if equipo_id:
@@ -3058,7 +3058,7 @@ def service_aca_bulk_new(request, pk):
                     if equipo:
                         target_equipos = [equipo]
                     else:
-                        row_errors.append('equipo invalido o no asociado al servicio.')
+                        row_errors.append('equipo inválido o no asociado al servicio.')
                 else:
                     row_errors.append('equipo requerido.')
 
@@ -3578,7 +3578,7 @@ def _restore_deleted_aca_snapshot(snapshot):
     carga_id = carga_data.get('id')
     criticidad_id = crit_data.get('id')
     if criticidad_id and models.Criticidad.objects.filter(pk=criticidad_id).exists():
-        raise ValueError(f'El ID ACA original {criticidad_id} ya esta ocupado.')
+        raise ValueError(f'El ID ACA original {criticidad_id} ya está ocupado.')
 
     existing_carga = models.Carga.objects.filter(pk=carga_id).first() if carga_id else None
     if existing_carga:

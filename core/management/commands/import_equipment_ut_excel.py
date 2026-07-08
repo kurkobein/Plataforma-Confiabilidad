@@ -23,7 +23,7 @@ def resolve_empresa(value):
     empresa = qs.filter(nombre__icontains=value).first()
     if empresa:
         return empresa
-    raise CommandError(f'No se encontro empresa para "{value}".')
+        raise CommandError(f'No se encontró empresa para "{value}".')
 
 
 def resolve_service(value):
@@ -40,24 +40,24 @@ def resolve_service(value):
     servicio = qs.filter(descripcion__icontains=value).first()
     if servicio:
         return servicio
-    raise CommandError(f'No se encontro servicio para "{value}".')
+        raise CommandError(f'No se encontró servicio para "{value}".')
 
 
 class Command(BaseCommand):
-    help = 'Importa ubicaciones tecnicas y equipos desde Excel .xlsx creando jerarquia y relaciones ServicioEquipo.'
+    help = 'Importa ubicaciones técnicas y equipos desde Excel .xlsx creando jerarquía y relaciones ServicioEquipo.'
 
     def add_arguments(self, parser):
         parser.add_argument('--file', required=True, help='Ruta del archivo Excel .xlsx/.xlsm.')
         parser.add_argument('--empresa', required=True, help='ID, sigla o nombre de empresa.')
-        parser.add_argument('--service', help='ID, codigo o descripcion del servicio opcional.')
+        parser.add_argument('--service', help='ID, código o descripción del servicio opcional.')
         parser.add_argument('--sheet', help='Nombre de hoja opcional.')
         parser.add_argument('--format', default=FORMAT_AUTO, choices=FORMAT_CHOICES, help='auto, mindco_simple o sap_uts.')
         parser.add_argument('--last-segment-is-equipment', action='store_true', help='Mindco: ultimo segmento de UT se interpreta como equipo.')
         parser.add_argument('--last-level-is-equipment', action='store_true', default=True, help='SAP: ultimo N se interpreta como equipo.')
         parser.add_argument('--no-last-level-is-equipment', action='store_false', dest='last_level_is_equipment', help='SAP: todos los N se interpretan como nodos.')
-        parser.add_argument('--dry-run', action='store_true', help='Solo muestra previsualizacion.')
+        parser.add_argument('--dry-run', action='store_true', help='Solo muestra previsualización.')
         parser.add_argument('--confirm', action='store_true', help='Ejecuta carga real.')
-        parser.add_argument('--limit', type=int, help='Limita filas leidas para pruebas.')
+        parser.add_argument('--limit', type=int, help='Limita filas leídas para pruebas.')
 
     def handle(self, *args, **options):
         if not options['dry_run'] and not options['confirm']:
@@ -81,14 +81,14 @@ class Command(BaseCommand):
         if options['confirm']:
             report = execute_equipment_import(preview)
 
-        self.stdout.write('Carga masiva de ubicaciones tecnicas/equipos')
+        self.stdout.write('Carga masiva de ubicaciones técnicas/equipos')
         self.stdout.write(f'Modo: {"dry-run" if options["dry_run"] else "confirm"}')
         self.stdout.write(f'Empresa: {empresa}')
         self.stdout.write(f'Servicio: {servicio.codigo_servicio if servicio else "sin servicio"}')
         self.stdout.write(f'Formato: {report.format_detected or "-"}')
         self.stdout.write('')
-        self.stdout.write(f'Filas leidas: {report.rows_read}')
-        self.stdout.write(f'Filas validas: {report.valid_rows}')
+        self.stdout.write(f'Filas leídas: {report.rows_read}')
+        self.stdout.write(f'Filas válidas: {report.valid_rows}')
         self.stdout.write(f'Filas omitidas: {report.skipped}')
         self.stdout.write(f'Niveles detectados: {", ".join(report.levels_detected) or "-"}')
         self.stdout.write(f'Nodos a crear: {report.nodes_to_create}')

@@ -40,7 +40,7 @@
         <div class="equipment-filter-main">
             <div class="form-field equipment-filter-search">
                 <label for="equipment-search-input">Buscar equipo</label>
-                <input id="equipment-search-input" class="input-control" type="text" name="q" value="{{ search }}" placeholder="TAG, UT o nombre">
+                <input id="equipment-search-input" class="input-control" type="text" name="q" value="{{ search }}" placeholder="Ej: EQ-001 o PLT-AREA-SIS">
             </div>
             <div class="form-field equipment-filter-company">
                 <label for="equipment-company-filter">Empresa</label>
@@ -191,7 +191,7 @@
         <a class="btn" href="?page=1{% if list_query_string %}&{{ list_query_string }}{% endif %}"><i class="bi bi-chevron-double-left"></i></a>
         <a class="btn" href="?page={{ page_obj.previous_page_number }}{% if list_query_string %}&{{ list_query_string }}{% endif %}"><i class="bi bi-chevron-left"></i></a>
     {% endif %}
-    <span class="muted">Pagina {{ page_obj.number }} de {{ paginator.num_pages }} · {{ page_size }}</span>
+                    <span class="muted">Página {{ page_obj.number }} de {{ paginator.num_pages }} · {{ page_size }}</span>
     {% if page_obj.has_next %}
         <a class="btn" href="?page={{ page_obj.next_page_number }}{% if list_query_string %}&{{ list_query_string }}{% endif %}"><i class="bi bi-chevron-right"></i></a>
         <a class="btn" href="?page={{ paginator.num_pages }}{% if list_query_string %}&{{ list_query_string }}{% endif %}"><i class="bi bi-chevron-double-right"></i></a>

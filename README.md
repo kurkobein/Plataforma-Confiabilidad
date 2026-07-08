@@ -1,52 +1,110 @@
-# Mindco v1
+# Plataforma MindCo
 
-Base Django mínima para navegar y editar la estructura del modelo de confiabilidad usando las tablas ya creadas en MySQL.
+## Descripción del proyecto
 
-## Enfoque
+Plataforma web desarrollada en Django para administrar información de confiabilidad operacional. El sistema organiza empresas, servicios, ubicaciones técnicas, equipos, familias de equipos, matrices de evaluación, análisis ACA, análisis RCM/FMECA, tareas, pautas y archivos adjuntos asociados.
 
-Esta versión no intenta rehacer la plataforma anterior. Hace algo más simple:
+La aplicación funciona como una herramienta interna de gestión y análisis, con vistas tipo backoffice, formularios, tablas, carga masiva desde Excel, exportaciones y paneles de avance para seguimiento de registros.
 
-- toma como base el SQL ya definido
-- se conecta a las tablas existentes
-- expone CRUDs genéricos
-- usa una interfaz mínima, tipo backoffice
-- evita lógica visual o UX compleja
+## Objetivo del sistema
 
-## Qué incluye
+El objetivo del sistema es centralizar la información técnica usada en procesos de confiabilidad, permitiendo:
 
-- dashboard inicial con conteos
-- navegación lateral por módulos
-- listado con búsqueda y paginación
-- detalle de registro
-- crear / editar / eliminar
-- registro también en Django admin
+- Gestionar servicios y sus accesos.
+- Estructurar ubicaciones técnicas y equipos.
+- Registrar y revisar análisis ACA.
+- Registrar y revisar análisis RCM/FMECA.
+- Configurar dimensiones, matrices y criterios de evaluación.
+- Generar y administrar pautas asociadas a tareas.
+- Importar, exportar y adjuntar información de soporte.
 
-## Importante
+## Tecnologías utilizadas
 
-Los modelos están con `managed = False` porque esta base asume que la estructura ya existe en MySQL y fue creada por tu SQL.
+- Python
+- Django 6.0.6
+- MySQL
+- HTML, CSS y JavaScript
+- openpyxl para lectura y generación de archivos Excel
+- Pillow para manejo de imágenes
+- ReportLab para generación de documentos PDF
+- mysqlclient como conector entre Django y MySQL
 
-No debes usar `makemigrations` para intentar recrear este esquema.
+## Requisitos para ejecutarlo
 
-## Puesta en marcha
+- Python 3.12 o superior.
+- MySQL instalado y accesible.
+- Base de datos creada para la plataforma.
+- Credenciales de conexión a MySQL.
+- Entorno virtual de Python.
+- Dependencias listadas en `requirements.txt`.
 
-1. Crear base de datos y ejecutar tu script SQL.
-2. Crear entorno virtual.
-3. Instalar dependencias.
-4. Definir variables de entorno MySQL.
-5. Levantar servidor Django.
+Variables de entorno requeridas o recomendadas:
 
-## Instalación rápida
+```env
+DJANGO_SECRET_KEY=clave-local-o-productiva
+DJANGO_DEBUG=1
+DJANGO_ALLOWED_HOSTS=*
+MYSQLDATABASE=nombre_base_datos
+MYSQLUSER=usuario_mysql
+MYSQLPASSWORD=password_mysql
+MYSQLHOST=127.0.0.1
+MYSQLPORT=3306
+```
+
+El proyecto carga automáticamente un archivo `.env` ubicado en la raíz.
+
+## Instrucciones de instalación
+
+1. Crear y activar un entorno virtual:
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
+python -m venv venv
+venv\Scripts\activate
+```
+
+2. Instalar dependencias:
+
+```bash
 pip install -r requirements.txt
 ```
 
+3. Crear el archivo `.env` en la raíz del proyecto y configurar las variables de entorno de Django y MySQL.
+
+4. Verificar la configuración del proyecto:
+
+```bash
+python manage.py check
+```
+
+5. Aplicar migraciones si la base de datos lo requiere:
+
+```bash
+python manage.py migrate
+```
+
+6. Crear un usuario administrador si es necesario:
+
+```bash
+python manage.py createsuperuser
+```
+
+7. Ejecutar el servidor local:
+
+```bash
+python manage.py runserver
+```
+
+8. Abrir la plataforma en el navegador:
+
+```text
+http://127.0.0.1:8000/
+```
+
+
 ## Nota de operación
 
-Si una eliminación falla, normalmente será por llaves foráneas ya definidas en MySQL.
+Para permitir el acceso remoto, se utiliza cloudflare a traves de un tunel mediante el comando:
 
-tunel cloudflare:
-
+```bash
 cloudflared tunnel --url http://localhost:8000
+```

@@ -6,7 +6,7 @@
         <a class="btn" href="{% url 'model_list' 'equipo' %}" aria-label="Volver" title="Volver"><i class="bi bi-chevron-left"></i></a>
         <div class="page-title-copy">
             <h2>Carga masiva de equipos</h2>
-            <p>Importa ubicaciones tecnicas y equipos desde Excel, creando la jerarquia anidada cuando no exista.</p>
+            <p>Importa ubicaciones técnicas y equipos desde Excel, creando la jerarquía anidada cuando no exista.</p>
         </div>
     </div>
 </div>
@@ -28,7 +28,7 @@
                 {{ form.archivo.errors }}
             </div>
             <div class="bulk-upload-config">
-                <h3 class="card-title">Configuracion</h3>
+                <h3 class="card-title">Configuración</h3>
                 <div class="form-grid">
                     <div class="form-field">
                         <label>{{ form.empresa.label }}</label>
@@ -106,7 +106,7 @@
 
 {% if report %}
 <div class="card" style="margin-top:16px;">
-    <h3 class="card-title">{% if preview_only %}Previsualizacion{% else %}Resultado de la carga{% endif %}</h3>
+    <h3 class="card-title">{% if preview_only %}Previsualización{% else %}Resultado de la carga{% endif %}</h3>
     <div class="import-preview-summary">
         <div class="preview-group">
             <div class="preview-group-title">Archivo</div>
@@ -344,7 +344,7 @@
 
     form.addEventListener('submit', function (event) {
         const submitter = event.submitter;
-        const action = submitter && submitter.value === 'confirm' ? 'Carga' : 'Previsualizacion';
+        const action = submitter && submitter.value === 'confirm' ? 'Carga' : 'Previsualización';
         sessionStorage.setItem(storageKey, String(Date.now()));
         const startedAt = Date.now();
 

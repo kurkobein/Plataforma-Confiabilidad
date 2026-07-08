@@ -146,15 +146,15 @@ class HierarchyBulkValueForm(forms.Form):
         required=False,
         initial=False,
         label='Cargar solo al nivel, sin nodo superior',
-        help_text='Guarda los valores como catalogo simple del nivel y no modifica el arbol de UT existente.',
+        help_text='Guarda los valores como catálogo simple del nivel y no modifica el árbol de UT existente.',
     )
     bulk_values = forms.CharField(
         label='Valores',
         widget=forms.Textarea(attrs={
             'rows': 7,
-            'placeholder': 'Pega una fila por valor. Ejemplo:\nHDK\tHidrocracking\nCOK\tCoker',
+            'placeholder': 'Pega una fila por valor. Ejemplo:\nABC\tPlanta piloto\nDEF\tLínea auxiliar',
         }),
-        help_text='Acepta Codigo + Nombre separados por tab, punto y coma, coma o espacio. Si pegas una sola columna, se usara como nombre y se generara el codigo desde ese texto.',
+        help_text='Acepta Código + Nombre separados por tab, punto y coma, coma o espacio. Si pegas una sola columna, se usará como nombre y se generará el código desde ese texto.',
     )
 
     def __init__(self, *args, empresa=None, **kwargs):
@@ -237,7 +237,7 @@ class HierarchyBulkValueForm(forms.Form):
             codigo = (codigo or '').strip().upper()[:50]
             nombre = (nombre or '').strip()
             if not codigo or not nombre:
-                errors.append(f'Fila {line_number}: completa codigo y nombre.')
+                errors.append(f'Fila {line_number}: completa código y nombre.')
                 continue
             if codigo in seen_codes:
                 self.duplicate_rows += 1
@@ -248,7 +248,7 @@ class HierarchyBulkValueForm(forms.Form):
         if errors:
             self.add_error('bulk_values', ' '.join(errors[:5]))
         if not rows:
-            self.add_error('bulk_values', 'Pega al menos una fila valida para cargar.')
+            self.add_error('bulk_values', 'Pega al menos una fila válida para cargar.')
         cleaned['bulk_rows'] = rows
         return cleaned
 
@@ -258,7 +258,7 @@ class HierarchyMoveNodeForm(forms.Form):
         queryset=app_models.NodoJerarquia.objects.none(),
         required=False,
         label='Nodo superior',
-        empty_label='Dejar como raiz',
+        empty_label='Dejar como raíz',
     )
 
     def __init__(self, *args, node=None, **kwargs):
@@ -302,7 +302,7 @@ class HierarchyMoveNodeForm(forms.Form):
 
 class HierarchyInsertLevelForm(forms.Form):
     nivel_nombre = forms.CharField(max_length=100, label='Nombre del nivel')
-    codigo = forms.CharField(max_length=50, label='Codigo del valor')
+    codigo = forms.CharField(max_length=50, label='Código del valor')
     nodo_nombre = forms.CharField(max_length=200, label='Nombre del valor')
 
     def __init__(self, *args, **kwargs):

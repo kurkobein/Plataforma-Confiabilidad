@@ -242,7 +242,7 @@
             return;
           }
           submitButton.disabled = true;
-          status.textContent = 'Solicitando autorizacion de ubicacion...';
+                status.textContent = 'Solicitando autorización de ubicación...';
           status.classList.remove('ok', 'error');
           requestLocation();
         }
@@ -254,14 +254,14 @@
           if (locationRequestInFlight) return;
           if (!navigator.geolocation) {
             submitButton.disabled = true;
-            status.textContent = 'Tu navegador no permite obtener ubicacion. No es posible iniciar sesion.';
+                    status.textContent = 'Tu navegador no permite obtener ubicación. No es posible iniciar sesión.';
             status.classList.add('error');
             status.classList.remove('ok');
             return;
           }
           locationRequestInFlight = true;
           submitButton.disabled = true;
-          status.textContent = 'Solicitando autorizacion de ubicacion...';
+                status.textContent = 'Solicitando autorización de ubicación...';
           status.classList.remove('ok', 'error');
           navigator.geolocation.getCurrentPosition(
             function (position) {
@@ -269,7 +269,7 @@
               latInput.value = position.coords.latitude.toFixed(6);
               lonInput.value = position.coords.longitude.toFixed(6);
               submitButton.disabled = false;
-              status.textContent = 'Ubicacion autorizada y registrada. Puedes iniciar sesion.';
+                    status.textContent = 'Ubicación autorizada y registrada. Puedes iniciar sesión.';
               status.classList.add('ok');
               status.classList.remove('error');
             },
@@ -279,7 +279,7 @@
               lonInput.value = '';
               submitButton.disabled = true;
               consent.checked = false;
-              status.textContent = 'Ubicacion no autorizada o no disponible. Marca nuevamente para reintentar.';
+                    status.textContent = 'Ubicación no autorizada o no disponible. Marca nuevamente para reintentar.';
               status.classList.add('error');
               status.classList.remove('ok');
             },

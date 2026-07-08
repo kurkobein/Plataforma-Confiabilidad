@@ -24,7 +24,7 @@ class Command(BaseCommand):
     help = 'Borra masivamente pautas generadas de forma segura.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--service', help='ID, codigo o descripcion del servicio.')
+        parser.add_argument('--service', help='ID, código o descripción del servicio.')
         parser.add_argument('--estado', help='Estado de pauta: borrador, generada, revisada, aprobada, etc.')
         parser.add_argument('--origen', help='Origen de pauta: rcm, fmea, manual, etc.')
         parser.add_argument('--dry-run', action='store_true', help='Muestra lo que se borraria sin eliminar datos.')
@@ -60,7 +60,7 @@ class Command(BaseCommand):
         if not options['dry_run'] and not options['confirm']:
             raise CommandError('Debes usar --dry-run para revisar o --confirm para borrar.')
         if options['dry_run'] and options['confirm']:
-            raise CommandError('Usa solo una opcion: --dry-run o --confirm.')
+            raise CommandError('Usa solo una opción: --dry-run o --confirm.')
 
         has_filter = any(options.get(key) for key in ['service', 'estado', 'origen'])
         if options['confirm'] and not has_filter and not options['all_records']:
@@ -78,7 +78,7 @@ class Command(BaseCommand):
         valid = {choice_value for choice_value, _choice_label in choices}
         if value not in valid:
             valid_label = ', '.join(sorted(valid))
-            raise CommandError(f'Valor invalido para --{label}: {value}. Valores validos: {valid_label}.')
+            raise CommandError(f'Valor inválido para --{label}: {value}. Valores válidos: {valid_label}.')
 
     def resolve_service(self, value):
         qs = models.Servicio.objects.select_related('empresa', 'estrategia')
@@ -96,7 +96,7 @@ class Command(BaseCommand):
         service = qs.filter(Q(codigo_servicio__icontains=value) | Q(descripcion__icontains=value)).first()
         if service:
             return service
-        raise CommandError(f'No se encontro servicio para: {value}')
+        raise CommandError(f'No se encontró servicio para: {value}')
 
     def build_plan(self, service, options):
         pautas = models.Pauta.objects.all()

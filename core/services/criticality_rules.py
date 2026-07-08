@@ -59,21 +59,21 @@ def normalize_rules(raw_rules):
     errors = []
     for index, raw_rule in enumerate(rules, start=1):
         if not isinstance(raw_rule, dict):
-            errors.append(f'Regla {index}: formato invalido.')
+            errors.append(f'Regla {index}: formato inválido.')
             continue
         conditions = []
         for condition_index, raw_condition in enumerate(raw_rule.get('condiciones') or [], start=1):
             if not isinstance(raw_condition, dict):
-                errors.append(f'Regla {index}, condicion {condition_index}: formato invalido.')
+                errors.append(f'Regla {index}, condición {condition_index}: formato inválido.')
                 continue
             source = str(raw_condition.get('fuente') or '').strip()
             operator = str(raw_condition.get('operador') or '=').strip()
             value = raw_condition.get('valor')
             second_value = raw_condition.get('valor_hasta')
             if not source:
-                errors.append(f'Regla {index}, condicion {condition_index}: selecciona una fuente.')
+                errors.append(f'Regla {index}, condición {condition_index}: selecciona una fuente.')
             if operator not in RULE_OPERATORS:
-                errors.append(f'Regla {index}, condicion {condition_index}: operador invalido.')
+                errors.append(f'Regla {index}, condición {condition_index}: operador inválido.')
             if operator == 'entre' and isinstance(value, (list, tuple)):
                 value, second_value = (list(value) + [None, None])[:2]
             conditions.append({
@@ -87,9 +87,9 @@ def normalize_rules(raw_rules):
         action_type = str(action.get('tipo') or raw_rule.get('tipo_accion') or '').strip()
         action_value = action.get('valor', raw_rule.get('valor_accion'))
         if action_type not in RULE_ACTIONS:
-            errors.append(f'Regla {index}: accion invalida.')
+            errors.append(f'Regla {index}: acción inválida.')
         if action_value in (None, ''):
-            errors.append(f'Regla {index}: indica el valor de la accion.')
+            errors.append(f'Regla {index}: indica el valor de la acción.')
         elif action_type == 'subir_niveles':
             try:
                 if int(action_value) < 1:
@@ -97,9 +97,9 @@ def normalize_rules(raw_rules):
             except (TypeError, ValueError):
                 errors.append(f'Regla {index}: los niveles a subir deben ser un entero mayor a 0.')
         elif action_type == 'forzar_valor' and _decimal(action_value) is None:
-            errors.append(f'Regla {index}: el valor forzado debe ser numerico.')
+            errors.append(f'Regla {index}: el valor forzado debe ser numérico.')
         if not conditions:
-            errors.append(f'Regla {index}: agrega al menos una condicion.')
+            errors.append(f'Regla {index}: agrega al menos una condición.')
         try:
             priority = int(raw_rule.get('prioridad') or 0)
         except (TypeError, ValueError):

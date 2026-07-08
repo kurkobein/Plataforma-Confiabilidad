@@ -64,7 +64,7 @@ def _default_hierarchy_initial():
         {'nivel_nombre': 'Planta'},
         {'nivel_nombre': 'Area'},
         {'nivel_nombre': 'Sistema'},
-        {'nivel_nombre': 'Ubicacion tecnica'},
+        {'nivel_nombre': 'Ubicación técnica'},
         {'nivel_nombre': 'Equipo'},
     ]
 
@@ -273,7 +273,7 @@ def _save_hierarchy_structure(empresa, formset):
     if deepest_route and len(forms_with_content) < deepest_route:
         raise ValueError(
             'No se puede reducir la estructura a '
-            f'{len(forms_with_content)} niveles porque existen ubicaciones tecnicas activas '
+            f'{len(forms_with_content)} niveles porque existen ubicaciones técnicas activas '
             f'de {deepest_route} niveles. Ajusta o desactiva esos valores antes de quitar niveles.'
         )
 
@@ -379,7 +379,7 @@ def _save_hierarchy_route(empresa, formset):
                     activo=True,
                 ).first()
                 if not simple_value:
-                    raise ValueError(f'El valor simple seleccionado para {level.nombre} ya no esta disponible.')
+                    raise ValueError(f'El valor simple seleccionado para {level.nombre} ya no está disponible.')
                 sibling_order = models.NodoJerarquia.objects.filter(
                     empresa=empresa,
                     parent=parent,
@@ -608,7 +608,7 @@ def hierarchy_structure(request, empresa_id):
             try:
                 with transaction.atomic():
                     _save_hierarchy_structure(empresa, formset)
-                messages.success(request, 'Estructura base de ubicacion tecnica guardada.')
+                messages.success(request, 'Estructura base de ubicación técnica guardada.')
                 return redirect('hierarchy_tree', empresa_id=empresa.pk)
             except ValueError as exc:
                 messages.error(request, str(exc))
@@ -647,12 +647,12 @@ def hierarchy_values(request, empresa_id):
             form = HierarchyValueForm(empresa=empresa)
             bulk_form = HierarchyBulkValueForm(request.POST, empresa=empresa, prefix='bulk')
             if not levels:
-                messages.error(request, 'Primero define la estructura base de la ubicacion tecnica para esta empresa.')
+                messages.error(request, 'Primero define la estructura base de la ubicación técnica para esta empresa.')
             elif bulk_form.is_valid():
                 with transaction.atomic():
                     result = _save_hierarchy_values_bulk(empresa, bulk_form)
                 message = (
-                    f'Carga rapida completada: {result["created"]} creados, '
+                    f'Carga rápida completada: {result["created"]} creados, '
                     f'{result["updated"]} actualizados.'
                 )
                 if result.get('mode') == 'simple':
@@ -665,7 +665,7 @@ def hierarchy_values(request, empresa_id):
             form = HierarchyValueForm(request.POST, empresa=empresa)
             bulk_form = HierarchyBulkValueForm(empresa=empresa, prefix='bulk')
             if not levels:
-                messages.error(request, 'Primero define la estructura base de la ubicacion tecnica para esta empresa.')
+                messages.error(request, 'Primero define la estructura base de la ubicación técnica para esta empresa.')
             elif form.is_valid():
                 node = _save_hierarchy_value(empresa, form)
                 messages.success(request, f'Valor guardado: {node.codigo} - {node.nombre}')
@@ -691,11 +691,11 @@ def _hierarchy_value_node_payload(node, rows_by_id=None):
         path_ids = _path_ids_for_node(node.pk, rows_by_id)
         ut = _node_ut_from_path(path_ids, rows_by_id)
         route = _node_route_from_path(path_ids, rows_by_id)
-        parent_label = _node_ut_from_path(_path_ids_for_node(node.parent_id, rows_by_id), rows_by_id) if node.parent_id else 'Raiz'
+        parent_label = _node_ut_from_path(_path_ids_for_node(node.parent_id, rows_by_id), rows_by_id) if node.parent_id else 'Raíz'
     else:
         ut = node.ut
         route = node.ruta_nombre
-        parent_label = node.parent.ut if node.parent_id and node.parent else 'Raiz'
+        parent_label = node.parent.ut if node.parent_id and node.parent else 'Raíz'
 
     return {
         'id': node.pk,
@@ -731,7 +731,7 @@ def _hierarchy_simple_value_payload(value):
         'name': value.nombre,
         'ut': value.codigo,
         'route': value.nombre,
-        'parent_label': 'Catalogo simple',
+        'parent_label': 'Catálogo simple',
         'label': f'{value.codigo} - {value.nombre}',
         'equipment_count': 0,
         'children_count': 0,
@@ -902,7 +902,7 @@ def hierarchy_create_route(request, empresa_id):
     empresa = get_object_or_404(models.Empresa, pk=empresa_id)
     initial = _hierarchy_route_initial_rows(empresa)
     if not initial:
-        messages.info(request, 'Primero define la estructura base de la ubicacion tecnica para esta empresa.')
+        messages.info(request, 'Primero define la estructura base de la ubicación técnica para esta empresa.')
         return redirect('hierarchy_structure', empresa_id=empresa.pk)
     if request.method == 'POST':
         formset = HierarchyRouteFormSet(request.POST)
@@ -911,9 +911,9 @@ def hierarchy_create_route(request, empresa_id):
                 with transaction.atomic():
                     node = _save_hierarchy_route(empresa, formset)
                 if node:
-                    messages.success(request, f'Ubicacion tecnica guardada: {node.ut}')
+                    messages.success(request, f'Ubicación técnica guardada: {node.ut}')
                     return redirect('hierarchy_tree', empresa_id=empresa.pk)
-                messages.error(request, 'Completa al menos un nivel para guardar la ubicacion tecnica.')
+                messages.error(request, 'Completa al menos un nivel para guardar la ubicación técnica.')
             except ValueError as exc:
                 messages.error(request, str(exc))
     else:
@@ -953,7 +953,7 @@ def hierarchy_move_node(request, pk):
                 node.save(update_fields=['parent'])
                 start_order = parent.nivel.orden + 1 if parent else 1
                 _sync_subtree_levels(node, start_order)
-            messages.success(request, 'Nodo movido y niveles ajustados por posicion.')
+            messages.success(request, 'Nodo movido y niveles ajustados por posición.')
             return redirect('hierarchy_tree', empresa_id=node.empresa_id)
     else:
         form = HierarchyMoveNodeForm(node=node, initial={'parent': node.parent_id})
@@ -1031,12 +1031,12 @@ def hierarchy_delete_node(request, pk):
 
     messages.success(
         request,
-        f'Ubicacion tecnica desactivada: {node.ut}. Se desactivaron {deleted_count} valores de la rama.',
+            f'Ubicación técnica desactivada: {node.ut}. Se desactivaron {deleted_count} valores de la rama.',
     )
     if equipment_count:
         messages.warning(
             request,
-            f'{equipment_count} equipos siguen asociados a esa ubicacion historica. '
+            f'{equipment_count} equipos siguen asociados a esa ubicación histórica. '
             'Puedes reasignarlos editando cada equipo.',
         )
     return redirect('hierarchy_tree', empresa_id=node.empresa_id)

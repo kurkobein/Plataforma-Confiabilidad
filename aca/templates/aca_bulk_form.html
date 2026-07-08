@@ -148,7 +148,7 @@
                 <label for="aca-bulk-free-value-input">Valor de frecuencia / probabilidad</label>
                 <div class="aca-bulk-free-value-controls">
                     <input class="input-control" id="aca-bulk-free-value-input" type="number"
-                           min="0" step="any" inputmode="decimal" placeholder="Ingresa un valor">
+                           min="0" step="any" inputmode="decimal" placeholder="Ej: 10">
                     <button class="btn btn-primary" type="button" id="aca-bulk-free-value-confirm">Confirmar valor</button>
                 </div>
                 <small class="muted">El valor se validará contra la matriz configurada al calcular la criticidad.</small>
@@ -172,7 +172,7 @@
         <div class="form-field">
             <label for="aca-bulk-row-observation">Observaci&oacute;n</label>
             <textarea class="input-textarea" id="aca-bulk-row-observation" rows="4"
-                      placeholder="Comentario general opcional del registro"></textarea>
+                      placeholder="Ej: revisión pendiente"></textarea>
         </div>
         <div class="form-field">
             <label>Documentos relacionados</label>
@@ -915,7 +915,7 @@
         if (!button) return;
         const fileCount = pendingRowFiles(rowId).length + ((rows[rowId]?.existing_attachments || []).length);
         button.classList.toggle('has-content', rowHasDetail(rowId));
-        button.title = rowHasDetail(rowId) ? 'Editar observacion y archivos' : 'Agregar observacion y archivos';
+        button.title = rowHasDetail(rowId) ? 'Editar observación y archivos' : 'Agregar observación y archivos';
         let badge = button.querySelector('.aca-bulk-row-detail-count');
         if (fileCount && !badge) {
             badge = document.createElement('span');
@@ -1111,7 +1111,7 @@
                     <strong>Seleccionar equipo</strong>
                     <button class="btn" type="button" data-equipment-close="${row.id}" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
                 </div>
-                <input class="aca-bulk-search input-control" data-row-id="${row.id}" type="search" placeholder="Buscar por UT, TAG o nombre" value="">
+                <input class="aca-bulk-search input-control" data-row-id="${row.id}" type="search" placeholder="Ej: EQ-001 o Bomba auxiliar" value="">
                 <div class="aca-bulk-equipment-levels" data-equipment-levels="${row.id}"></div>
                 <div class="aca-bulk-equipment-results" data-equipment-results="${row.id}">
                     ${equipmentResultListHtml(row, row.equipmentOptions || initialEquipment)}
@@ -1258,7 +1258,7 @@
             <td class="aca-bulk-row-actions">
                 <div class="actions aca-bulk-row-actions-inner">
                     <button class="btn aca-bulk-row-detail-button${rowHasDetail(rowId) ? ' has-content' : ''}" type="button"
-                            data-row-detail="${rowId}" title="Observacion y archivos" aria-label="Observacion y archivos">
+                            data-row-detail="${rowId}" title="Observación y archivos" aria-label="Observación y archivos">
                         <i class="bi bi-paperclip"></i>
                     </button>
                     <button class="btn" type="button" data-duplicate-row="${rowId}" title="Duplicar fila"><i class="bi bi-copy"></i></button>
@@ -1280,7 +1280,7 @@
             : '';
         const commentOpen = value.comentario ? ' open' : '';
         const commentInput = dimensionAllowsComment(dimension)
-            ? `<details class="aca-bulk-dim-comment-box"${commentOpen}><summary title="Comentario"><i class="bi bi-chat-left-text"></i></summary><input class="aca-bulk-dim-comment" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="comentario" maxlength="180" value="${escapeHtml(value.comentario || '')}" placeholder="Comentario si queda vacio"></details>`
+            ? `<details class="aca-bulk-dim-comment-box"${commentOpen}><summary title="Comentario"><i class="bi bi-chat-left-text"></i></summary><input class="aca-bulk-dim-comment" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="comentario" maxlength="180" value="${escapeHtml(value.comentario || '')}" placeholder="Ej: pendiente de revisar"></details>`
             : '';
         if (dimension.input_mode === 'numerico') {
             return `<td${calculatedCellClass}><div class="aca-bulk-dim-stack"><input class="aca-bulk-dim-input${calculatedControlClass}" data-row-id="${row.id}" data-dimension-id="${id}" data-kind="valor_numerico" value="${escapeHtml(value.valor_numerico || '')}">${commentInput}</div></td>`;

@@ -540,7 +540,7 @@
         const tr = document.createElement('tr');
         const sourcePath = sourcePathForItem(item);
         tr.innerHTML = `
-            <td><input class="input-control" data-role="column" type="text" value="${escapeHtml(item.columna || '')}" placeholder="B"></td>
+            <td><input class="input-control" data-role="column" type="text" value="${escapeHtml(item.columna || '')}" placeholder="Ej: B"></td>
             <td><select class="input-control" data-role="source"></select></td>
             <td><button class="btn btn-danger" type="button" data-role="remove">Quitar</button></td>
         `;

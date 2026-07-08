@@ -21,7 +21,7 @@ class ACAExcelBulkUploadForm(forms.Form):
         label='Hoja',
         required=False,
         initial='ACA',
-        help_text='Opcional. Si queda vacio se usara la hoja ACA o la primera hoja disponible.',
+        help_text='Opcional. Si queda vacío se usará la hoja ACA o la primera hoja disponible.',
     )
     create_missing_equipment = forms.BooleanField(
         label='Crear equipos faltantes',
@@ -223,7 +223,7 @@ class CriticidadDimensionInputForm(forms.Form):
     comentario = forms.CharField(
         required=False,
         max_length=180,
-        widget=forms.TextInput(attrs={'maxlength': '180', 'placeholder': 'Comentario breve si queda vacio'}),
+        widget=forms.TextInput(attrs={'maxlength': '180', 'placeholder': 'Ej: pendiente de revisar'}),
     )
 
     def __init__(self, *args, estrategia=None, proceso=None, **kwargs):

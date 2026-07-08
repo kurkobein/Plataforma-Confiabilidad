@@ -83,7 +83,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--file", required=True, help="Ruta del archivo Excel.")
         parser.add_argument("--sheet", default="ACA", help="Hoja del Excel. Default: ACA.")
-        parser.add_argument("--service", required=True, help="ID, codigo o descripcion del servicio.")
+        parser.add_argument("--service", required=True, help="ID, código o descripción del servicio.")
         parser.add_argument("--dry-run", action="store_true", help="Valida y revierte todos los cambios.")
         parser.add_argument("--confirm", action="store_true", help="Ejecuta la carga real.")
         parser.add_argument("--replace", action="store_true", help="Borra cargas previas del mismo archivo/origen para el servicio.")
@@ -148,7 +148,7 @@ class Command(BaseCommand):
         service = query.filter(descripcion__icontains=value).first()
         if service:
             return service
-        raise CommandError(f"No se encontro servicio para: {value}")
+        raise CommandError(f"No se encontró servicio para: {value}")
 
     def resolve_header_key(self, header):
         normalized = normalize(header)
@@ -318,7 +318,7 @@ class Command(BaseCommand):
                 result["omitidas"] += 1
                 continue
             if equipo.pk in submitted_equipment_ids:
-                warnings.append(f"Fila {excel_row}: el equipo {equipo.tag_display} esta repetido en el archivo.")
+                warnings.append(f"Fila {excel_row}: el equipo {equipo.tag_display} está repetido en el archivo.")
                 result["omitidas"] += 1
                 continue
 
@@ -384,7 +384,7 @@ class Command(BaseCommand):
     def print_summary(self, service, origin, rows, result, dry_run):
         self.stdout.write(f"Servicio: {service.codigo_servicio}")
         self.stdout.write(f"Origen: {origin}")
-        self.stdout.write(f"Filas leidas: {len(rows)}")
+        self.stdout.write(f"Filas leídas: {len(rows)}")
         self.stdout.write(f"Cargas creadas: {result['cargas']}")
         self.stdout.write(f"ACA creados: {result['aca']}")
         self.stdout.write(f"Dimensiones creadas: {result['dimensiones']}")

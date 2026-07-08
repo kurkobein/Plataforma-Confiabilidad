@@ -16,7 +16,7 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         confirm = options['confirm']
         if dry_run == confirm:
-            raise CommandError('Debes usar exactamente una opcion: --dry-run o --confirm.')
+            raise CommandError('Debes usar exactamente una opción: --dry-run o --confirm.')
 
         valid_empresa_ids = set(models.Empresa.objects.values_list('id', flat=True))
         valid_node_ids = set(models.NodoJerarquia.objects.values_list('id', flat=True))

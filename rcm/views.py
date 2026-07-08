@@ -1924,7 +1924,7 @@ def service_fmeca_bulk_new(request, pk):
             })
 
         if not prepared_rows and not errors:
-            errors.append('No hay filas validas para guardar.')
+            errors.append('No hay filas válidas para guardar.')
         if errors:
             return render(
                 request,

@@ -12,6 +12,46 @@ from core.access import get_service_equipment
 from rcm.field_options import normalize_rcm_field_option
 
 
+RCM_PLACEHOLDERS = {
+    'funcion': 'Impulsar fluido de proceso ficticio',
+    'falla_funcional': 'No entrega caudal requerido',
+    'modo_de_falla': 'Desgaste interno del componente',
+    'efecto': 'Reducción de capacidad operativa',
+    'observacion': 'Observación breve ficticia',
+    'descripcion': 'Inspeccionar componente ficticio',
+    'limite_aceptable': 'Vibración menor a 4 mm/s',
+    'parametros': 'Temperatura, presión, vibración',
+    'riesgo_material': 'Riesgo operativo ficticio',
+    'frecuencia': 'Mensual',
+    'especialidad': 'Mecánica',
+    'estado_equipo': 'Operativo',
+    'descripcion_plan': 'Plan preventivo ficticio',
+    'duracion_horas': '2',
+    'hh': '4',
+    'texto_hoja_ruta': 'Ruta de trabajo ficticia',
+    'texto_operacion': 'Operación de inspección ficticia',
+    'titulo_pauta': 'Pauta preventiva ficticia',
+    'repuesto': 'Kit de sellos ficticio',
+    'componente_involucrado': 'Bomba auxiliar',
+    'procedimiento_trabajo': 'Procedimiento seguro ficticio',
+    'oportunidad_mejora': 'Optimizar frecuencia de inspección',
+}
+
+
+def _rcm_placeholder(field_name, label):
+    key = (field_name or '').lower()
+    if key in RCM_PLACEHOLDERS:
+        return RCM_PLACEHOLDERS[key]
+    label = str(label or '').lower()
+    if 'descripción' in label or 'descripcion' in label:
+        return 'Descripción breve ficticia'
+    if 'observación' in label or 'observacion' in label:
+        return 'Observación breve ficticia'
+    if 'valor' in label:
+        return '10'
+    return None
+
+
 class RCMExcelBulkUploadForm(forms.Form):
 
 
@@ -679,7 +719,7 @@ class RCMRegistroForm(forms.Form):
             })
             self.impact_value_map[field_name] = value_map
 
-        for _, field in self.fields.items():
+        for field_name, field in self.fields.items():
             widget = field.widget
             css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
             if isinstance(widget, forms.HiddenInput):
@@ -687,7 +727,9 @@ class RCMRegistroForm(forms.Form):
             existing = widget.attrs.get('class', '')
             widget.attrs['class'] = f'{existing} {css}'.strip()
             if not isinstance(widget, forms.HiddenInput):
-                widget.attrs.setdefault('placeholder', field.label)
+                placeholder = _rcm_placeholder(field_name, field.label)
+                if placeholder:
+                    widget.attrs.setdefault('placeholder', placeholder)
 
     def _clean_dynamic_rcm_evaluations(self):
         cleaned = super().clean()
@@ -909,7 +951,7 @@ class TareaRCMForm(forms.Form):
             ).order_by('orden', 'nombre')
         self.fields['tipo_tarea_estrategia'].queryset = tipos_qs
 
-        for _, field in self.fields.items():
+        for field_name, field in self.fields.items():
             widget = field.widget
             css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
             if isinstance(widget, forms.HiddenInput) or isinstance(widget, forms.CheckboxInput):
@@ -917,7 +959,9 @@ class TareaRCMForm(forms.Form):
             existing = widget.attrs.get('class', '')
             widget.attrs['class'] = f'{existing} {css}'.strip()
             if not isinstance(widget, forms.HiddenInput):
-                widget.attrs.setdefault('placeholder', field.label)
+                placeholder = _rcm_placeholder(field_name, field.label)
+                if placeholder:
+                    widget.attrs.setdefault('placeholder', placeholder)
 
     def _has_task_content(self):
         data = self.cleaned_data

@@ -6,15 +6,24 @@ from django.db.models import Q
 from core import models as app_models
 
 
+PAUTA_PLACEHOLDERS = {
+    'nombre': 'Plantilla ficticia mensual',
+    'hoja_principal': 'Hoja1',
+    'estado_equipo': 'Operativo',
+}
+
+
 class PautaBaseModelForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for _, field in self.fields.items():
+        for field_name, field in self.fields.items():
             widget = field.widget
             css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
             existing = widget.attrs.get('class', '')
             widget.attrs['class'] = f'{existing} {css}'.strip()
-            widget.attrs.setdefault('placeholder', field.label)
+            placeholder = PAUTA_PLACEHOLDERS.get(field_name)
+            if placeholder:
+                widget.attrs.setdefault('placeholder', placeholder)
 
 
 class PlantillaPautaForm(PautaBaseModelForm):

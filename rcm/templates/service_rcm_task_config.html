@@ -683,7 +683,7 @@
           ${optionsEditor(field, index)}
           <div class="form-field full" style="display:none;">
             <label>Opciones</label>
-            <textarea class="input-textarea" rows="2" placeholder="Solo para tipo Opción. Una por línea." oninput="updateField(${index}, 'opciones', this.value)">${escapeHtml((field.opciones || []).join('\n'))}</textarea>
+            <textarea class="input-textarea" rows="2" placeholder="Ej: Correctivo&#10;Preventivo&#10;Predictivo" oninput="updateField(${index}, 'opciones', this.value)">${escapeHtml((field.opciones || []).join('\n'))}</textarea>
           </div>
         </div>
       </div>

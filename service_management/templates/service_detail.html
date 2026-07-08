@@ -156,7 +156,7 @@
             </a>
         </div>
     </div>
-    <div class="segmented-control service-equipment-mode" aria-label="Tipo de busqueda">
+    <div class="segmented-control service-equipment-mode" aria-label="Tipo de búsqueda">
         <label><input type="radio" name="service_equipment_mode" value="equipment" checked> Equipos</label>
         <label><input type="radio" name="service_equipment_mode" value="family"> Familias</label>
         {% if permission.can_edit %}
@@ -167,7 +167,7 @@
     <div class="service-equipment-tools">
         <div class="service-equipment-inline-field">
             <label for="service-equipment-search">Buscar</label>
-            <input id="service-equipment-search" class="input-control" type="search" placeholder="UT, TAG o nombre del equipo">
+            <input id="service-equipment-search" class="input-control" type="search" placeholder="Ej: EQ-001 o Bomba auxiliar">
         </div>
         <div class="service-equipment-inline-field service-equipment-count-field">
             <label for="service-equipment-count">Resultados</label>
@@ -783,7 +783,7 @@
         const query = searchInput ? searchInput.value.trim() : '';
         const matches = familyItems.filter(family => familyMatchesQuery(family, query));
         if (filtersBox) filtersBox.style.display = 'none';
-        if (searchInput) searchInput.placeholder = 'Nombre de familia, UT, TAG o equipo';
+        if (searchInput) searchInput.placeholder = 'Ej: Familia bombas o EQ-001';
         if (countInput) countInput.value = `${matches.length} familias`;
         if (!tableBody) return;
         if (!matches.length) {
@@ -838,8 +838,8 @@
             } else {
                 const text = await response.text();
                 throw new Error(response.status === 403
-                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
-                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo vincular.')
+                    ? 'No se pudo validar la sesión. Recarga la página e intenta nuevamente.'
+                    : (text ? 'El servidor devolvió una respuesta inesperada.' : 'No se pudo vincular.')
                 );
             }
             if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo vincular.');
@@ -913,8 +913,8 @@
             } else {
                 const text = await response.text();
                 throw new Error(response.status === 403
-                    ? 'No se pudo validar la sesion. Recarga la pagina e intenta nuevamente.'
-                    : (text ? 'El servidor devolvio una respuesta inesperada.' : 'No se pudo desvincular.')
+                    ? 'No se pudo validar la sesión. Recarga la página e intenta nuevamente.'
+                    : (text ? 'El servidor devolvió una respuesta inesperada.' : 'No se pudo desvincular.')
                 );
             }
             if (!response.ok || !data.ok) throw new Error(data.message || 'No se pudo desvincular.');
@@ -942,8 +942,8 @@
                 const mode = currentMode();
                 if (filtersBox) filtersBox.style.display = mode === 'family' ? 'none' : '';
                 if (searchInput) searchInput.placeholder = mode === 'family'
-                    ? 'Nombre de familia, UT, TAG o equipo'
-                    : (mode === 'link' ? 'Buscar en equipos de la empresa' : 'UT, TAG o nombre del equipo');
+                    ? 'Ej: Familia bombas o EQ-001'
+                    : (mode === 'link' ? 'Ej: EQ-001 o Bomba auxiliar' : 'Ej: EQ-001 o Bomba auxiliar');
                 updateLinkTools();
                 renderTable();
             });

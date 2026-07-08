@@ -47,7 +47,7 @@ CATALOG_NUMBER_MAX = Decimal('9999999999.99')
 CATALOG_NUMBER_DECIMAL_PLACES = 2
 AUTO_IMPACT_TOTAL_NAME = 'Impacto total'
 AUTO_IMPACT_TOTAL_FIELD = 'impacto_total'
-AUTO_IMPACT_TOTAL_DESCRIPTION = 'Total automatico de las dimensiones de impacto configuradas para ACA.'
+AUTO_IMPACT_TOTAL_DESCRIPTION = 'Total automático de las dimensiones de impacto configuradas para ACA.'
 AUTO_MATRIX_MODE = 'automatica_maximo_teorico'
 
 
@@ -1361,15 +1361,15 @@ def _catalog_validation_decimal(raw):
     try:
         value = Decimal(str(raw).strip().replace(',', '.'))
     except (InvalidOperation, ValueError, TypeError):
-        return None, 'no es un numero valido'
+        return None, 'no es un número válido'
     if value.is_nan() or value.is_infinite():
-        return None, 'no es un numero valido'
+        return None, 'no es un número válido'
     if abs(value) > CATALOG_NUMBER_MAX:
-        return None, f'excede el maximo permitido ({CATALOG_NUMBER_MAX})'
+        return None, f'excede el máximo permitido ({CATALOG_NUMBER_MAX})'
     normalized = value.normalize()
     decimal_places = max(0, -normalized.as_tuple().exponent)
     if decimal_places > CATALOG_NUMBER_DECIMAL_PLACES:
-        return None, f'tiene mas de {CATALOG_NUMBER_DECIMAL_PLACES} decimales'
+        return None, f'tiene más de {CATALOG_NUMBER_DECIMAL_PLACES} decimales'
     return value, None
 
 
@@ -1422,7 +1422,7 @@ def _validate_strategy_catalog_payload(payload):
                 continue
             if lower is not None and upper is not None:
                 if lower > upper:
-                    errors.append(f'{nombre}, fila {row_index}: el limite Desde ({lower}) no puede ser mayor que Hasta ({upper}).')
+                    errors.append(f'{nombre}, fila {row_index}: el límite Desde ({lower}) no puede ser mayor que Hasta ({upper}).')
                 else:
                     range_bounds.append({'row': row_index, 'lower': lower, 'upper': upper})
 
@@ -2037,7 +2037,7 @@ def _matrix_mode_for_selected_axes(mode, prob_dimension, impact_dimension, reque
         if request is not None:
             messages.warning(
                 request,
-                'La matriz usa una dimension calculada como eje. Se guardara en modo "Umbral inferior por resultado" para poder resolver valores calculados que no coincidan exactamente con un nivel.',
+                'La matriz usa una dimensión calculada como eje. Se guardará en modo "Umbral inferior por resultado" para poder resolver valores calculados que no coincidan exactamente con un nivel.',
             )
         return models.MatrizRiesgo.RESOLUCION_UMBRAL_RESULTADO
     return mode

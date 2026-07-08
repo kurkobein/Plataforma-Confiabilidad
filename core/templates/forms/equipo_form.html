@@ -52,12 +52,12 @@
                 {{ form.servicio.errors }}
             </div>
 
-            <div><strong>Ubicacion tecnica</strong></div>
+            <div><strong>Ubicación técnica</strong></div>
             <div>
                 <div id="technical-location-picker" class="technical-location-picker">
                     <div id="technical-location-fields" class="technical-location-fields"></div>
                     <p id="technical-location-empty" class="muted" style="display:none; margin:8px 0 0;">
-                        Selecciona una empresa con jerarquia configurada o crea la jerarquia de la empresa.
+                        Selecciona una empresa con jerarquía configurada o crea la jerarquía de la empresa.
                     </p>
                 </div>
             </div>
@@ -256,7 +256,7 @@
             .filter(Boolean);
 
         if (!companyLevels.length) {
-            setFeedback('La empresa no tiene estructura de ubicacion tecnica configurada.', 'warning');
+            setFeedback('La empresa no tiene estructura de ubicación técnica configurada.', 'warning');
             return false;
         }
         let utTag = '';
@@ -285,7 +285,7 @@
             if (!node) {
                 const parent = parentId ? nodeById.get(String(parentId)) : null;
                 const parentText = parent ? ` bajo ${parent.code} - ${parent.name}` : '';
-                setFeedback(`No existe el codigo "${code}" para el nivel ${index + 1} (${level.name})${parentText}.`, 'warning');
+                setFeedback(`No existe el código "${code}" para el nivel ${index + 1} (${level.name})${parentText}.`, 'warning');
                 return false;
             }
             parentId = node.id;

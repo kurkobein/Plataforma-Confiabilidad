@@ -24,7 +24,7 @@ class Command(BaseCommand):
     help = 'Borra masivamente registros importados/generados de forma controlada.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--service', required=True, help='ID, codigo o descripcion del servicio.')
+        parser.add_argument('--service', required=True, help='ID, código o descripción del servicio.')
         parser.add_argument('--type', required=True, dest='record_type', choices=sorted(SUPPORTED_TYPES), help='Tipo de borrado: rcm, aca o pautas.')
         parser.add_argument('--origin', help='Filtro opcional por origen, por ejemplo "RCM Excel: RCM.xlsx".')
         parser.add_argument('--dry-run', action='store_true', help='Muestra lo que se borraria sin eliminar datos.')
@@ -71,7 +71,7 @@ class Command(BaseCommand):
         service = qs.filter(Q(codigo_servicio__icontains=value) | Q(descripcion__icontains=value)).first()
         if service:
             return service
-        raise CommandError(f'No se encontro servicio para: {value}')
+        raise CommandError(f'No se encontró servicio para: {value}')
 
     def validate_scope(self, record_type, origin, options):
         if origin:

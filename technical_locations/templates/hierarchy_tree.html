@@ -1,10 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}Jerarquia {{ empresa }} | Mindco{% endblock %}
+{% block title %}Jerarquía {{ empresa }} | Mindco{% endblock %}
 {% block content %}
 <div class="page-header">
     <div>
-        <h2>Jerarquia tecnica de {{ empresa }}</h2>
-        <p>Jerarquía técnica</p>
+        <h2>Jerarquía técnica de {{ empresa }}</h2>
     </div>
     <div class="actions">
         <a class="btn" href="{% url 'hierarchy_structure' empresa.pk %}">Estructura</a>
@@ -17,7 +16,7 @@
     <div class="form-grid">
         <div class="form-field">
             <label for="hierarchy-search">Buscar</label>
-            <input class="input-control" id="hierarchy-search" type="search" placeholder="UT, codigo o nombre">
+            <input class="input-control" id="hierarchy-search" type="search" placeholder="Ej: PLT-AREA-SIS">
         </div>
         <div class="form-field">
             <label for="level-filter">Nivel</label>
@@ -30,12 +29,12 @@
         </div>
         <div class="form-field">
             <label>Nodo superior</label>
-            <input class="input-control" id="current-parent-label" type="text" readonly value="Raiz">
+            <input class="input-control" id="current-parent-label" type="text" readonly value="Raíz">
         </div>
     </div>
     <div class="actions" style="margin-top:12px;">
         <button class="btn" type="button" id="back-parent" disabled>Subir</button>
-        <button class="btn" type="button" id="reset-tree">Volver a raiz</button>
+        <button class="btn" type="button" id="reset-tree">Volver a raíz</button>
         <button class="btn" type="button" id="refresh-tree">Actualizar</button>
     </div>
     <p class="muted" id="hierarchy-status" style="margin-top:10px;">Cargando...</p>
@@ -47,7 +46,7 @@
             <tr>
                 <th>UT</th>
                 <th>Nivel</th>
-                <th>Codigo</th>
+                <th>Código</th>
                 <th>Nombre</th>
                 <th>Ruta</th>
                 <th>Equipos</th>
@@ -60,7 +59,7 @@
     </table>
 </div>
 <div class="actions" style="margin-top:12px;">
-    <button class="btn" type="button" id="load-more-nodes" hidden>Cargar mas</button>
+    <button class="btn" type="button" id="load-more-nodes" hidden>Cargar más</button>
 </div>
 {% endblock %}
 
@@ -80,7 +79,7 @@
     const loadMoreButton = document.getElementById('load-more-nodes');
     const statusText = document.getElementById('hierarchy-status');
     const tbody = document.getElementById('hierarchy-table-body');
-    const parentStack = [{ id: 'root', label: 'Raiz' }];
+    const parentStack = [{ id: 'root', label: 'Raíz' }];
     let searchTimer = null;
     let abortController = null;
     let nextOffset = 0;
@@ -109,7 +108,7 @@
     }
 
     function updateNavigation() {
-        parentLabel.value = currentParent().label || 'Raiz';
+        parentLabel.value = currentParent().label || 'Raíz';
         backButton.disabled = parentStack.length <= 1;
     }
 
@@ -148,7 +147,7 @@
     function renderRows(nodes, meta, append) {
         if (!nodes.length) {
             if (!append) {
-                tbody.innerHTML = '<tr><td colspan="7" class="muted">No hay ubicaciones tecnicas para el filtro seleccionado.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="muted">No hay ubicaciones técnicas para el filtro seleccionado.</td></tr>';
                 setStatus('0 resultados.');
             }
             loadMoreButton.hidden = true;
@@ -169,15 +168,14 @@
                     <td>${escapeHtml(node.route)}</td>
                     <td>${escapeHtml(node.equipment_count || 0)}</td>
                     <td>
-                        <div class="actions" style="margin-left: auto; justify-content: flex-end;">
+<!-- style="margin-left: auto; justify-content: flex-end; -->
+                        <div class="actions" ">
                             ${childButton}
                             <a class="btn" href="${escapeHtml(node.edit_url)}">Editar</a>
-                            <a class="btn" href="${escapeHtml(node.move_url)}">Mover</a>
-                            <a class="btn" href="${escapeHtml(node.insert_url)}">Insertar nivel arriba</a>
                             <form method="post"
                                   action="${escapeHtml(node.delete_url)}"
                                   style="display:inline;"
-                                  onsubmit="return confirm('Esto desactivara esta ubicacion tecnica y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. ¿Continuar?');">
+                                  onsubmit="return confirm('Esto desactivará esta ubicación técnica y todos sus valores inferiores. Los equipos asociados conservarán la referencia histórica. ¿Continuar?');">
                                 <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
                                 <button class="btn btn-danger" type="submit">Eliminar</button>
                             </form>
@@ -206,7 +204,7 @@
         const append = Boolean(options && options.append);
         const offset = append ? nextOffset : 0;
         if (!nodesUrl) {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo configurar la carga de jerarquia.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo configurar la carga de jerarquía.</td></tr>';
             return;
         }
         const url = buildUrl(offset);
@@ -235,16 +233,16 @@
             .then(data => {
                 renderRows(data.nodes || [], data, append);
                 loadMoreButton.disabled = false;
-                loadMoreButton.textContent = 'Cargar mas';
+                loadMoreButton.textContent = 'Cargar más';
             })
             .catch(error => {
                 if (error.name === 'AbortError') {
                     return;
                 }
-                tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo cargar la jerarquia.</td></tr>';
-                setStatus('No se pudo cargar la jerarquia.');
+                tbody.innerHTML = '<tr><td colspan="7" class="muted">No se pudo cargar la jerarquía.</td></tr>';
+                setStatus('No se pudo cargar la jerarquía.');
                 loadMoreButton.disabled = false;
-                loadMoreButton.textContent = 'Cargar mas';
+                loadMoreButton.textContent = 'Cargar más';
             });
     }
 

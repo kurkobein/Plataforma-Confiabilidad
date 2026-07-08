@@ -19,7 +19,7 @@
             {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
             {% if not levels %}
                 <div class="message warning" style="margin-bottom: 16px;">
-                    Primero define la estructura base de la ubicacion tecnica para esta empresa.
+                    Primero define la estructura base de la ubicación técnica para esta empresa.
                 </div>
                 <div class="actions">
                     <a class="btn btn-primary" href="{% url 'hierarchy_structure' empresa.pk %}">Definir estructura</a>
@@ -81,7 +81,7 @@
                 <label>{{ bulk_form.bulk_values.label }}</label>
                 <div class="bulk-values-field">{{ bulk_form.bulk_values }}</div>
                 <div class="bulk-value-grid" id="bulk-value-grid">
-                    <table class="no-datatable" aria-label="Carga rapida de valores UT">
+                    <table class="no-datatable" aria-label="Carga rápida de valores UT">
                         <colgroup>
                             <col style="width:46px;">
                             <col style="width:32%;">
@@ -101,7 +101,7 @@
                     <button class="btn" type="button" id="bulk-add-rows">Agregar filas</button>
                     <button class="btn" type="button" id="bulk-clear-rows">Limpiar</button>
                 </div>
-                <small class="muted">Puedes pegar una columna de códigos, una columna de nombres o dos columnas desde Excel. Cada linea horizontal representa un valor.</small>
+                <small class="muted">Puedes pegar una columna de códigos, una columna de nombres o dos columnas desde Excel. Cada línea horizontal representa un valor.</small>
                 {{ bulk_form.bulk_values.errors }}
             </div>
             <div class="actions" style="margin-top: 1rem;">
@@ -115,7 +115,7 @@
         <h3 class="card-title">Filtro rápido</h3>
         <div class="form-field">
             <label>Buscar</label>
-            <input class="input-control" id="value-search" type="search" placeholder="Código o nombre">
+            <input class="input-control" id="value-search" type="search" placeholder="Ej: ABC o Planta piloto">
         </div>
         <div class="form-field" style="margin-top:12px;">
             <label>Ruta U.T.</label>
@@ -502,7 +502,7 @@
         tableBody.innerHTML = items.map(item => `
             <tr>
                 <td>${escapeHtml(item.level_order)}. ${escapeHtml(item.level_name)}</td>
-                <td>${escapeHtml(item.parent_label || 'Raiz')}</td>
+                <td>${escapeHtml(item.parent_label || 'Raíz')}</td>
                 <td><strong>${escapeHtml(item.code)}</strong></td>
                 <td>${escapeHtml(item.name)}</td>
                 <td>${escapeHtml(item.ut)}</td>
@@ -510,7 +510,7 @@
                 <td>${item.is_simple ? '<span class="muted">Valor simple</span>' : `
                     <div class="actions">
                         <a class="btn" href="${escapeHtml(item.edit_url)}">Editar</a>
-                        <form method="post" action="${escapeHtml(item.delete_url)}" style="display:inline;" onsubmit="return confirm('Esto desactivara este valor y todos sus valores inferiores. Los equipos asociados conservaran la referencia historica. Continuar?');">
+                        <form method="post" action="${escapeHtml(item.delete_url)}" style="display:inline;" onsubmit="return confirm('Esto desactivará este valor y todos sus valores inferiores. Los equipos asociados conservarán la referencia histórica. ¿Continuar?');">
                             <input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfToken)}">
                             <button class="btn btn-danger" type="submit">Eliminar</button>
                         </form>

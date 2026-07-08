@@ -18,7 +18,7 @@ def resolve_empresa(value):
     empresa = qs.filter(nombre__icontains=value).first()
     if empresa:
         return empresa
-    raise CommandError(f'No se encontro empresa para "{value}".')
+    raise CommandError(f'No se encontró empresa para "{value}".')
 
 
 def build_summary(empresa):
@@ -103,7 +103,7 @@ def delete_company_data(summary):
 
 
 class Command(BaseCommand):
-    help = 'Elimina para pruebas toda la jerarquia UT, equipos y dependencias asociadas a una empresa.'
+    help = 'Elimina para pruebas toda la jerarquía UT, equipos y dependencias asociadas a una empresa.'
 
     def add_arguments(self, parser):
         parser.add_argument('--empresa', required=True, help='ID, sigla o nombre de empresa.')
@@ -145,7 +145,7 @@ class Command(BaseCommand):
             with transaction.atomic():
                 delete_company_data(summary)
         except IntegrityError as exc:
-            raise CommandError(f'No se pudo borrar por una restriccion de base de datos: {exc}') from exc
+            raise CommandError(f'No se pudo borrar por una restricción de base de datos: {exc}') from exc
 
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS('Borrado completado correctamente.'))

@@ -31,12 +31,12 @@ from core.views import (
 _CALC_OPERATION_LABELS = {
     'suma': 'Suma',
     'resta': 'Resta',
-    'multiplicacion': 'Multiplicacion',
-    'division': 'Division',
-    'maximo': 'Maximo',
-    'máximo': 'Maximo',
-    'minimo': 'Minimo',
-    'mínimo': 'Minimo',
+    'multiplicacion': 'Multiplicación',
+    'division': 'División',
+    'maximo': 'Máximo',
+    'máximo': 'Máximo',
+    'minimo': 'Mínimo',
+    'mínimo': 'Mínimo',
 }
 
 _CALC_OPERATION_SYMBOLS = {
@@ -171,9 +171,9 @@ def _calculation_preview(estrategia_dimension):
             for operand in step.get('operands', [])
         ]
         if operation in {'maximo', 'máximo'}:
-            expression = f"Maximo({', '.join(operands)})"
+            expression = f"Máximo({', '.join(operands)})"
         elif operation in {'minimo', 'mínimo'}:
-            expression = f"Minimo({', '.join(operands)})"
+            expression = f"Mínimo({', '.join(operands)})"
         else:
             expression = _CALC_OPERATION_SYMBOLS.get(operation, ' ? ').join(operands)
         preview_steps.append({
@@ -222,7 +222,7 @@ def _scale_table_preview(estrategia_dimension):
             ],
         })
     return {
-        'columns': ['Nivel', 'Codigo', 'Descripcion', 'Valor', 'Escala unificada'],
+        'columns': ['Nivel', 'Código', 'Descripción', 'Valor', 'Escala unificada'],
         'rows': rows,
         'extra_rows': 0,
     }
@@ -698,7 +698,7 @@ def service_equipment_link(request, pk):
     if not valid_ids:
         return JsonResponse({
             'ok': False,
-            'message': 'No se encontraron equipos validos para vincular a este servicio.',
+            'message': 'No se encontraron equipos válidos para vincular a este servicio.',
             'created': 0,
             'already_linked': 0,
             'invalid': len(equipment_ids),

@@ -141,12 +141,12 @@
                     <span>Colores y niveles</span>
                 </div>
                 <p class="muted auto-matrix-section-hint">
-                    Ajusta nombre, rango y color antes de guardar. La matriz de la derecha se actualiza en la previsualizacion.
+                    Ajusta nombre, rango y color antes de guardar. La matriz de la derecha se actualiza en la previsualización.
                 </p>
                 <div class="auto-matrix-legend-list" id="auto-matrix-legend-list">
                     {% for item in preview.legend_items %}
                         <div class="auto-matrix-legend-row">
-                            <input class="input-control" value="{{ item.name }}" placeholder="Nombre" data-auto-legend-name="{{ forloop.counter0 }}">
+                            <input class="input-control" value="{{ item.name }}" placeholder="Ej: Bajo" data-auto-legend-name="{{ forloop.counter0 }}">
                             <input class="input-control" value="{{ item.range }}" placeholder="1-4" data-auto-legend-range="{{ forloop.counter0 }}">
                             <input class="legend-swatch" type="color" value="{{ item.color }}" data-auto-legend-color="{{ forloop.counter0 }}">
                         </div>

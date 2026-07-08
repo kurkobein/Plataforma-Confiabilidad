@@ -15,10 +15,54 @@ from .access import get_service_equipment, resolve_auth_user_for_email, get_user
 from .user_sync import split_full_name, sync_auth_user_from_profile
 from .models import Empresa, Servicio, Servicio
 
+
+EXAMPLE_PLACEHOLDERS = {
+    'codigo_servicio': 'ABC-001',
+    'descripcion': 'Servicio de mantenimiento ficticio',
+    'nombre': 'Plan piloto Alfa',
+    'sigla': 'ABC',
+    'correo': 'usuario@empresa.cl',
+    'correo_corporativo': 'usuario@empresa.cl',
+    'nombre_completo': 'María Pérez',
+    'tag_equipo': 'EQ-001',
+    'nombre_equipo': 'Bomba auxiliar ficticia',
+    'ut': 'PLT-AREA-SIS-EQ001',
+    'descripcion_ut': 'Equipo auxiliar de proceso ficticio',
+    'nivel_nombre': 'Área',
+    'nodo_nombre': 'Planta piloto',
+    'codigo': 'ABC',
+    'campo': 'impacto_operacional',
+    'valor': '10',
+    'observacion': 'Observación breve ficticia',
+}
+
+
+def example_placeholder(field_name, field):
+    widget = field.widget
+    if isinstance(widget, (forms.HiddenInput, forms.CheckboxInput, forms.Select, forms.FileInput)):
+        return None
+    if isinstance(field, (forms.DateField, forms.DateTimeField)):
+        return None
+    normalized_name = (field_name or '').lower()
+    if normalized_name in EXAMPLE_PLACEHOLDERS:
+        return EXAMPLE_PLACEHOLDERS[normalized_name]
+    label = str(field.label or '').strip().lower()
+    if 'código' in label or 'codigo' in label:
+        return 'ABC-001'
+    if 'correo' in label or 'email' in label:
+        return 'usuario@empresa.cl'
+    if 'nombre' in label:
+        return 'Elemento ficticio'
+    if 'descripción' in label or 'descripcion' in label:
+        return 'Descripción breve ficticia'
+    if 'observación' in label or 'observacion' in label:
+        return 'Observación breve ficticia'
+    return None
+
 class BaseModelForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for _, field in self.fields.items():
+        for field_name, field in self.fields.items():
             widget = field.widget
             css = 'input-textarea' if isinstance(widget, forms.Textarea) else 'input-control'
             existing = widget.attrs.get('class', '')
@@ -33,7 +77,9 @@ class BaseModelForm(forms.ModelForm):
                 widget.attrs['class'] = 'input-checkbox'
                 widget.attrs.pop('placeholder', None)
             else:
-                widget.attrs.setdefault('placeholder', field.label)
+                placeholder = example_placeholder(field_name, field)
+                if placeholder:
+                    widget.attrs.setdefault('placeholder', placeholder)
 
 
 FORM_CACHE = {}
@@ -258,7 +304,7 @@ class EquipoForm(BaseModelForm):
         queryset=app_models.Servicio.objects.none(),
         required=False,
         label='Relacionar con servicio',
-        help_text='Opcional. Si se selecciona, el equipo quedara disponible para registros del servicio.',
+        help_text='Opcional. Si se selecciona, el equipo quedará disponible para registros del servicio.',
     )
 
     class Meta:
@@ -278,7 +324,7 @@ class EquipoForm(BaseModelForm):
             'empresa__nombre',
             'codigo_servicio',
         )
-        self.fields['ut'].help_text = 'Puedes pegar la UT completa; se validara contra los valores registrados.'
+        self.fields['ut'].help_text = 'Puedes pegar la UT completa; se validará contra los valores registrados.'
         self.fields['descripcion_ut'].required = False
         self.fields['nodo'].queryset = app_models.NodoJerarquia.objects.filter(
             activo=True,
@@ -293,7 +339,7 @@ class EquipoForm(BaseModelForm):
             'nombre',
         )
         self.fields['nodo'].required = False
-        self.fields['nodo'].label = 'Ubicacion tecnica jerarquica'
+        self.fields['nodo'].label = 'Ubicación técnica jerárquica'
         if self.instance and getattr(self.instance, 'nodo_id', None):
             self.fields['empresa'].initial = self.instance.nodo.empresa_id
         if self.instance and getattr(self.instance, 'pk', None):
@@ -319,7 +365,7 @@ class EquipoForm(BaseModelForm):
         if servicio and empresa and servicio.empresa_id != empresa.pk:
             self.add_error('servicio', 'El servicio seleccionado debe pertenecer a la empresa del equipo.')
         if empresa and nodo and nodo.empresa_id != empresa.pk:
-            self.add_error('nodo', 'La ubicacion tecnica debe pertenecer a la empresa seleccionada.')
+            self.add_error('nodo', 'La ubicación técnica debe pertenecer a la empresa seleccionada.')
 
         if ut:
             if not empresa:
@@ -333,12 +379,12 @@ class EquipoForm(BaseModelForm):
                     if tag and tag != ut_tag:
                         self.add_error(
                             'tag_equipo',
-                            f'El tag del equipo debe coincidir con el ultimo segmento de la UT ({ut_tag}).',
+                            f'El tag del equipo debe coincidir con el último segmento de la UT ({ut_tag}).',
                         )
                     else:
                         cleaned['tag_equipo'] = ut_tag
         elif not nodo:
-            self.add_error('ut', 'Ingresa una UT o selecciona una ubicacion tecnica.')
+            self.add_error('ut', 'Ingresa una UT o selecciona una ubicación técnica.')
         raw_normalized_tag = (cleaned.get('tag_equipo') or '').strip()
         normalized_tag = app_models._technical_segment(raw_normalized_tag) if raw_normalized_tag else ''
         if normalized_tag:
@@ -359,7 +405,7 @@ class EquipoForm(BaseModelForm):
         ).order_by('orden'))
 
         if not levels:
-            self.add_error('ut', 'La empresa no tiene estructura de ubicacion tecnica configurada.')
+            self.add_error('ut', 'La empresa no tiene estructura de ubicación técnica configurada.')
             return None, ''
         ut_tag = ''
         node_codes = codes
@@ -439,12 +485,12 @@ class EquipoBulkUploadForm(forms.Form):
     hoja = forms.CharField(
         label='Hoja',
         required=False,
-        help_text='Opcional. Si queda vacio se usara la hoja con encabezados reconocidos.',
+        help_text='Opcional. Si queda vacío se usará la hoja con encabezados reconocidos.',
     )
     formato = forms.ChoiceField(
         label='Formato',
         choices=(
-            ('auto', 'Detectar automaticamente'),
+            ('auto', 'Detectar automáticamente'),
             ('mindco_simple', 'Mindco simple'),
             ('sap_uts', 'SAP / UTS'),
         ),

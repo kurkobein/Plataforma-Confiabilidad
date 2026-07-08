@@ -851,7 +851,7 @@
             </label>
           </div>
           <div id="calcSourcesBlock" class="full">
-            <label>Pasos del calculo</label>
+                  <label>Pasos del cálculo</label>
             <div id="calcSourcesWrap" class="input-control"></div>
           </div>
         </div>
@@ -1042,12 +1042,12 @@
   function parseCatalogNumber(raw) {
     if (raw === null || raw === undefined || String(raw).trim() === '') return { empty: true, value: null, error: '' };
     const text = String(raw).trim().replace(',', '.');
-    if (!/^-?\d+(\.\d+)?$/.test(text)) return { empty: false, value: null, error: 'no es un numero valido' };
+    if (!/^-?\d+(\.\d+)?$/.test(text)) return { empty: false, value: null, error: 'no es un número válido' };
     const value = Number(text);
-    if (!Number.isFinite(value)) return { empty: false, value: null, error: 'no es un numero valido' };
-    if (Math.abs(value) > CATALOG_NUMBER_MAX) return { empty: false, value: null, error: `excede el maximo permitido (${CATALOG_NUMBER_MAX})` };
+    if (!Number.isFinite(value)) return { empty: false, value: null, error: 'no es un número válido' };
+    if (Math.abs(value) > CATALOG_NUMBER_MAX) return { empty: false, value: null, error: `excede el máximo permitido (${CATALOG_NUMBER_MAX})` };
     const decimals = (text.split('.')[1] || '').replace(/0+$/, '').length;
-    if (decimals > CATALOG_DECIMAL_PLACES) return { empty: false, value: null, error: `tiene mas de ${CATALOG_DECIMAL_PLACES} decimales` };
+    if (decimals > CATALOG_DECIMAL_PLACES) return { empty: false, value: null, error: `tiene más de ${CATALOG_DECIMAL_PLACES} decimales` };
     return { empty: false, value, error: '' };
   }
 
@@ -1098,11 +1098,11 @@
     columns.forEach((col, colIdx) => {
       const key = String((col && col.clave_interna) || '').trim();
       if (!key) {
-        errors.push(`Columna ${colIdx + 1}: la clave tecnica no puede quedar vacia.`);
+        errors.push(`Columna ${colIdx + 1}: la clave técnica no puede quedar vacía.`);
       } else if (!COLUMN_KEY_PATTERN.test(key)) {
-        errors.push(`Columna "${col.nombre_columna || key}": la clave tecnica debe usar minusculas, numeros y guion bajo, sin espacios ni tildes.`);
+        errors.push(`Columna "${col.nombre_columna || key}": la clave técnica debe usar minúsculas, números y guion bajo, sin espacios ni tildes.`);
       } else if (seenKeys.has(key)) {
-        errors.push(`Columna "${col.nombre_columna || key}": la clave tecnica "${key}" esta duplicada.`);
+        errors.push(`Columna "${col.nombre_columna || key}": la clave técnica "${key}" está duplicada.`);
       }
       if (key) seenKeys.add(key);
     });
@@ -1152,12 +1152,12 @@
     if (!panel || !item) return { errors: [], warnings: [] };
     const result = validateCatalogItem(item);
     const rangeHint = item.tipo === 'rangos'
-      ? '<div class="validation-hint"><strong>Regla de rangos:</strong> Desde usa >=. Hasta usa <=, excepto cuando otra fila empieza exactamente en ese mismo valor; en ese caso el limite compartido pertenece a la fila que empieza ahi.</div>'
+      ? '<div class="validation-hint"><strong>Regla de rangos:</strong> Desde usa >=. Hasta usa <=, excepto cuando otra fila empieza exactamente en ese mismo valor; en ese caso el límite compartido pertenece a la fila que empieza ahí.</div>'
       : '';
     panel.classList.toggle('has-errors', result.errors.length > 0);
     panel.classList.toggle('has-warnings', !result.errors.length && result.warnings.length > 0);
     if (!result.errors.length && !result.warnings.length) {
-      panel.innerHTML = `Numeros permitidos: hasta ${CATALOG_NUMBER_MAX} y maximo ${CATALOG_DECIMAL_PLACES} decimales.${rangeHint}`;
+      panel.innerHTML = `Números permitidos: hasta ${CATALOG_NUMBER_MAX} y máximo ${CATALOG_DECIMAL_PLACES} decimales.${rangeHint}`;
       return result;
     }
     const errorList = result.errors.length
@@ -1175,8 +1175,8 @@
     const warnings = [];
     store.items.forEach(item => {
       const result = validateCatalogItem(item);
-      result.errors.forEach(message => errors.push(`${item.nombre || 'Dimension'}: ${message}`));
-      result.warnings.forEach(message => warnings.push(`${item.nombre || 'Dimension'}: ${message}`));
+      result.errors.forEach(message => errors.push(`${item.nombre || 'Dimensión'}: ${message}`));
+      result.warnings.forEach(message => warnings.push(`${item.nombre || 'Dimensión'}: ${message}`));
     });
     return { errors, warnings };
   }
@@ -1603,7 +1603,7 @@
     const item = current(); if (!item) return;
     item.config_calculo = item.config_calculo || {};
     const sources = store.items.filter(x => String(x.id) !== String(item.id) && processCompatible(item, x));
-    if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin calculo.</span>'; return; }
+    if (!item.tipo_calculo) { calcSourcesWrap.innerHTML = '<span class="muted">Sin cálculo.</span>'; return; }
     const steps = calculationSteps(item);
     fTipoCalculo.value = item.tipo_calculo || '';
     const addStep = '<button class="btn" type="button" onclick="addCalculationStep()">+ Agregar paso</button>';
@@ -1805,7 +1805,7 @@
         <small class="field-recommendation">${escapeHtml(columnRecommendationMessage(col))}</small>
         </td>
       <td>
-        <input class="readonly-key" value="${escapeHtml(col.clave_interna || '')}" readonly title="Clave tecnica generada automaticamente">
+        <input class="readonly-key" value="${escapeHtml(col.clave_interna || '')}" readonly title="Clave técnica generada automáticamente">
         </td>
       <td>
         <select onchange="updateColumn(${idx},'tipo_dato',this.value)">${columnTypeOptions.map(opt => `<option value="${opt.value}" ${opt.value === col.tipo_dato ? 'selected' : ''}>${opt.label}</option>`).join('')}</select>
@@ -1838,7 +1838,7 @@
       return `<select onchange="updateCell(${rowIdx},'${col.clave_interna}',this.value)"><option value="" ${value === '' ? 'selected' : ''}>-</option><option value="true" ${value === true || value === 'true' ? 'selected' : ''}>Sí</option><option value="false" ${value === false || value === 'false' ? 'selected' : ''}>No</option></select>`;
     }
     const type = col.tipo_dato === 'numero' ? 'number' : 'text';
-    const step = col.tipo_dato === 'numero' ? `step="0.01" min="-${CATALOG_NUMBER_MAX}" max="${CATALOG_NUMBER_MAX}" title="Maximo ${CATALOG_NUMBER_MAX} y ${CATALOG_DECIMAL_PLACES} decimales"` : '';
+    const step = col.tipo_dato === 'numero' ? `step="0.01" min="-${CATALOG_NUMBER_MAX}" max="${CATALOG_NUMBER_MAX}" title="Máximo ${CATALOG_NUMBER_MAX} y ${CATALOG_DECIMAL_PLACES} decimales"` : '';
     return `<input type="${type}" ${step} value="${value}" oninput="updateCell(${rowIdx},'${col.clave_interna}',this.value)">`;
   }
   function selectItem(id) { store.active = id; expandItemGroup(current()); renderList(); renderEditor(); }
@@ -2199,7 +2199,7 @@
   }
   (function init() {
     const calcLabel = document.querySelector('#calcSourcesBlock label');
-    if (calcLabel) calcLabel.textContent = 'Pasos del calculo';
+    if (calcLabel) calcLabel.textContent = 'Pasos del cálculo';
     document.addEventListener('click', event => {
       const dropdown = document.getElementById('fProcesoUso');
       if (dropdown?.open && !dropdown.contains(event.target)) dropdown.open = false;

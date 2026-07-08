@@ -1231,16 +1231,16 @@ def equipment_bulk_example(request, formato):
             'headers': [
                 'Empresa',
                 'Planta / Sitio',
-                'Area',
+                'Área',
                 'Sistema',
                 'SubSistema',
-                'Ubicacion Tecnica',
+                'Ubicación Técnica',
                 'TAG',
                 'Equipo / Componente',
-                'Descripcion U.T.',
+                'Descripción U.T.',
             ],
             'rows': [
-                ['Minera Inventada S.A.', 'Planta Norte', 'Molienda', 'Transporte de pulpa', 'Bombas', 'MIN-PLN-MOL-PUL-BOM', 'A001', 'Bomba de pulpa 1', 'Linea de bombeo de pulpa planta norte'],
+                ['Minera Inventada S.A.', 'Planta Norte', 'Molienda', 'Transporte de pulpa', 'Bombas', 'MIN-PLN-MOL-PUL-BOM', 'A001', 'Bomba de pulpa 1', 'Línea de bombeo de pulpa planta norte'],
                 ['Minera Inventada S.A.', 'Planta Norte', 'Chancado', 'Correas transportadoras', 'Correa principal', 'MIN-PLN-CHA-COR-PRI', 'A002', 'Correa transportadora 2', 'Sistema de transporte de mineral chancado'],
             ],
         },
@@ -1248,8 +1248,8 @@ def equipment_bulk_example(request, formato):
             'filename': 'ejemplo_equipos_sap_uts.xlsx',
             'sheet': 'SAP UTS',
             'headers': [
-                'Ubicacion tecnica',
-                'Denominacion',
+                'Ubicación técnica',
+                'Denominación',
                 'N0',
                 'N0_nombre',
                 'N1',
@@ -1262,7 +1262,7 @@ def equipment_bulk_example(request, formato):
                 'N4_nombre',
             ],
             'rows': [
-                ['MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrifuga de pulpa A101', 'MIN', 'Minera Inventada S.A.', 'MIN-PLN', 'Planta Norte', 'MIN-PLN-MOL', 'Molienda', 'MIN-PLN-MOL-PUL', 'Transporte de pulpa', 'MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrifuga de pulpa A101'],
+                ['MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrífuga de pulpa A101', 'MIN', 'Minera Inventada S.A.', 'MIN-PLN', 'Planta Norte', 'MIN-PLN-MOL', 'Molienda', 'MIN-PLN-MOL-PUL', 'Transporte de pulpa', 'MIN-PLN-MOL-PUL-BOM-A101', 'Bomba centrífuga de pulpa A101'],
                 ['MIN-PLN-CHA-COR-PRI-A102', 'Correa transportadora principal A102', 'MIN', 'Minera Inventada S.A.', 'MIN-PLN', 'Planta Norte', 'MIN-PLN-CHA', 'Chancado', 'MIN-PLN-CHA-COR', 'Correas transportadoras', 'MIN-PLN-CHA-COR-PRI-A102', 'Correa transportadora principal A102'],
             ],
         },
@@ -1382,9 +1382,9 @@ def equipment_bulk_upload(request):
 
                 if preview_only:
                     if report.errors:
-                        messages.warning(request, 'La previsualizacion encontro errores. Corrige el archivo antes de confirmar.')
+                        messages.warning(request, 'La previsualización encontró errores. Corrige el archivo antes de confirmar.')
                     else:
-                        messages.info(request, 'Previsualizacion lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
+                        messages.info(request, 'Previsualización lista. Puedes confirmar la carga sin volver a seleccionar el archivo.')
                 elif report.equipment_created or report.equipment_updated:
                     messages.success(
                         request,

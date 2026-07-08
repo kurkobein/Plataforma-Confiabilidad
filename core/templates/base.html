@@ -285,7 +285,7 @@ document.addEventListener("DOMContentLoaded", function () {
             estrategias: 'Estrategias',
             tablas: 'Tablas de evaluacion',
             empresas: 'Empresas',
-            jerarquia: 'Jerarquia',
+            jerarquia: 'Jerarquía',
             estructura: 'Estructura',
             valores: 'Valores',
             constructor: 'Constructor',
@@ -368,7 +368,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         const nav = document.createElement('nav');
         nav.className = 'page-location';
-        nav.setAttribute('aria-label', 'Ubicacion actual');
+            nav.setAttribute('aria-label', 'Ubicación actual');
         crumbs.forEach((crumb, index) => {
             if (index > 0) {
                 const separator = document.createElement('span');
@@ -577,7 +577,12 @@ document.addEventListener("DOMContentLoaded", function () {
     function genericFixedCrumbs(parts) {
         const modelKey = parts[0];
         const crumbs = [{ label: 'Inicio', url: '/' }];
-        fixedCrumb(crumbs, modelLabel(modelKey), `/${modelKey}/`);
+        fixedCrumb(
+            crumbs,
+            modelLabel(modelKey),
+            `/${modelKey}/`,
+            modelKey === 'servicio' && parts[1] === 'nuevo' ? { preserveRoot: true } : null
+        );
         if (parts[1] === 'nuevo') {
             fixedCrumb(crumbs, pageTitle());
         } else if (/^\d+$/.test(parts[1] || '') && parts[2] === 'editar') {
@@ -673,7 +678,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!stack.length) return;
         const nav = document.createElement('nav');
         nav.className = 'page-location';
-        nav.setAttribute('aria-label', 'Ubicacion actual');
+            nav.setAttribute('aria-label', 'Ubicación actual');
         stack.forEach((crumb, index) => {
             if (index > 0) {
                 const separator = document.createElement('span');
@@ -910,7 +915,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '<option value="empty">Vacío</option>',
             '<option value="notEmpty">No vacío</option>',
             '</select>',
-            '<input type="text" placeholder="Buscar por...">',
+            '<input type="text" placeholder="Ej: ABC-001">',
             '<button type="button" aria-label="Limpiar filtro"><i class="bi bi-x"></i></button>',
             '</div>'
         ].join('');
@@ -983,7 +988,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '</select>',
             '<div class="dtcc-search-icon"><i class="bi bi-search"></i></div>',
             '<span class="dtcc-search-clear" role="button" tabindex="0"><i class="bi bi-x-lg"></i></span>',
-            '<input type="text" placeholder="Buscar por...">',
+            '<input type="text" placeholder="Ej: ABC-001">',
             '</div>',
             '</div>'
         ].join('');

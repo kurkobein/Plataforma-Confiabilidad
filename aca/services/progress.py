@@ -463,7 +463,7 @@ def group_progress_by_hierarchy_level(queryset, level_id, progress_dimensions):
             group_order = (_node_path_code(group_node, node_by_id), group_node.nombre)
         else:
             group_key = 'missing'
-            group_display_label = 'Sin jerarquia'
+            group_display_label = 'Sin jerarquía'
             group_label = 'Sin jerarquía'
             group_order = ('zzzz', 'Sin jerarquía')
         grouped.setdefault(group_key, {
