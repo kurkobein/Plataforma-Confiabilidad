@@ -5819,24 +5819,44 @@ table.dataTable.aca-records-table.compact-table > thead > tr > th {
     line-height: 1.15 !important;
 }
 
-/* Centrado global de celdas, incluyendo DataTables cargado despues del CSS base. */
+/* Alineación de tablas: encabezados centrados, contenido de datos a la izquierda. */
 table th,
-table td,
 table.dataTable > thead > tr > th,
-table.dataTable > tbody > tr > td,
-table.dataTable > tfoot > tr > th,
-table.dataTable > tfoot > tr > td {
+table.dataTable > tfoot > tr > th {
     text-align: center !important;
 }
 
+table tbody > tr > td,
+table.dataTable > tbody > tr > td,
+table.dataTable > tfoot > tr > td {
+    text-align: left !important;
+}
+
 table .cell-ellipsis {
+    margin-left: 0;
+    margin-right: 0;
+    text-align: left;
+}
+
+table td:has(.actions),
+table td:has(.btn),
+table td:has(button),
+table td:has(input[type="checkbox"]),
+table td[class*="accion"],
+table td[class*="action"],
+table td.aca-col-acciones,
+table td .actions {
+    text-align: center !important;
+    justify-content: center;
+}
+
+table td:has(.actions) .cell-ellipsis,
+table td:has(.btn) .cell-ellipsis,
+table td[class*="accion"] .cell-ellipsis,
+table td[class*="action"] .cell-ellipsis {
     margin-left: auto;
     margin-right: auto;
     text-align: center;
-}
-
-table td .actions {
-    justify-content: center;
 }
 
 .origin-popover-cell {
@@ -6231,4 +6251,81 @@ table.dataTable.aca-records-table thead .dt-column-filter-trigger {
     display: flex;
     justify-content: flex-end;
     margin-top: 7px;
+}
+
+/* Final table alignment policy.
+   Data cells are left-aligned by default; headers and control/visual cells stay centered. */
+table:not(.matrix-compact):not(.matrix-view-table):not(.auto-matrix-preview-table):not(.aca-bulk-matrix-table) tbody > tr > td,
+table.dataTable:not(.matrix-compact):not(.matrix-view-table):not(.auto-matrix-preview-table):not(.aca-bulk-matrix-table) > tbody > tr > td {
+    text-align: left !important;
+}
+
+table thead > tr > th,
+table.dataTable > thead > tr > th,
+table.dataTable > thead > tr > th.dt-type-numeric {
+    text-align: center !important;
+}
+
+table tbody > tr > td:has(.actions),
+table tbody > tr > td:has(.btn),
+table tbody > tr > td:has(button),
+table tbody > tr > td:has(input),
+table tbody > tr > td:has(select),
+table tbody > tr > td:has(textarea),
+table tbody > tr > td:has([class*="pill"]),
+table tbody > tr > td:has([class*="badge"]),
+table tbody > tr > td:has([class*="progress"]),
+table tbody > tr > td:has([class*="status"]),
+table tbody > tr > td[class*="accion"],
+table tbody > tr > td[class*="action"],
+table tbody > tr > td.aca-col-acciones,
+table tbody > tr > td.fmeca-col-actions,
+table tbody > tr > td.fmeca-col-files,
+table tbody > tr > td.aca-bulk-row-actions,
+table tbody > tr > td.aca-bulk-files,
+table tbody > tr > td.aca-bulk-index,
+table tbody > tr > td.dt-type-numeric:has(.btn),
+table.dataTable tbody > tr > td:has(.actions),
+table.dataTable tbody > tr > td:has(.btn),
+table.dataTable tbody > tr > td:has(input),
+table.dataTable tbody > tr > td:has(select),
+table.dataTable tbody > tr > td:has(textarea),
+table.dataTable tbody > tr > td:has([class*="pill"]),
+table.dataTable tbody > tr > td:has([class*="badge"]),
+table.dataTable tbody > tr > td:has([class*="progress"]),
+table.dataTable tbody > tr > td:has([class*="status"]),
+table.dataTable tbody > tr > td[class*="accion"],
+table.dataTable tbody > tr > td[class*="action"] {
+    text-align: center !important;
+}
+
+table tbody > tr > td .cell-ellipsis,
+table.dataTable tbody > tr > td .cell-ellipsis {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    text-align: left !important;
+}
+
+table tbody > tr > td:has(.actions) .cell-ellipsis,
+table tbody > tr > td:has(.btn) .cell-ellipsis,
+table tbody > tr > td[class*="accion"] .cell-ellipsis,
+table tbody > tr > td[class*="action"] .cell-ellipsis {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center !important;
+}
+
+.matrix-compact tbody > tr > td,
+.matrix-view-table tbody > tr > td,
+.auto-matrix-preview-table tbody > tr > td,
+.aca-bulk-matrix-table tbody > tr > td,
+.bulk-value-grid tbody > tr > td:last-child,
+.fmeca-bulk-table tbody > tr > td:first-child,
+.aca-bulk-table tbody > tr > td:first-child,
+.aca-bulk-table tbody > tr > td.aca-bulk-row-actions,
+.fmeca-bulk-table tbody > tr > td.fmeca-col-actions,
+.fmeca-bulk-table tbody > tr > td.fmeca-col-files,
+.compact-table tbody > tr > td.numeric,
+.compact-table tbody > tr > td.aca-criticality-final-cell {
+    text-align: center !important;
 }
