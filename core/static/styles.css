@@ -6329,3 +6329,17 @@ table tbody > tr > td[class*="action"] .cell-ellipsis {
 .compact-table tbody > tr > td.aca-criticality-final-cell {
     text-align: center !important;
 }
+
+table.dataTable.aca-panel-records-table > tbody > tr > td.aca-panel-progress-cell,
+table.dataTable.aca-panel-records-table > tbody > tr > td.aca-panel-actions-cell,
+.aca-panel-records-table > tbody > tr > td.aca-panel-progress-cell,
+.aca-panel-records-table > tbody > tr > td.aca-panel-actions-cell {
+    text-align: center !important;
+    vertical-align: middle;
+}
+
+.aca-panel-records-table .aca-panel-progress-cell .aca-progress-pill,
+.aca-panel-records-table .aca-panel-actions-cell .btn {
+    margin-left: auto;
+    margin-right: auto;
+}

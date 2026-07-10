@@ -14,7 +14,7 @@
     <div class="actions">
         {% if permission.can_edit %}
             <a class="btn" href="{% url 'service_pauta_templates' service.pk %}">Plantillas</a>
-            <a class="btn btn-primary" href="{% url 'service_pautas_generate' service.pk %}">Generar desde RCM/FMEA</a>
+            <a class="btn btn-primary" href="{% url 'service_pautas_generate' service.pk %}">Generar pauta</a>
         {% endif %}
     </div>
 </div>

@@ -184,7 +184,7 @@
                     {% for row in panel_table_rows %}
                         <tr data-panel-row data-panel-ut="{{ row.ut|default:'' }}" data-panel-description="{{ row.descripcion_ut|default:'' }}" data-panel-progress="{{ row.progress_percent|default:'' }}" data-panel-node-path="{{ row.node_path_ids }}">
                             <td>{{ row.id }}</td>
-                            <td data-order="{{ row.progress_order }}">
+                            <td class="aca-panel-progress-cell" data-order="{{ row.progress_order }}">
                                 <span class="aca-progress-pill"
                                       style="--progress-width: {{ row.progress_width }}%; --progress-color: {{ row.progress_color }};"
                                       title="{% if row.progress_missing_label %}Faltantes: {{ row.progress_missing_label }}{% else %}Sin faltantes{% endif %}">
@@ -200,7 +200,7 @@
                             <td><span class="cell-ellipsis" title="{{ row.descripcion_ut }}">{{ row.descripcion_ut|default:'-' }}</span></td>
                             
                             <td>{{ row.tag }}</td>
-                            <td>
+                            <td class="aca-panel-actions-cell">
                                 <button class="btn" type="button" data-aca-detail-open="{{ row.id }}" aria-label="Ver detalle ACA" title="Ver detalle">
                                     <i class="bi bi-eye"></i>
                                 </button>
